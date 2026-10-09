@@ -1,0 +1,228 @@
+/* bodies-a.css — module bodies that edit configuration (text, params, code, dataset, partition, random,
+   readout, network, bits) and the shared ConfigForm. Every body root is `.body` and fills its host (.mnode owns the width, AGENTS.md):
+   width:100%, min-width:0, no fixed widths anywhere below. Global primitives (.mini, .m, .bad, .ok, .pin, .note,
+   inputs) come from styles.css. bodies-b.css may reuse .body / .brow / .bkv / .bproblem / .bhint / .btable.
+   Height: a body marks its growable area `.bfill` (flex:1 0 auto, editor.css). That area and every flex ancestor up to
+   `.body` take the host's spare height. In a sized host (`.mnode.sized`: explicit height) such areas shrink their own
+   base size, so dragging the frame smaller shrinks them first. Below that size the host body scrolls. No inner element
+   carries its own resize handle. The host frame is the one size control. */
+
+.body{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;font-size:12px;line-height:1.45}
+.brow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.brow>label{display:inline-flex;align-items:center;gap:4px}
+.brow input[type=number]{width:6em}
+.brow input[type=text]{flex:1 1 6em;min-width:0}
+.bgrow{flex:1 1 auto;min-width:0}
+.bhint{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.bproblem{font-size:11.5px;color:var(--bad);white-space:pre-wrap;overflow-wrap:anywhere;border-left:2px solid var(--bad);padding-left:6px}
+.bproblem.incomplete{color:var(--muted);border-left-color:var(--line-strong)}
+.bkv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 10px;align-items:baseline;min-width:0}
+.bkv dt{color:var(--muted);white-space:nowrap}
+.bkv dd{margin:0;min-width:0;overflow-wrap:anywhere;font-family:var(--mono);font-size:11.5px}
+.btable{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;table-layout:fixed}
+.btable th,.btable td{border:1px solid var(--line);padding:1px 5px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btable th{background:var(--panel-head);color:var(--muted);font-weight:500}
+.btable-wrap{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:4px;min-width:0}
+.bsection{border-top:1px solid var(--line);padding-top:4px;margin-top:2px}
+.bsection>summary{cursor:pointer;color:var(--muted);font-size:11.5px;user-select:none}
+
+/* ------------------------------------------------------------------ forms: ConfigForm / ConfigField and params */
+/* One grid per module: every row is a subgrid. So the label column is as wide as the module's longest label (capped
+   at 10em, longer ones ellipsize, full name on hover). Every control fills the rest and ends at the body's right edge.
+   A numeric field's range sits inside the field on its right. The row's --rn (the range's length in characters)
+   reserves that room in the input. A nested .cform / .cf-group (NetworkBody: its own rows around a ConfigForm) joins
+   the outer grid. A boolean's name sits right of its checkbox in the control column. */
+.cform,.pf-form{display:grid;grid-template-columns:fit-content(10em) minmax(0,1fr);align-content:start;gap:6px 8px;min-width:0}
+.cform>*,.pf-form>*,.cf-group>*{grid-column:1 / -1;min-width:0}
+.cform>:is(.cform,.cf-group),.cf-group>.cf-group{display:grid;grid-template-columns:subgrid;row-gap:6px}
+.cf-row,.pf-row{display:grid;grid-template-columns:subgrid;gap:2px 8px;align-items:center;min-width:0}
+.cf-row>*,.pf-row>*{grid-column:2;grid-row:1;min-width:0}
+.cf-label,.pf-label{grid-column:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;justify-self:end;max-width:100%;font-size:11.5px}
+.cf-label{color:var(--muted)}
+.pf-label{color:var(--ink)}
+.cf-row :is(input[type=number],input[type=text],select),.pf-row :is(input[type=number],input[type=text],select){width:100%;min-width:0}
+.cf-row input[type=number],.pf-row input[type=number]{padding-right:calc(var(--rn,0) * .62em + 14px)}
+.cf-range,.pf-range{justify-self:end;padding-right:8px;font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.pf-range.dyn{color:var(--sens)}
+.pf-range:empty{display:none}
+.cf-range{pointer-events:none}
+.pf-range .mini{margin-left:4px;padding:0 4px;line-height:1.2}
+.cf-row input[type=checkbox],.pf-row input[type=checkbox]{justify-self:start}
+.cf-group>.cf-error{grid-row:auto}
+:is(.cf-row,.pf-row).bool>:is(.cf-label,.pf-label){grid-column:2;justify-self:start;padding-left:20px;color:var(--ink);cursor:pointer}
+.cf-row.cf-block>*{grid-column:1 / -1}
+.cf-row.cf-block>.cf-label{justify-self:start}
+.cf-row.cf-block>:not(.cf-label){grid-row:2}
+.cf-json{width:100%;font-size:11px;min-height:calc(2lh + 8px)}
+.cf-error,.pf-error{grid-column:2;grid-row:2;font-size:11px;color:var(--bad);overflow-wrap:anywhere}
+.cf-row.cf-block>.cf-error{grid-row:3}
+.cf-row.bad :is(input,select,textarea),.pf-row.bad :is(input,select){border-color:var(--bad)}
+.cf-object{border:1px solid var(--line);border-radius:5px;padding:4px 6px 6px;margin:0;display:grid;grid-template-columns:fit-content(10em) minmax(0,1fr);gap:6px 8px;min-width:0}
+.cf-object>*{grid-column:1 / -1}
+.cf-legend{color:var(--muted);font-size:11px;padding:0 4px}
+.pf-row.changed .pf-label{color:var(--spike)}
+/* computed fields (function inputs, read-only): same grid as a field row. The value sits in an input-shaped well. A
+   list shows as wrapping indexed chips (the index is what code modules see, for example action numbers) */
+.pf-computed .pf-label{color:var(--muted)}
+.pf-value,.pf-list{min-width:0;padding:3px 7px;border:1px dashed var(--line-strong);border-radius:5px;font-family:var(--mono);font-size:11.5px;color:var(--ink);overflow-wrap:anywhere}
+.pf-list{list-style:none;margin:0;padding:3px;display:flex;flex-wrap:wrap;gap:3px}
+.pf-computed :is(.pf-value,.pf-list){padding-right:22px}
+.pf-computed>.pf-range{align-self:start;padding-top:4px}
+.pf-list li{display:inline-flex;align-items:baseline;gap:4px;padding:0 6px;border-radius:4px;background:#191a1f;min-width:0;overflow-wrap:anywhere}
+.pf-idx{font-size:9.5px;color:var(--muted)}
+.pf-decl{display:grid;grid-template-columns:minmax(0,7em) 6em minmax(0,1fr) auto;gap:3px 5px;align-items:center;min-width:0}
+.pf-decl input,.pf-decl select{width:100%;min-width:0}
+.pf-decl .pf-full{grid-column:1 / -1;display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.pf-decl .pf-full input{flex:1 1 4em;min-width:0}
+.pf-decl .pf-full label{display:inline-flex;align-items:center;gap:3px;color:var(--muted);font-size:11px;white-space:nowrap}
+
+/* ------------------------------------------------------------------ code (CodeModule: one restricted-JS file per module) */
+/* one bordered box: the `inputs` line, the file editor, the located problems */
+.code{display:flex;flex-direction:column;min-width:0;width:100%;border:1px solid var(--line);border-radius:6px;background:#191a1f}
+.code:focus-within{border-color:var(--muted)}
+.code-head,.code-edit{font-family:var(--mono);font-size:12px;line-height:1.45;tab-size:2}
+.code.problem{border-color:var(--bad)}
+.code-head{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid var(--line);background:var(--panel-head);min-width:0;white-space:nowrap}
+/* the box is not clipped (hovers and the caret must not be cut): a filled first row rounds its own corners to the box's */
+.code-head:first-child{border-radius:5px 5px 0 0}
+.code-kw{color:var(--mod)}
+.code-params{flex:1 1 2em;min-width:2em;font:inherit;padding:0 4px;background:transparent;border-color:transparent}
+.code-params:hover,.code-params:focus{border-color:var(--line-strong)}
+.code-params.bad{border-color:var(--bad)}
+.code-typing{flex:none;font-size:11px}
+/* the file editor (CodeMirror, CodeEditor.vue, whose theme sets the font and the tooltips): an unsized host fits the
+   file's lines up to 20, then scrolls. A sized host gives it 3 lines plus the spare height (.bfill). */
+.code-edit{display:flex;flex-direction:column;min-width:0}
+.code-edit .cm-editor{flex:1 0 auto;min-width:0}
+.code-edit .cm-scroller{max-height:calc(20lh + 8px)}
+.mnode.sized .code-edit .cm-editor{height:calc(3lh + 10px)}
+.mnode.sized .code-edit .cm-scroller{max-height:none}
+/* token classes (code-editor.ts `highlighter`: the editor and the hover's code line). Colour only */
+:is(.code-edit,.code-hover) .tok-comment{color:var(--muted)}
+:is(.code-edit,.code-hover) .tok-keyword{color:var(--mod)}
+:is(.code-edit,.code-hover) .tok-string{color:#9ece6a}
+:is(.code-edit,.code-hover) .tok-number{color:#ff9e64}
+:is(.code-edit,.code-hover) .tok-function{color:#7aa2f7}
+:is(.code-edit,.code-hover) .tok-type{color:#2ac3de}
+:is(.code-edit,.code-hover) .tok-property{color:#73daca}
+:is(.code-edit,.code-hover) .tok-regex{color:#b4f9f8}
+:is(.code-edit,.code-hover) .tok-operator{color:#89ddff}
+:is(.code-edit,.code-hover) .tok-punct{color:var(--muted)}
+.code-problem{padding:3px 8px;font-size:11.5px;color:var(--bad);border-top:1px solid var(--bad);background:rgba(240,104,77,.08);white-space:pre-wrap;overflow-wrap:anywhere}
+.code-problem:last-child{border-radius:0 0 5px 5px}
+.code-problem .loc{font-family:var(--mono);color:var(--muted);margin-right:6px}
+/* the export list under the file: kind (ƒ / value), name, signature, where it is wired */
+.code-exports{display:grid;grid-template-columns:max-content max-content minmax(0,2fr) minmax(0,1fr);gap:1px 8px;align-items:baseline;min-width:0;font-size:11.5px}
+.code-exports .kind{color:var(--sens);font-family:var(--mono);white-space:nowrap}
+.code-exports .name{font-family:var(--mono);color:var(--ink);white-space:nowrap}
+.code-exports :is(.sig,.wired){font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.code-unit{font-family:var(--mono);margin-right:6px}
+/* code tabs (CodeTabs.vue): the vertical strip (grouped by module) beside the pane. The strip is narrow and its labels
+   ellipsize (full name on hover). The pane takes the rest of the host's width */
+.ctabs{display:flex;align-items:stretch;gap:0;width:100%;min-width:0;flex:1 0 auto}
+.ctabs-strip{flex:0 0 84px;display:flex;flex-direction:column;gap:8px;min-width:0;padding:2px 6px 2px 0;border-right:1px solid var(--line)}
+.ctabs-group{display:flex;flex-direction:column;gap:1px;min-width:0}
+.ctabs-head{display:flex;align-items:center;gap:2px;min-width:0;margin-bottom:1px}
+.ctabs-title{flex:1 1 auto;min-width:0;padding:1px 3px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700}
+.ctabs-title:hover,.ctabs-title:focus{border-color:var(--line-strong);background:var(--bg);color:var(--ink)}
+.ctabs-del{flex:none;width:16px;height:16px;padding:0;border:0;background:transparent;color:var(--muted);font-size:13px;line-height:1;cursor:pointer}
+.ctabs-del:hover{color:var(--bad)}
+/* a collapsed module (not the selected one, 「代码」 section): one row, its title, its role count or its problem count */
+.ctabs-group.closed .ctabs-head{margin-bottom:0}
+.ctabs-open{flex:1 1 auto;display:flex;align-items:center;gap:4px;min-width:0;padding:2px 3px;border:0;border-radius:4px;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700;text-align:left;cursor:pointer}
+.ctabs-open:hover{background:var(--soft);color:var(--ink)}
+.ctabs-count{flex:none;font-size:10px;font-weight:400;color:var(--muted);opacity:.8}
+.ctab{display:flex;align-items:center;gap:4px;min-width:0;padding:2px 6px;border:0;border-radius:4px;background:transparent;color:var(--muted);font-family:var(--mono);font-size:11.5px;text-align:left;cursor:pointer}
+.ctab:hover{background:var(--soft);color:var(--ink)}
+.ctab.on{background:color-mix(in srgb,var(--focus) 22%,transparent);color:var(--ink)}
+.ctab-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctab-badge{flex:none;min-width:14px;padding:0 3px;border-radius:7px;background:var(--bad);color:#fff;font-size:10px;line-height:14px;text-align:center}
+.ctab.bad .ctab-name{color:var(--bad)}
+.ctab.missing{border:1px dashed var(--bad)}
+.ctab.missing .ctab-name{color:var(--bad)}
+.ctab.optional{border:1px dashed var(--line-strong)}
+.ctab.more{justify-content:center;font-size:13px}
+.ctab.whole{font-family:inherit;margin-top:2px}
+.ctabs-pane{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;padding-left:6px}
+.ctabs-pane>.body{flex:1 0 auto}
+.ctabs-missing{display:flex;flex-direction:column;gap:6px;min-width:0}
+.ctabs-missing-head{display:flex;align-items:center;justify-content:space-between;gap:6px;color:var(--muted);font-size:11.5px}
+.ctabs-preview{margin:0;padding:6px 8px;border:1px dashed var(--line-strong);border-radius:6px;background:#191a1f;font-family:var(--mono);font-size:12px;line-height:1.45;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.code-hint{padding:4px 2px;color:var(--muted);font-size:11.5px;overflow-wrap:anywhere}
+/* the role header (code-contract.ts): locked text, its lock icon, the grey types, the `?` */
+.code-edit .cm-locked{background:color-mix(in srgb,var(--mod) 9%,transparent);border-radius:2px}
+.code-edit .cm-lock{display:inline-block;width:.8em;height:.8em;margin-right:4px;vertical-align:-1px;background:currentColor;color:var(--muted);cursor:help;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 7V5a4 4 0 1 1 8 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 1 0-4 0v2z'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 7V5a4 4 0 1 1 8 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 1 0-4 0v2z'/%3E%3C/svg%3E") center/contain no-repeat}
+.code-edit .cm-type-hint{color:var(--muted);opacity:.8;font-style:normal}
+.code-edit .cm-help{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;margin-left:6px;padding:0;vertical-align:1px;border:1px solid var(--line-strong);border-radius:50%;background:transparent;color:var(--muted);font:600 10px/1 var(--sans,inherit);cursor:pointer}
+.code-edit .cm-help:hover{border-color:var(--focus);color:var(--ink)}
+.code-edit .cm-help.bad{border-color:var(--bad);color:var(--bad)}
+/* the role help window (RoleHelp.vue): teleported, fixed, dragged by its bar */
+.rhelp{position:fixed;z-index:1001;width:360px;max-width:calc(100vw - 16px);max-height:70vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line-strong);border-radius:8px;box-shadow:0 10px 30px #000a;color:var(--ink);font-size:12px;line-height:1.45}
+.rh-bar{display:flex;align-items:flex-start;gap:8px;padding:6px 8px 6px 10px;border-bottom:1px solid var(--line);background:var(--panel-head);border-radius:8px 8px 0 0;cursor:move;user-select:none}
+.rh-sig{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:12px;color:#7aa2f7;overflow-wrap:anywhere}
+.rh-close{flex:none;width:18px;height:18px;padding:0;border:0;background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
+.rh-close:hover{color:var(--ink)}
+.rh-body{display:flex;flex-direction:column;gap:3px;padding:8px 10px 10px;overflow:auto;min-height:0}
+.rh-label{margin-top:6px;color:var(--muted);font-size:11px;font-weight:700}
+.rh-when{color:var(--ink);overflow-wrap:anywhere}
+.rh-row{display:flex;align-items:baseline;gap:6px;min-width:0}
+.rh-name{flex:none;font-family:var(--mono);color:var(--ink)}
+.rh-type{flex:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);color:#2ac3de}
+.rh-doc{flex:1 1 auto;min-width:0;color:var(--muted);overflow-wrap:anywhere}
+.rh-rec>summary{cursor:pointer;list-style:none}
+.rh-rec>summary::before{content:'▸';flex:none;width:1ch;color:var(--muted)}
+.rh-rec[open]>summary::before{content:'▾'}
+.rh-leaf::before{content:'';flex:none;width:1ch}
+.rh-fields{margin-left:1.5ch;padding-left:6px;border-left:1px solid var(--line)}
+.rh-eg{display:block;padding:4px 6px;border-radius:4px;background:#191a1f;font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.rh-eg.open{white-space:pre-wrap;overflow-wrap:anywhere}
+.rh-problem{color:var(--bad);overflow-wrap:anywhere}
+.rh-note{margin-top:6px;color:var(--muted);font-size:11.5px}
+.rh-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+/* hover (teleported to <body>, fixed, unscaled by the canvas zoom): the code line, the doc text, muted notes. A tall
+   type is clipped, never the doc / notes under it. */
+.code-hover{position:fixed;z-index:1000;max-width:440px;max-height:50vh;padding:5px 9px;display:flex;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--line-strong);border-radius:6px;color:var(--ink);font-size:12px;line-height:1.45;box-shadow:0 6px 20px #0007;pointer-events:none}
+.code-hover-code{flex:0 1 auto;min-height:1lh;overflow:hidden;margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+.code-hover-code code{font:inherit}
+.code-hover-doc{flex:none;white-space:pre-wrap;overflow-wrap:anywhere;padding-top:4px;border-top:1px solid var(--line)}
+.code-hover-meta{flex:none;font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
+/* the hovered token: a tinted frame over it (fixed like the hover, with a faint fill so the text colours stay readable) */
+.code-hover-mark{position:fixed;z-index:999;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--focus) 75%,transparent);border-radius:3px;background:color-mix(in srgb,var(--focus) 16%,transparent);pointer-events:none}
+
+/* ------------------------------------------------------------------ dataset */
+.ds-drop{border:1px dashed var(--line-strong);border-radius:6px;padding:8px;text-align:center;color:var(--muted);font-size:11.5px}
+.ds-drop.over{border-color:var(--focus);color:var(--ink)}
+.ds-drop input[type=file]{display:none}
+
+/* ------------------------------------------------------------------ partition */
+/* 切法 and a seed partition's rows share one grid: role names right-aligned in the label column like a form's */
+.pt-form{display:grid;grid-template-columns:fit-content(10em) minmax(0,1fr) minmax(0,1fr);gap:6px 8px;align-items:center;min-width:0}
+.pt-form input,.pt-form select{width:100%;min-width:0}
+.pt-form>.pt-role{justify-self:end}
+.pt-span{grid-column:2 / -1}
+.pt-roles{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 8px;align-items:center;min-width:0}
+.pt-role{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.pt-count{font-family:var(--mono);font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.pt-axis{display:grid;grid-template-columns:minmax(0,7em) minmax(0,1fr) auto;gap:3px 5px;align-items:center;min-width:0}
+.pt-axis input{width:100%;min-width:0;font-family:var(--mono);font-size:11px}
+.pt-window{display:grid;grid-template-columns:max-content minmax(0,1fr) minmax(0,1fr) auto;gap:3px 6px;align-items:center;min-width:0}
+.pt-window input:not([type=checkbox]){width:100%;min-width:0}
+.pt-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--soft);min-width:0}
+.pt-bar span{height:100%}
+.pt-bar .training{background:var(--focus)}.pt-bar .validation{background:var(--spike)}.pt-bar .test{background:var(--ok)}.pt-bar .embargo{background:var(--bad);opacity:.6}
+
+/* random */
+.rnd-draw{font-family:var(--mono);font-size:11px;overflow-wrap:anywhere}
+
+/* ------------------------------------------------------------------ readout */
+.ro-map{display:grid;grid-template-columns:max-content minmax(0,1fr) max-content;gap:2px 6px;align-items:center;min-width:0}
+.ro-slot{font-family:var(--mono);color:var(--muted);white-space:nowrap}
+.ro-map select,.ro-map input{width:100%;min-width:0}
+.ro-map .invalid select{color:var(--bad)}
+.ro-map .bad select,.ro-map .bad input{border-color:var(--bad)}
+
+/* ------------------------------------------------------------------ network */
+.net-io{display:flex;gap:10px;align-items:baseline;font-family:var(--mono);font-size:12px;flex-wrap:wrap}
+.net-io b{font-weight:600;color:var(--sens)}

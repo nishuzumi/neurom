@@ -1,0 +1,8716 @@
+[
+ {
+  "name": "arithmetic",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a",
+    "b"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "b"
+    },
+    {
+     "id": "add_3",
+     "op": "add",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "sub_4",
+     "op": "sub",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "mul_5",
+     "op": "mul",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "div_6",
+     "op": "div",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "mod_7",
+     "op": "mod",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "neg_8",
+     "op": "neg",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "min_9",
+     "op": "min",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "max_10",
+     "op": "max",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "abs_11",
+     "op": "abs",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "floor_12",
+     "op": "floor",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "ceil_13",
+     "op": "ceil",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "round_14",
+     "op": "round",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "constant_15",
+     "op": "constant",
+     "inputs": [],
+     "value": -1
+    },
+    {
+     "id": "constant_16",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "clamp_17",
+     "op": "clamp",
+     "inputs": [
+      "param_1",
+      "constant_15",
+      "constant_16"
+     ]
+    },
+    {
+     "id": "abs_18",
+     "op": "abs",
+     "inputs": [
+      "param_2"
+     ]
+    },
+    {
+     "id": "sqrt_19",
+     "op": "sqrt",
+     "inputs": [
+      "abs_18"
+     ]
+    },
+    {
+     "id": "record_20",
+     "op": "record",
+     "inputs": [
+      "abs_11",
+      "add_3",
+      "ceil_13",
+      "clamp_17",
+      "div_6",
+      "floor_12",
+      "max_10",
+      "min_9",
+      "mod_7",
+      "mul_5",
+      "neg_8",
+      "round_14",
+      "sqrt_19",
+      "sub_4"
+     ],
+     "value": [
+      "abs",
+      "add",
+      "ceil",
+      "clamp",
+      "div",
+      "floor",
+      "max",
+      "min",
+      "mod",
+      "mul",
+      "neg",
+      "round",
+      "sqrt",
+      "sub"
+     ]
+    }
+   ],
+   "output": "record_20"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "abs": {
+     "type": "number"
+    },
+    "add": {
+     "type": "number"
+    },
+    "ceil": {
+     "type": "number"
+    },
+    "clamp": {
+     "type": "number"
+    },
+    "div": {
+     "type": "number"
+    },
+    "floor": {
+     "type": "number"
+    },
+    "max": {
+     "type": "number"
+    },
+    "min": {
+     "type": "number"
+    },
+    "mod": {
+     "type": "number"
+    },
+    "mul": {
+     "type": "number"
+    },
+    "neg": {
+     "type": "number"
+    },
+    "round": {
+     "type": "number"
+    },
+    "sqrt": {
+     "type": "number"
+    },
+    "sub": {
+     "type": "number"
+    }
+   }
+  },
+  "cost": 20,
+  "lanes": [
+   {
+    "args": [
+     7,
+     2
+    ],
+    "result": {
+     "abs": 7,
+     "add": 9,
+     "ceil": 7,
+     "clamp": 1,
+     "div": 3.5,
+     "floor": 7,
+     "max": 7,
+     "min": 2,
+     "mod": 1,
+     "mul": 14,
+     "neg": -7,
+     "round": 7,
+     "sqrt": 1.4142135623730951,
+     "sub": 5
+    }
+   },
+   {
+    "args": [
+     -7.5,
+     3
+    ],
+    "result": {
+     "abs": 7.5,
+     "add": -4.5,
+     "ceil": -7,
+     "clamp": -1,
+     "div": -2.5,
+     "floor": -8,
+     "max": 3,
+     "min": -7.5,
+     "mod": -1.5,
+     "mul": -22.5,
+     "neg": 7.5,
+     "round": -7,
+     "sqrt": 1.7320508075688772,
+     "sub": -10.5
+    }
+   },
+   {
+    "args": [
+     2.5,
+     -0.5
+    ],
+    "result": {
+     "abs": 2.5,
+     "add": 2,
+     "ceil": 3,
+     "clamp": 1,
+     "div": -5,
+     "floor": 2,
+     "max": 2.5,
+     "min": -0.5,
+     "mod": 0,
+     "mul": -1.25,
+     "neg": -2.5,
+     "round": 3,
+     "sqrt": 0.7071067811865476,
+     "sub": 3
+    }
+   },
+   {
+    "args": [
+     -2.5,
+     0.1
+    ],
+    "result": {
+     "abs": 2.5,
+     "add": -2.4,
+     "ceil": -2,
+     "clamp": -1,
+     "div": -25,
+     "floor": -3,
+     "max": 0.1,
+     "min": -2.5,
+     "mod": -0.09999999999999987,
+     "mul": -0.25,
+     "neg": 2.5,
+     "round": -2,
+     "sqrt": 0.31622776601683794,
+     "sub": -2.6
+    }
+   },
+   {
+    "args": [
+     0.5,
+     4
+    ],
+    "result": {
+     "abs": 0.5,
+     "add": 4.5,
+     "ceil": 1,
+     "clamp": 0.5,
+     "div": 0.125,
+     "floor": 0,
+     "max": 4,
+     "min": 0.5,
+     "mod": 0.5,
+     "mul": 2,
+     "neg": -0.5,
+     "round": 1,
+     "sqrt": 2,
+     "sub": -3.5
+    }
+   },
+   {
+    "args": [
+     1e-300,
+     1e+300
+    ],
+    "result": {
+     "abs": 1e-300,
+     "add": 1e+300,
+     "ceil": 1,
+     "clamp": 1e-300,
+     "div": 0,
+     "floor": 0,
+     "max": 1e+300,
+     "min": 1e-300,
+     "mod": 1e-300,
+     "mul": 1,
+     "neg": -1e-300,
+     "round": 0,
+     "sqrt": 1e+150,
+     "sub": -1e+300
+    }
+   },
+   {
+    "args": [
+     1e+308,
+     0
+    ],
+    "error": {
+     "nodeId": "div_6",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     3,
+     0
+    ],
+    "error": {
+     "nodeId": "div_6",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     "-0",
+     1
+    ],
+    "result": {
+     "abs": 0,
+     "add": 1,
+     "ceil": "-0",
+     "clamp": "-0",
+     "div": "-0",
+     "floor": "-0",
+     "max": 1,
+     "min": "-0",
+     "mod": "-0",
+     "mul": "-0",
+     "neg": 0,
+     "round": "-0",
+     "sqrt": 1,
+     "sub": -1
+    }
+   },
+   {
+    "args": [
+     1.5,
+     "-0"
+    ],
+    "error": {
+     "nodeId": "div_6",
+     "op": "div"
+    }
+   }
+  ]
+ },
+ {
+  "name": "overflow",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "mul_2",
+     "op": "mul",
+     "inputs": [
+      "param_1",
+      "param_1"
+     ]
+    }
+   ],
+   "output": "mul_2"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "number"
+  },
+  "cost": 2,
+  "lanes": [
+   {
+    "args": [
+     2
+    ],
+    "result": 4
+   },
+   {
+    "args": [
+     1e+200
+    ],
+    "error": {
+     "nodeId": "mul_2",
+     "op": "mul"
+    }
+   },
+   {
+    "args": [
+     -3
+    ],
+    "result": 9
+   }
+  ]
+ },
+ {
+  "name": "approx",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "ln_2",
+     "op": "ln",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "exp_3",
+     "op": "exp",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "record_4",
+     "op": "record",
+     "inputs": [
+      "exp_3",
+      "ln_2"
+     ],
+     "value": [
+      "exp",
+      "ln"
+     ]
+    }
+   ],
+   "output": "record_4"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   }
+  ],
+  "exact": false,
+  "result": {
+   "type": "record",
+   "fields": {
+    "exp": {
+     "type": "number"
+    },
+    "ln": {
+     "type": "number"
+    }
+   }
+  },
+  "cost": 4,
+  "lanes": [
+   {
+    "args": [
+     1
+    ],
+    "result": {
+     "exp": 2.718281828459045,
+     "ln": 0
+    }
+   },
+   {
+    "args": [
+     2.5
+    ],
+    "result": {
+     "exp": 12.182493960703473,
+     "ln": 0.9162907318741551
+    }
+   },
+   {
+    "args": [
+     0
+    ],
+    "error": {
+     "nodeId": "ln_2",
+     "op": "ln"
+    }
+   },
+   {
+    "args": [
+     -1
+    ],
+    "error": {
+     "nodeId": "ln_2",
+     "op": "ln"
+    }
+   },
+   {
+    "args": [
+     1000
+    ],
+    "error": {
+     "nodeId": "exp_3",
+     "op": "exp"
+    }
+   },
+   {
+    "args": [
+     0.001
+    ],
+    "result": {
+     "exp": 1.0010005001667084,
+     "ln": -6.907755278982137
+    }
+   }
+  ]
+ },
+ {
+  "name": "comparison-logic",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a",
+    "b",
+    "p"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "b"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "p"
+    },
+    {
+     "id": "lt_4",
+     "op": "lt",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "lte_5",
+     "op": "lte",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "gt_6",
+     "op": "gt",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "gte_7",
+     "op": "gte",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "eq_8",
+     "op": "eq",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "neq_9",
+     "op": "neq",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "div_10",
+     "op": "div",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "constant_11",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "gt_12",
+     "op": "gt",
+     "inputs": [
+      "div_10",
+      "constant_11"
+     ]
+    },
+    {
+     "id": "and_13",
+     "op": "and",
+     "inputs": [
+      "param_3",
+      "gt_12"
+     ]
+    },
+    {
+     "id": "or_14",
+     "op": "or",
+     "inputs": [
+      "param_3",
+      "gt_12"
+     ]
+    },
+    {
+     "id": "not_15",
+     "op": "not",
+     "inputs": [
+      "param_3"
+     ]
+    },
+    {
+     "id": "select_16",
+     "op": "select",
+     "inputs": [
+      "param_3",
+      "div_10",
+      "param_2"
+     ]
+    },
+    {
+     "id": "record_17",
+     "op": "record",
+     "inputs": [
+      "and_13",
+      "eq_8",
+      "gt_6",
+      "gte_7",
+      "lt_4",
+      "lte_5",
+      "neq_9",
+      "not_15",
+      "or_14",
+      "select_16"
+     ],
+     "value": [
+      "and",
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "neq",
+      "not",
+      "or",
+      "sel"
+     ]
+    }
+   ],
+   "output": "record_17"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   },
+   {
+    "type": "boolean"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "and": {
+     "type": "boolean"
+    },
+    "eq": {
+     "type": "boolean"
+    },
+    "gt": {
+     "type": "boolean"
+    },
+    "gte": {
+     "type": "boolean"
+    },
+    "lt": {
+     "type": "boolean"
+    },
+    "lte": {
+     "type": "boolean"
+    },
+    "neq": {
+     "type": "boolean"
+    },
+    "not": {
+     "type": "boolean"
+    },
+    "or": {
+     "type": "boolean"
+    },
+    "sel": {
+     "type": "number"
+    }
+   }
+  },
+  "cost": 17,
+  "lanes": [
+   {
+    "args": [
+     1,
+     2,
+     true
+    ],
+    "result": {
+     "and": false,
+     "eq": false,
+     "gt": false,
+     "gte": false,
+     "lt": true,
+     "lte": true,
+     "neq": true,
+     "not": false,
+     "or": true,
+     "sel": 0.5
+    }
+   },
+   {
+    "args": [
+     2,
+     1,
+     false
+    ],
+    "result": {
+     "and": false,
+     "eq": false,
+     "gt": true,
+     "gte": true,
+     "lt": false,
+     "lte": false,
+     "neq": true,
+     "not": true,
+     "or": true,
+     "sel": 1
+    }
+   },
+   {
+    "args": [
+     1,
+     1,
+     true
+    ],
+    "result": {
+     "and": false,
+     "eq": true,
+     "gt": false,
+     "gte": true,
+     "lt": false,
+     "lte": true,
+     "neq": false,
+     "not": false,
+     "or": true,
+     "sel": 1
+    }
+   },
+   {
+    "args": [
+     1,
+     0,
+     false
+    ],
+    "error": {
+     "nodeId": "div_10",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     1,
+     0,
+     true
+    ],
+    "error": {
+     "nodeId": "div_10",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     -1,
+     0,
+     false
+    ],
+    "error": {
+     "nodeId": "div_10",
+     "op": "div"
+    }
+   }
+  ]
+ },
+ {
+  "name": "strings",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "s",
+    "k"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "s"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "k"
+    },
+    {
+     "id": "constant_3",
+     "op": "constant",
+     "inputs": [],
+     "value": "left"
+    },
+    {
+     "id": "eq_4",
+     "op": "eq",
+     "inputs": [
+      "param_1",
+      "constant_3"
+     ]
+    },
+    {
+     "id": "neq_5",
+     "op": "neq",
+     "inputs": [
+      "param_1",
+      "constant_3"
+     ]
+    },
+    {
+     "id": "constant_6",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "gt_7",
+     "op": "gt",
+     "inputs": [
+      "param_2",
+      "constant_6"
+     ]
+    },
+    {
+     "id": "constant_8",
+     "op": "constant",
+     "inputs": [],
+     "value": "none"
+    },
+    {
+     "id": "select_9",
+     "op": "select",
+     "inputs": [
+      "gt_7",
+      "param_1",
+      "constant_8"
+     ]
+    },
+    {
+     "id": "constant_10",
+     "op": "constant",
+     "inputs": [],
+     "value": "a"
+    },
+    {
+     "id": "constant_11",
+     "op": "constant",
+     "inputs": [],
+     "value": "b"
+    },
+    {
+     "id": "array_12",
+     "op": "array",
+     "inputs": [
+      "constant_10",
+      "param_1",
+      "constant_11"
+     ]
+    },
+    {
+     "id": "constant_13",
+     "op": "constant",
+     "inputs": [],
+     "value": "up"
+    },
+    {
+     "id": "eq_14",
+     "op": "eq",
+     "inputs": [
+      "param_1",
+      "constant_13"
+     ]
+    },
+    {
+     "id": "constant_15",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "constant_16",
+     "op": "constant",
+     "inputs": [],
+     "value": "down"
+    },
+    {
+     "id": "eq_17",
+     "op": "eq",
+     "inputs": [
+      "param_1",
+      "constant_16"
+     ]
+    },
+    {
+     "id": "constant_18",
+     "op": "constant",
+     "inputs": [],
+     "value": 2
+    },
+    {
+     "id": "select_19",
+     "op": "select",
+     "inputs": [
+      "eq_17",
+      "constant_18",
+      "constant_6"
+     ]
+    },
+    {
+     "id": "select_20",
+     "op": "select",
+     "inputs": [
+      "eq_14",
+      "constant_15",
+      "select_19"
+     ]
+    },
+    {
+     "id": "record_21",
+     "op": "record",
+     "inputs": [
+      "array_12",
+      "eq_4",
+      "neq_5",
+      "select_9",
+      "select_20"
+     ],
+     "value": [
+      "arr",
+      "eq",
+      "neq",
+      "pick",
+      "sel"
+     ]
+    }
+   ],
+   "output": "record_21"
+  },
+  "paramTypes": [
+   {
+    "type": "string"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "arr": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "string"
+     }
+    },
+    "eq": {
+     "type": "boolean"
+    },
+    "neq": {
+     "type": "boolean"
+    },
+    "pick": {
+     "type": "string"
+    },
+    "sel": {
+     "type": "number"
+    }
+   }
+  },
+  "cost": 21,
+  "lanes": [
+   {
+    "args": [
+     "left",
+     1
+    ],
+    "result": {
+     "arr": [
+      "a",
+      "left",
+      "b"
+     ],
+     "eq": true,
+     "neq": false,
+     "pick": "left",
+     "sel": 0
+    }
+   },
+   {
+    "args": [
+     "up",
+     0
+    ],
+    "result": {
+     "arr": [
+      "a",
+      "up",
+      "b"
+     ],
+     "eq": false,
+     "neq": true,
+     "pick": "none",
+     "sel": 1
+    }
+   },
+   {
+    "args": [
+     "down",
+     -1
+    ],
+    "result": {
+     "arr": [
+      "a",
+      "down",
+      "b"
+     ],
+     "eq": false,
+     "neq": true,
+     "pick": "none",
+     "sel": 2
+    }
+   },
+   {
+    "args": [
+     "",
+     2
+    ],
+    "result": {
+     "arr": [
+      "a",
+      "",
+      "b"
+     ],
+     "eq": false,
+     "neq": true,
+     "pick": "",
+     "sel": 0
+    }
+   }
+  ]
+ },
+ {
+  "name": "vectors",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "n",
+    "v",
+    "i"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "n"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "v"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "i"
+    },
+    {
+     "id": "constant_4",
+     "op": "constant",
+     "inputs": [],
+     "value": 5
+    },
+    {
+     "id": "bits_5",
+     "op": "bits",
+     "inputs": [
+      "param_1",
+      "constant_4"
+     ]
+    },
+    {
+     "id": "constant_6",
+     "op": "constant",
+     "inputs": [],
+     "value": 6
+    },
+    {
+     "id": "oneHot_7",
+     "op": "oneHot",
+     "inputs": [
+      "param_1",
+      "constant_6"
+     ]
+    },
+    {
+     "id": "at_8",
+     "op": "at",
+     "inputs": [
+      "param_2",
+      "param_3"
+     ]
+    },
+    {
+     "id": "index_9",
+     "op": "index",
+     "inputs": [
+      "param_2",
+      "param_3"
+     ]
+    },
+    {
+     "id": "constant_10",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "constant_11",
+     "op": "constant",
+     "inputs": [],
+     "value": 3
+    },
+    {
+     "id": "slice_12",
+     "op": "slice",
+     "inputs": [
+      "param_2",
+      "constant_10",
+      "constant_11"
+     ]
+    },
+    {
+     "id": "vector_13",
+     "op": "vector",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "constant_14",
+     "op": "constant",
+     "inputs": [],
+     "value": 1.5
+    },
+    {
+     "id": "vector_15",
+     "op": "vector",
+     "inputs": [
+      "constant_14"
+     ]
+    },
+    {
+     "id": "concat_16",
+     "op": "concat",
+     "inputs": [
+      "vector_13",
+      "param_2",
+      "vector_15"
+     ]
+    },
+    {
+     "id": "concat_17",
+     "op": "concat",
+     "inputs": [
+      "param_2",
+      "vector_13"
+     ]
+    },
+    {
+     "id": "record_18",
+     "op": "record",
+     "inputs": [
+      "at_8",
+      "bits_5",
+      "concat_17",
+      "index_9",
+      "concat_16",
+      "oneHot_7",
+      "slice_12"
+     ],
+     "value": [
+      "at",
+      "bits",
+      "cat",
+      "idx",
+      "lit",
+      "oneHot",
+      "slice"
+     ]
+    }
+   ],
+   "output": "record_18"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "vector",
+    "width": 4
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "at": {
+     "type": "number"
+    },
+    "bits": {
+     "type": "vector",
+     "width": 5
+    },
+    "cat": {
+     "type": "vector",
+     "width": 5
+    },
+    "idx": {
+     "type": "number"
+    },
+    "lit": {
+     "type": "vector",
+     "width": 6
+    },
+    "oneHot": {
+     "type": "vector",
+     "width": 6
+    },
+    "slice": {
+     "type": "vector",
+     "width": 2
+    }
+   }
+  },
+  "cost": 18,
+  "lanes": [
+   {
+    "args": [
+     5,
+     [
+      1,
+      2,
+      3,
+      4
+     ],
+     0
+    ],
+    "result": {
+     "at": 1,
+     "bits": [
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "cat": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "idx": 1,
+     "lit": [
+      5,
+      1,
+      2,
+      3,
+      4,
+      1.5
+     ],
+     "oneHot": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "slice": [
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "args": [
+     0,
+     [
+      0.5,
+      -1,
+      2,
+      3
+     ],
+     3
+    ],
+    "result": {
+     "at": 3,
+     "bits": [
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "cat": [
+      0.5,
+      -1,
+      2,
+      3,
+      0
+     ],
+     "idx": 3,
+     "lit": [
+      0,
+      0.5,
+      -1,
+      2,
+      3,
+      1.5
+     ],
+     "oneHot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "slice": [
+      -1,
+      2
+     ]
+    }
+   },
+   {
+    "args": [
+     31,
+     [
+      1,
+      1,
+      1,
+      1
+     ],
+     1
+    ],
+    "error": {
+     "nodeId": "oneHot_7",
+     "op": "oneHot"
+    }
+   },
+   {
+    "args": [
+     32,
+     [
+      1,
+      2,
+      3,
+      4
+     ],
+     0
+    ],
+    "error": {
+     "nodeId": "bits_5",
+     "op": "bits"
+    }
+   },
+   {
+    "args": [
+     3,
+     [
+      1,
+      2,
+      3,
+      4
+     ],
+     4
+    ],
+    "error": {
+     "nodeId": "at_8",
+     "op": "at"
+    }
+   },
+   {
+    "args": [
+     2.5,
+     [
+      1,
+      2,
+      3,
+      4
+     ],
+     0
+    ],
+    "error": {
+     "nodeId": "bits_5",
+     "op": "bits"
+    }
+   },
+   {
+    "args": [
+     1,
+     [
+      1,
+      2,
+      3,
+      4
+     ],
+     1.5
+    ],
+    "error": {
+     "nodeId": "at_8",
+     "op": "at"
+    }
+   },
+   {
+    "args": [
+     -1,
+     [
+      1,
+      2,
+      3,
+      4
+     ],
+     0
+    ],
+    "error": {
+     "nodeId": "bits_5",
+     "op": "bits"
+    }
+   },
+   {
+    "args": [
+     6,
+     [
+      1,
+      2,
+      3,
+      4
+     ],
+     2
+    ],
+    "error": {
+     "nodeId": "oneHot_7",
+     "op": "oneHot"
+    }
+   }
+  ]
+ },
+ {
+  "name": "records",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "s",
+    "k"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "s"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "k"
+    },
+    {
+     "id": "get_3",
+     "op": "get",
+     "inputs": [
+      "param_1"
+     ],
+     "name": "pos"
+    },
+    {
+     "id": "get_4",
+     "op": "get",
+     "inputs": [
+      "param_1"
+     ],
+     "name": "hp"
+    },
+    {
+     "id": "add_5",
+     "op": "add",
+     "inputs": [
+      "get_3",
+      "param_2"
+     ]
+    },
+    {
+     "id": "constant_6",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "gt_7",
+     "op": "gt",
+     "inputs": [
+      "get_4",
+      "constant_6"
+     ]
+    },
+    {
+     "id": "constant_8",
+     "op": "constant",
+     "inputs": [],
+     "value": "alive"
+    },
+    {
+     "id": "constant_9",
+     "op": "constant",
+     "inputs": [],
+     "value": "dead"
+    },
+    {
+     "id": "select_10",
+     "op": "select",
+     "inputs": [
+      "gt_7",
+      "constant_8",
+      "constant_9"
+     ]
+    },
+    {
+     "id": "set_11",
+     "op": "set",
+     "inputs": [
+      "param_1",
+      "add_5"
+     ],
+     "name": "pos"
+    },
+    {
+     "id": "set_12",
+     "op": "set",
+     "inputs": [
+      "set_11",
+      "select_10"
+     ],
+     "name": "tag"
+    },
+    {
+     "id": "get_13",
+     "op": "get",
+     "inputs": [
+      "set_12"
+     ],
+     "name": "hp"
+    },
+    {
+     "id": "constant_14",
+     "op": "constant",
+     "inputs": [],
+     "value": 2
+    },
+    {
+     "id": "mul_15",
+     "op": "mul",
+     "inputs": [
+      "get_13",
+      "constant_14"
+     ]
+    },
+    {
+     "id": "get_16",
+     "op": "get",
+     "inputs": [
+      "set_12"
+     ],
+     "name": "pos"
+    },
+    {
+     "id": "vector_17",
+     "op": "vector",
+     "inputs": [
+      "get_3",
+      "get_4"
+     ]
+    },
+    {
+     "id": "record_18",
+     "op": "record",
+     "inputs": [
+      "vector_17",
+      "get_16"
+     ],
+     "value": [
+      "y",
+      "z"
+     ]
+    },
+    {
+     "id": "record_19",
+     "op": "record",
+     "inputs": [
+      "mul_15",
+      "param_1",
+      "set_12",
+      "record_18"
+     ],
+     "value": [
+      "hp2",
+      "keep",
+      "next",
+      "sub"
+     ]
+    }
+   ],
+   "output": "record_19"
+  },
+  "paramTypes": [
+   {
+    "type": "record",
+    "fields": {
+     "pos": {
+      "type": "number"
+     },
+     "hp": {
+      "type": "number"
+     },
+     "tag": {
+      "type": "string"
+     }
+    }
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "hp2": {
+     "type": "number"
+    },
+    "keep": {
+     "type": "record",
+     "fields": {
+      "hp": {
+       "type": "number"
+      },
+      "pos": {
+       "type": "number"
+      },
+      "tag": {
+       "type": "string"
+      }
+     }
+    },
+    "next": {
+     "type": "record",
+     "fields": {
+      "hp": {
+       "type": "number"
+      },
+      "pos": {
+       "type": "number"
+      },
+      "tag": {
+       "type": "string"
+      }
+     }
+    },
+    "sub": {
+     "type": "record",
+     "fields": {
+      "y": {
+       "type": "vector",
+       "width": 2
+      },
+      "z": {
+       "type": "number"
+      }
+     }
+    }
+   }
+  },
+  "cost": 19,
+  "lanes": [
+   {
+    "args": [
+     {
+      "pos": 1,
+      "hp": 3,
+      "tag": "x"
+     },
+     2
+    ],
+    "result": {
+     "hp2": 6,
+     "keep": {
+      "pos": 1,
+      "hp": 3,
+      "tag": "x"
+     },
+     "next": {
+      "pos": 3,
+      "hp": 3,
+      "tag": "alive"
+     },
+     "sub": {
+      "y": [
+       1,
+       3
+      ],
+      "z": 3
+     }
+    }
+   },
+   {
+    "args": [
+     {
+      "pos": -1,
+      "hp": 0,
+      "tag": "y"
+     },
+     0.5
+    ],
+    "result": {
+     "hp2": 0,
+     "keep": {
+      "pos": -1,
+      "hp": 0,
+      "tag": "y"
+     },
+     "next": {
+      "pos": -0.5,
+      "hp": 0,
+      "tag": "dead"
+     },
+     "sub": {
+      "y": [
+       -1,
+       0
+      ],
+      "z": -0.5
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "arrays",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "arr",
+    "k",
+    "i"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "arr"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "k"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "i"
+    },
+    {
+     "id": "map_8",
+     "op": "map",
+     "inputs": [
+      "param_1"
+     ],
+     "body": {
+      "params": [
+       "x",
+       "j"
+      ],
+      "nodes": [
+       {
+        "id": "param_4",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "param_5",
+        "op": "param",
+        "inputs": [],
+        "name": "j"
+       },
+       {
+        "id": "mul_6",
+        "op": "mul",
+        "inputs": [
+         "param_4",
+         "param_2"
+        ]
+       },
+       {
+        "id": "add_7",
+        "op": "add",
+        "inputs": [
+         "mul_6",
+         "param_5"
+        ]
+       }
+      ],
+      "output": "add_7"
+     }
+    },
+    {
+     "id": "constant_9",
+     "op": "constant",
+     "inputs": [],
+     "value": 100
+    },
+    {
+     "id": "fold_15",
+     "op": "fold",
+     "inputs": [
+      "param_1",
+      "constant_9"
+     ],
+     "body": {
+      "params": [
+       "acc",
+       "x",
+       "j"
+      ],
+      "nodes": [
+       {
+        "id": "param_10",
+        "op": "param",
+        "inputs": [],
+        "name": "acc"
+       },
+       {
+        "id": "param_11",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "param_12",
+        "op": "param",
+        "inputs": [],
+        "name": "j"
+       },
+       {
+        "id": "mul_13",
+        "op": "mul",
+        "inputs": [
+         "param_11",
+         "param_12"
+        ]
+       },
+       {
+        "id": "add_14",
+        "op": "add",
+        "inputs": [
+         "param_10",
+         "mul_13"
+        ]
+       }
+      ],
+      "output": "add_14"
+     }
+    },
+    {
+     "id": "constant_16",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "scan_20",
+     "op": "scan",
+     "inputs": [
+      "param_1",
+      "constant_16"
+     ],
+     "body": {
+      "params": [
+       "acc",
+       "x",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_17",
+        "op": "param",
+        "inputs": [],
+        "name": "acc"
+       },
+       {
+        "id": "param_18",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "add_19",
+        "op": "add",
+        "inputs": [
+         "param_17",
+         "param_18"
+        ]
+       }
+      ],
+      "output": "add_19"
+     }
+    },
+    {
+     "id": "update_21",
+     "op": "update",
+     "inputs": [
+      "param_1",
+      "param_3",
+      "param_2"
+     ]
+    },
+    {
+     "id": "index_22",
+     "op": "index",
+     "inputs": [
+      "param_1",
+      "param_3"
+     ]
+    },
+    {
+     "id": "range_23",
+     "op": "range",
+     "inputs": [],
+     "value": 3
+    },
+    {
+     "id": "array_24",
+     "op": "array",
+     "inputs": [
+      "param_2",
+      "param_3"
+     ]
+    },
+    {
+     "id": "map_27",
+     "op": "map",
+     "inputs": [
+      "param_1"
+     ],
+     "body": {
+      "params": [
+       "x",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_25",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "vector_26",
+        "op": "vector",
+        "inputs": [
+         "param_25",
+         "param_2"
+        ]
+       }
+      ],
+      "output": "vector_26"
+     }
+    },
+    {
+     "id": "map_30",
+     "op": "map",
+     "inputs": [
+      "param_1"
+     ],
+     "body": {
+      "params": [
+       "x",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_28",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "vector_29",
+        "op": "vector",
+        "inputs": [
+         "param_28",
+         "param_28"
+        ]
+       }
+      ],
+      "output": "vector_29"
+     }
+    },
+    {
+     "id": "concat_31",
+     "op": "concat",
+     "inputs": [
+      "map_30"
+     ]
+    },
+    {
+     "id": "record_32",
+     "op": "record",
+     "inputs": [
+      "concat_31",
+      "fold_15",
+      "index_22",
+      "array_24",
+      "map_8",
+      "map_27",
+      "range_23",
+      "scan_20",
+      "update_21"
+     ],
+     "value": [
+      "cat",
+      "fold",
+      "idx",
+      "lit",
+      "map",
+      "nested",
+      "rg",
+      "scan",
+      "upd"
+     ]
+    }
+   ],
+   "output": "record_32"
+  },
+  "paramTypes": [
+   {
+    "type": "array",
+    "length": 3,
+    "of": {
+     "type": "number"
+    }
+   },
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "cat": {
+     "type": "vector",
+     "width": 6
+    },
+    "fold": {
+     "type": "number"
+    },
+    "idx": {
+     "type": "number"
+    },
+    "lit": {
+     "type": "array",
+     "length": 2,
+     "of": {
+      "type": "number"
+     }
+    },
+    "map": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "number"
+     }
+    },
+    "nested": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "vector",
+      "width": 2
+     }
+    },
+    "rg": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "number"
+     }
+    },
+    "scan": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "number"
+     }
+    },
+    "upd": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "number"
+     }
+    }
+   }
+  },
+  "cost": 64,
+  "lanes": [
+   {
+    "args": [
+     [
+      1,
+      2,
+      3
+     ],
+     10,
+     0
+    ],
+    "result": {
+     "cat": [
+      1,
+      1,
+      2,
+      2,
+      3,
+      3
+     ],
+     "fold": 108,
+     "idx": 1,
+     "lit": [
+      10,
+      0
+     ],
+     "map": [
+      10,
+      21,
+      32
+     ],
+     "nested": [
+      [
+       1,
+       10
+      ],
+      [
+       2,
+       10
+      ],
+      [
+       3,
+       10
+      ]
+     ],
+     "rg": [
+      0,
+      1,
+      2
+     ],
+     "scan": [
+      1,
+      3,
+      6
+     ],
+     "upd": [
+      10,
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "args": [
+     [
+      0.5,
+      -1,
+      2
+     ],
+     -2,
+     2
+    ],
+    "result": {
+     "cat": [
+      0.5,
+      0.5,
+      -1,
+      -1,
+      2,
+      2
+     ],
+     "fold": 103,
+     "idx": 2,
+     "lit": [
+      -2,
+      2
+     ],
+     "map": [
+      -1,
+      3,
+      -2
+     ],
+     "nested": [
+      [
+       0.5,
+       -2
+      ],
+      [
+       -1,
+       -2
+      ],
+      [
+       2,
+       -2
+      ]
+     ],
+     "rg": [
+      0,
+      1,
+      2
+     ],
+     "scan": [
+      0.5,
+      -0.5,
+      1.5
+     ],
+     "upd": [
+      0.5,
+      -1,
+      -2
+     ]
+    }
+   },
+   {
+    "args": [
+     [
+      1,
+      1,
+      1
+     ],
+     0,
+     3
+    ],
+    "error": {
+     "nodeId": "index_22",
+     "op": "index"
+    }
+   },
+   {
+    "args": [
+     [
+      1,
+      2,
+      3
+     ],
+     1,
+     -1
+    ],
+    "error": {
+     "nodeId": "index_22",
+     "op": "index"
+    }
+   },
+   {
+    "args": [
+     [
+      1,
+      2,
+      3
+     ],
+     1,
+     1.5
+    ],
+    "error": {
+     "nodeId": "index_22",
+     "op": "index"
+    }
+   }
+  ]
+ },
+ {
+  "name": "array-of-records",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "cells",
+    "k"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "cells"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "k"
+    },
+    {
+     "id": "map_9",
+     "op": "map",
+     "inputs": [
+      "param_1"
+     ],
+     "body": {
+      "params": [
+       "c",
+       "i"
+      ],
+      "nodes": [
+       {
+        "id": "param_3",
+        "op": "param",
+        "inputs": [],
+        "name": "c"
+       },
+       {
+        "id": "param_4",
+        "op": "param",
+        "inputs": [],
+        "name": "i"
+       },
+       {
+        "id": "get_5",
+        "op": "get",
+        "inputs": [
+         "param_3"
+        ],
+        "name": "ore"
+       },
+       {
+        "id": "mul_6",
+        "op": "mul",
+        "inputs": [
+         "param_4",
+         "param_2"
+        ]
+       },
+       {
+        "id": "add_7",
+        "op": "add",
+        "inputs": [
+         "get_5",
+         "mul_6"
+        ]
+       },
+       {
+        "id": "set_8",
+        "op": "set",
+        "inputs": [
+         "param_3",
+         "add_7"
+        ],
+        "name": "ore"
+       }
+      ],
+      "output": "set_8"
+     }
+    },
+    {
+     "id": "constant_10",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "fold_15",
+     "op": "fold",
+     "inputs": [
+      "map_9",
+      "constant_10"
+     ],
+     "body": {
+      "params": [
+       "acc",
+       "c",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_11",
+        "op": "param",
+        "inputs": [],
+        "name": "acc"
+       },
+       {
+        "id": "param_12",
+        "op": "param",
+        "inputs": [],
+        "name": "c"
+       },
+       {
+        "id": "get_13",
+        "op": "get",
+        "inputs": [
+         "param_12"
+        ],
+        "name": "ore"
+       },
+       {
+        "id": "add_14",
+        "op": "add",
+        "inputs": [
+         "param_11",
+         "get_13"
+        ]
+       }
+      ],
+      "output": "add_14"
+     }
+    },
+    {
+     "id": "index_16",
+     "op": "index",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "update_17",
+     "op": "update",
+     "inputs": [
+      "param_1",
+      "constant_10",
+      "index_16"
+     ]
+    },
+    {
+     "id": "constant_18",
+     "op": "constant",
+     "inputs": [],
+     "value": ""
+    },
+    {
+     "id": "record_19",
+     "op": "record",
+     "inputs": [
+      "constant_10",
+      "constant_18"
+     ],
+     "value": [
+      "n",
+      "s"
+     ]
+    },
+    {
+     "id": "constant_25",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "constant_27",
+     "op": "constant",
+     "inputs": [],
+     "value": "big"
+    },
+    {
+     "id": "scan_31",
+     "op": "scan",
+     "inputs": [
+      "param_1",
+      "record_19"
+     ],
+     "body": {
+      "params": [
+       "acc",
+       "c",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_20",
+        "op": "param",
+        "inputs": [],
+        "name": "acc"
+       },
+       {
+        "id": "param_21",
+        "op": "param",
+        "inputs": [],
+        "name": "c"
+       },
+       {
+        "id": "get_22",
+        "op": "get",
+        "inputs": [
+         "param_20"
+        ],
+        "name": "n"
+       },
+       {
+        "id": "get_23",
+        "op": "get",
+        "inputs": [
+         "param_21"
+        ],
+        "name": "ore"
+       },
+       {
+        "id": "add_24",
+        "op": "add",
+        "inputs": [
+         "get_22",
+         "get_23"
+        ]
+       },
+       {
+        "id": "gt_26",
+        "op": "gt",
+        "inputs": [
+         "get_23",
+         "constant_25"
+        ]
+       },
+       {
+        "id": "get_28",
+        "op": "get",
+        "inputs": [
+         "param_20"
+        ],
+        "name": "s"
+       },
+       {
+        "id": "select_29",
+        "op": "select",
+        "inputs": [
+         "gt_26",
+         "constant_27",
+         "get_28"
+        ]
+       },
+       {
+        "id": "record_30",
+        "op": "record",
+        "inputs": [
+         "add_24",
+         "select_29"
+        ],
+        "value": [
+         "n",
+         "s"
+        ]
+       }
+      ],
+      "output": "record_30"
+     }
+    },
+    {
+     "id": "record_32",
+     "op": "record",
+     "inputs": [
+      "index_16",
+      "map_9",
+      "scan_31",
+      "update_17",
+      "fold_15"
+     ],
+     "value": [
+      "first",
+      "grown",
+      "hist",
+      "swapped",
+      "total"
+     ]
+    }
+   ],
+   "output": "record_32"
+  },
+  "paramTypes": [
+   {
+    "type": "array",
+    "length": 3,
+    "of": {
+     "type": "record",
+     "fields": {
+      "ore": {
+       "type": "number"
+      },
+      "name": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "first": {
+     "type": "record",
+     "fields": {
+      "name": {
+       "type": "string"
+      },
+      "ore": {
+       "type": "number"
+      }
+     }
+    },
+    "grown": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "record",
+      "fields": {
+       "name": {
+        "type": "string"
+       },
+       "ore": {
+        "type": "number"
+       }
+      }
+     }
+    },
+    "hist": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "record",
+      "fields": {
+       "n": {
+        "type": "number"
+       },
+       "s": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "swapped": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "record",
+      "fields": {
+       "name": {
+        "type": "string"
+       },
+       "ore": {
+        "type": "number"
+       }
+      }
+     }
+    },
+    "total": {
+     "type": "number"
+    }
+   }
+  },
+  "cost": 70,
+  "lanes": [
+   {
+    "args": [
+     [
+      {
+       "ore": 1,
+       "name": "a"
+      },
+      {
+       "ore": 2,
+       "name": "b"
+      },
+      {
+       "ore": 3,
+       "name": "c"
+      }
+     ],
+     1
+    ],
+    "result": {
+     "first": {
+      "ore": 2,
+      "name": "b"
+     },
+     "grown": [
+      {
+       "ore": 1,
+       "name": "a"
+      },
+      {
+       "ore": 3,
+       "name": "b"
+      },
+      {
+       "ore": 5,
+       "name": "c"
+      }
+     ],
+     "hist": [
+      {
+       "n": 1,
+       "s": ""
+      },
+      {
+       "n": 3,
+       "s": "big"
+      },
+      {
+       "n": 6,
+       "s": "big"
+      }
+     ],
+     "swapped": [
+      {
+       "ore": 2,
+       "name": "b"
+      },
+      {
+       "ore": 2,
+       "name": "b"
+      },
+      {
+       "ore": 3,
+       "name": "c"
+      }
+     ],
+     "total": 9
+    }
+   },
+   {
+    "args": [
+     [
+      {
+       "ore": 0,
+       "name": "a"
+      },
+      {
+       "ore": 0,
+       "name": "b"
+      },
+      {
+       "ore": 5,
+       "name": "c"
+      }
+     ],
+     2
+    ],
+    "result": {
+     "first": {
+      "ore": 5,
+      "name": "c"
+     },
+     "grown": [
+      {
+       "ore": 0,
+       "name": "a"
+      },
+      {
+       "ore": 2,
+       "name": "b"
+      },
+      {
+       "ore": 9,
+       "name": "c"
+      }
+     ],
+     "hist": [
+      {
+       "n": 0,
+       "s": ""
+      },
+      {
+       "n": 0,
+       "s": ""
+      },
+      {
+       "n": 5,
+       "s": "big"
+      }
+     ],
+     "swapped": [
+      {
+       "ore": 5,
+       "name": "c"
+      },
+      {
+       "ore": 0,
+       "name": "b"
+      },
+      {
+       "ore": 5,
+       "name": "c"
+      }
+     ],
+     "total": 11
+    }
+   },
+   {
+    "args": [
+     [
+      {
+       "ore": 0,
+       "name": "a"
+      },
+      {
+       "ore": 0,
+       "name": "b"
+      },
+      {
+       "ore": 5,
+       "name": "c"
+      }
+     ],
+     3
+    ],
+    "error": {
+     "nodeId": "index_16",
+     "op": "index"
+    }
+   }
+  ]
+ },
+ {
+  "name": "nested-bodies-closures",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "g",
+    "k",
+    "d"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "g"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "k"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "d"
+    },
+    {
+     "id": "constant_8",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "constant_12",
+     "op": "constant",
+     "inputs": [],
+     "value": 10
+    },
+    {
+     "id": "map_18",
+     "op": "map",
+     "inputs": [
+      "param_1"
+     ],
+     "body": {
+      "params": [
+       "row",
+       "r"
+      ],
+      "nodes": [
+       {
+        "id": "param_4",
+        "op": "param",
+        "inputs": [],
+        "name": "row"
+       },
+       {
+        "id": "param_5",
+        "op": "param",
+        "inputs": [],
+        "name": "r"
+       },
+       {
+        "id": "mul_13",
+        "op": "mul",
+        "inputs": [
+         "param_5",
+         "constant_12"
+        ]
+       },
+       {
+        "id": "map_17",
+        "op": "map",
+        "inputs": [
+         "param_4"
+        ],
+        "body": {
+         "params": [
+          "c",
+          "q"
+         ],
+         "nodes": [
+          {
+           "id": "param_6",
+           "op": "param",
+           "inputs": [],
+           "name": "c"
+          },
+          {
+           "id": "param_7",
+           "op": "param",
+           "inputs": [],
+           "name": "q"
+          },
+          {
+           "id": "eq_9",
+           "op": "eq",
+           "inputs": [
+            "param_6",
+            "constant_8"
+           ]
+          },
+          {
+           "id": "div_10",
+           "op": "div",
+           "inputs": [
+            "param_6",
+            "param_3"
+           ]
+          },
+          {
+           "id": "select_11",
+           "op": "select",
+           "inputs": [
+            "eq_9",
+            "constant_8",
+            "div_10"
+           ]
+          },
+          {
+           "id": "add_14",
+           "op": "add",
+           "inputs": [
+            "select_11",
+            "mul_13"
+           ]
+          },
+          {
+           "id": "add_15",
+           "op": "add",
+           "inputs": [
+            "add_14",
+            "param_7"
+           ]
+          },
+          {
+           "id": "add_16",
+           "op": "add",
+           "inputs": [
+            "add_15",
+            "param_2"
+           ]
+          }
+         ],
+         "output": "add_16"
+        }
+       }
+      ],
+      "output": "map_17"
+     }
+    },
+    {
+     "id": "map_24",
+     "op": "map",
+     "inputs": [
+      "param_1"
+     ],
+     "body": {
+      "params": [
+       "row",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_19",
+        "op": "param",
+        "inputs": [],
+        "name": "row"
+       },
+       {
+        "id": "fold_23",
+        "op": "fold",
+        "inputs": [
+         "param_19",
+         "param_2"
+        ],
+        "body": {
+         "params": [
+          "acc",
+          "c",
+          "_index"
+         ],
+         "nodes": [
+          {
+           "id": "param_20",
+           "op": "param",
+           "inputs": [],
+           "name": "acc"
+          },
+          {
+           "id": "param_21",
+           "op": "param",
+           "inputs": [],
+           "name": "c"
+          },
+          {
+           "id": "add_22",
+           "op": "add",
+           "inputs": [
+            "param_20",
+            "param_21"
+           ]
+          }
+         ],
+         "output": "add_22"
+        }
+       }
+      ],
+      "output": "fold_23"
+     }
+    },
+    {
+     "id": "eq_27",
+     "op": "eq",
+     "inputs": [
+      "param_3",
+      "constant_8"
+     ]
+    },
+    {
+     "id": "map_31",
+     "op": "map",
+     "inputs": [
+      "param_1"
+     ],
+     "body": {
+      "params": [
+       "row",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_25",
+        "op": "param",
+        "inputs": [],
+        "name": "row"
+       },
+       {
+        "id": "map_30",
+        "op": "map",
+        "inputs": [
+         "param_25"
+        ],
+        "body": {
+         "params": [
+          "c",
+          "_index"
+         ],
+         "nodes": [
+          {
+           "id": "param_26",
+           "op": "param",
+           "inputs": [],
+           "name": "c"
+          },
+          {
+           "id": "div_28",
+           "op": "div",
+           "inputs": [
+            "param_26",
+            "param_3"
+           ]
+          },
+          {
+           "id": "select_29",
+           "op": "select",
+           "inputs": [
+            "eq_27",
+            "param_26",
+            "div_28"
+           ]
+          }
+         ],
+         "output": "select_29"
+        }
+       }
+      ],
+      "output": "map_30"
+     }
+    },
+    {
+     "id": "record_32",
+     "op": "record",
+     "inputs": [
+      "map_18",
+      "map_31",
+      "map_24"
+     ],
+     "value": [
+      "grid",
+      "lazy",
+      "sums"
+     ]
+    }
+   ],
+   "output": "record_32"
+  },
+  "paramTypes": [
+   {
+    "type": "array",
+    "length": 2,
+    "of": {
+     "type": "array",
+     "length": 2,
+     "of": {
+      "type": "number"
+     }
+    }
+   },
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "grid": {
+     "type": "array",
+     "length": 2,
+     "of": {
+      "type": "array",
+      "length": 2,
+      "of": {
+       "type": "number"
+      }
+     }
+    },
+    "lazy": {
+     "type": "array",
+     "length": 2,
+     "of": {
+      "type": "array",
+      "length": 2,
+      "of": {
+       "type": "number"
+      }
+     }
+    },
+    "sums": {
+     "type": "array",
+     "length": 2,
+     "of": {
+      "type": "number"
+     }
+    }
+   }
+  },
+  "cost": 82,
+  "lanes": [
+   {
+    "args": [
+     [
+      [
+       0,
+       1
+      ],
+      [
+       2,
+       3
+      ]
+     ],
+     100,
+     2
+    ],
+    "result": {
+     "grid": [
+      [
+       100,
+       101.5
+      ],
+      [
+       111,
+       112.5
+      ]
+     ],
+     "lazy": [
+      [
+       0,
+       0.5
+      ],
+      [
+       1,
+       1.5
+      ]
+     ],
+     "sums": [
+      101,
+      105
+     ]
+    }
+   },
+   {
+    "args": [
+     [
+      [
+       0,
+       0
+      ],
+      [
+       0,
+       0
+      ]
+     ],
+     5,
+     0
+    ],
+    "result": {
+     "grid": [
+      [
+       5,
+       6
+      ],
+      [
+       15,
+       16
+      ]
+     ],
+     "lazy": [
+      [
+       0,
+       0
+      ],
+      [
+       0,
+       0
+      ]
+     ],
+     "sums": [
+      5,
+      5
+     ]
+    }
+   },
+   {
+    "args": [
+     [
+      [
+       1,
+       0
+      ],
+      [
+       0,
+       0
+      ]
+     ],
+     5,
+     0
+    ],
+    "error": {
+     "nodeId": "div_10",
+     "op": "div"
+    }
+   }
+  ]
+ },
+ {
+  "name": "u32-rand",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a",
+    "b",
+    "s"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "b"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "s"
+    },
+    {
+     "id": "u32_4",
+     "op": "u32",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "u32_5",
+     "op": "u32",
+     "inputs": [
+      "param_2"
+     ]
+    },
+    {
+     "id": "imul32_6",
+     "op": "imul32",
+     "inputs": [
+      "u32_4",
+      "u32_5"
+     ]
+    },
+    {
+     "id": "add32_7",
+     "op": "add32",
+     "inputs": [
+      "u32_4",
+      "u32_5"
+     ]
+    },
+    {
+     "id": "sub32_8",
+     "op": "sub32",
+     "inputs": [
+      "u32_4",
+      "u32_5"
+     ]
+    },
+    {
+     "id": "xor32_9",
+     "op": "xor32",
+     "inputs": [
+      "u32_4",
+      "u32_5"
+     ]
+    },
+    {
+     "id": "and32_10",
+     "op": "and32",
+     "inputs": [
+      "u32_4",
+      "u32_5"
+     ]
+    },
+    {
+     "id": "or32_11",
+     "op": "or32",
+     "inputs": [
+      "u32_4",
+      "u32_5"
+     ]
+    },
+    {
+     "id": "shl32_12",
+     "op": "shl32",
+     "inputs": [
+      "u32_4",
+      "param_3"
+     ]
+    },
+    {
+     "id": "shr32_13",
+     "op": "shr32",
+     "inputs": [
+      "u32_4",
+      "param_3"
+     ]
+    },
+    {
+     "id": "rand_14",
+     "op": "rand",
+     "inputs": [
+      "u32_4",
+      "u32_5"
+     ]
+    },
+    {
+     "id": "rand_15",
+     "op": "rand",
+     "inputs": [
+      "u32_5",
+      "u32_4"
+     ]
+    },
+    {
+     "id": "record_16",
+     "op": "record",
+     "inputs": [
+      "add32_7",
+      "and32_10",
+      "imul32_6",
+      "or32_11",
+      "rand_14",
+      "rand_15",
+      "shl32_12",
+      "shr32_13",
+      "sub32_8",
+      "u32_4",
+      "xor32_9"
+     ],
+     "value": [
+      "add",
+      "and",
+      "imul",
+      "or",
+      "rand",
+      "rand2",
+      "shl",
+      "shr",
+      "sub",
+      "u",
+      "xor"
+     ]
+    }
+   ],
+   "output": "record_16"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "add": {
+     "type": "number"
+    },
+    "and": {
+     "type": "number"
+    },
+    "imul": {
+     "type": "number"
+    },
+    "or": {
+     "type": "number"
+    },
+    "rand": {
+     "type": "number"
+    },
+    "rand2": {
+     "type": "number"
+    },
+    "shl": {
+     "type": "number"
+    },
+    "shr": {
+     "type": "number"
+    },
+    "sub": {
+     "type": "number"
+    },
+    "u": {
+     "type": "number"
+    },
+    "xor": {
+     "type": "number"
+    }
+   }
+  },
+  "cost": 16,
+  "lanes": [
+   {
+    "args": [
+     0,
+     0,
+     0
+    ],
+    "result": {
+     "add": 0,
+     "and": 0,
+     "imul": 0,
+     "or": 0,
+     "rand": 0,
+     "rand2": 0,
+     "shl": 0,
+     "shr": 0,
+     "sub": 0,
+     "u": 0,
+     "xor": 0
+    }
+   },
+   {
+    "args": [
+     1,
+     2,
+     3
+    ],
+    "result": {
+     "add": 3,
+     "and": 0,
+     "imul": 2,
+     "or": 3,
+     "rand": 0.2647276767529547,
+     "rand2": 0.029774594586342573,
+     "shl": 8,
+     "shr": 0,
+     "sub": 4294967295,
+     "u": 1,
+     "xor": 3
+    }
+   },
+   {
+    "args": [
+     -1,
+     1,
+     31
+    ],
+    "result": {
+     "add": 0,
+     "and": 1,
+     "imul": 4294967295,
+     "or": 4294967295,
+     "rand": 0.21047804527916014,
+     "rand2": 0.21047804527916014,
+     "shl": 2147483648,
+     "shr": 1,
+     "sub": 4294967294,
+     "u": 4294967295,
+     "xor": 4294967294
+    }
+   },
+   {
+    "args": [
+     3735928559,
+     2654435769,
+     7
+    ],
+    "result": {
+     "add": 2095397032,
+     "and": 2653239465,
+     "imul": 2452025783,
+     "or": 3737124863,
+     "rand": 0.9598217236343771,
+     "rand2": 0.9131360945757478,
+     "shl": 1457485696,
+     "shr": 29186941,
+     "sub": 1081492790,
+     "u": 3735928559,
+     "xor": 1083885398
+    }
+   },
+   {
+    "args": [
+     4294967301,
+     4294967295,
+     1
+    ],
+    "result": {
+     "add": 4,
+     "and": 5,
+     "imul": 4294967291,
+     "or": 4294967295,
+     "rand": 0.17596189700998366,
+     "rand2": 0.5630379838403314,
+     "shl": 10,
+     "shr": 2,
+     "sub": 6,
+     "u": 5,
+     "xor": 4294967290
+    }
+   },
+   {
+    "args": [
+     123456789,
+     987654321,
+     16
+    ],
+    "result": {
+     "add": 1111111110,
+     "and": 39471121,
+     "imul": 4227814277,
+     "or": 1071639989,
+     "rand": 0.16832359740510583,
+     "rand2": 0.9659533144440502,
+     "shl": 3440705536,
+     "shr": 1883,
+     "sub": 3430769764,
+     "u": 123456789,
+     "xor": 1032168868
+    }
+   },
+   {
+    "args": [
+     1.5,
+     1,
+     0
+    ],
+    "error": {
+     "nodeId": "u32_4",
+     "op": "u32"
+    }
+   },
+   {
+    "args": [
+     1,
+     1,
+     32
+    ],
+    "error": {
+     "nodeId": "shl32_12",
+     "op": "shl32"
+    }
+   },
+   {
+    "args": [
+     9007199254740994,
+     1,
+     0
+    ],
+    "error": {
+     "nodeId": "u32_4",
+     "op": "u32"
+    }
+   },
+   {
+    "args": [
+     9007199254740992,
+     1,
+     0
+    ],
+    "error": {
+     "nodeId": "u32_4",
+     "op": "u32"
+    }
+   },
+   {
+    "args": [
+     -9007199254740992,
+     1,
+     0
+    ],
+    "error": {
+     "nodeId": "u32_4",
+     "op": "u32"
+    }
+   },
+   {
+    "args": [
+     9007199254740991,
+     1,
+     0
+    ],
+    "result": {
+     "add": 0,
+     "and": 1,
+     "imul": 4294967295,
+     "or": 4294967295,
+     "rand": 0.21047804527916014,
+     "rand2": 0.21047804527916014,
+     "shl": 4294967295,
+     "shr": 4294967295,
+     "sub": 4294967294,
+     "u": 4294967295,
+     "xor": 4294967294
+    }
+   },
+   {
+    "args": [
+     7,
+     -1,
+     0
+    ],
+    "result": {
+     "add": 6,
+     "and": 7,
+     "imul": 4294967289,
+     "or": 4294967295,
+     "rand": 0.035733768716454506,
+     "rand2": 0.5119765584822744,
+     "shl": 7,
+     "shr": 7,
+     "sub": 8,
+     "u": 7,
+     "xor": 4294967288
+    }
+   }
+  ]
+ },
+ {
+  "name": "rand-stream",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "seed"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "seed"
+    },
+    {
+     "id": "range_2",
+     "op": "range",
+     "inputs": [],
+     "value": 8
+    },
+    {
+     "id": "u32_4",
+     "op": "u32",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "map_7",
+     "op": "map",
+     "inputs": [
+      "range_2"
+     ],
+     "body": {
+      "params": [
+       "i",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_3",
+        "op": "param",
+        "inputs": [],
+        "name": "i"
+       },
+       {
+        "id": "u32_5",
+        "op": "u32",
+        "inputs": [
+         "param_3"
+        ]
+       },
+       {
+        "id": "rand_6",
+        "op": "rand",
+        "inputs": [
+         "u32_4",
+         "u32_5"
+        ]
+       }
+      ],
+      "output": "rand_6"
+     }
+    }
+   ],
+   "output": "map_7"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "array",
+   "length": 8,
+   "of": {
+    "type": "number"
+   }
+  },
+  "cost": 28,
+  "lanes": [
+   {
+    "args": [
+     0
+    ],
+    "result": [
+     0,
+     0.007765133399516344,
+     0.01942173345014453,
+     0.06073175300844014,
+     0.42049606679938734,
+     0.021480081835761666,
+     0.3697049187030643,
+     0.5681708981283009
+    ]
+   },
+   {
+    "args": [
+     42
+    ],
+    "result": [
+     0.09044192777946591,
+     0.6284059286117554,
+     0.817894833162427,
+     0.4821366935502738,
+     0.38929497078061104,
+     0.971128333825618,
+     0.7667979830875993,
+     0.3279488515108824
+    ]
+   },
+   {
+    "args": [
+     4294967295
+    ],
+    "result": [
+     0.40393842989578843,
+     0.21047804527916014,
+     0.7220623700413853,
+     0.5596051311586052,
+     0.9624322692397982,
+     0.5630379838403314,
+     0.3353939496446401,
+     0.5119765584822744
+    ]
+   },
+   {
+    "args": [
+     2024
+    ],
+    "result": [
+     0.41674786782823503,
+     0.616524028358981,
+     0.7726802544202656,
+     0.5309660502243787,
+     0.5660164409782737,
+     0.6553425712045282,
+     0.10470728273503482,
+     0.25542267388664186
+    ]
+   }
+  ]
+ },
+ {
+  "name": "discretise",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "x"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "x"
+    },
+    {
+     "id": "bucket_2",
+     "op": "bucket",
+     "inputs": [
+      "param_1"
+     ],
+     "value": [
+      -1,
+      0.5,
+      2,
+      10
+     ]
+    },
+    {
+     "id": "thermometer_3",
+     "op": "thermometer",
+     "inputs": [
+      "param_1"
+     ],
+     "value": [
+      -1,
+      0.5,
+      2,
+      10
+     ]
+    },
+    {
+     "id": "record_4",
+     "op": "record",
+     "inputs": [
+      "bucket_2",
+      "thermometer_3"
+     ],
+     "value": [
+      "b",
+      "th"
+     ]
+    }
+   ],
+   "output": "record_4"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "b": {
+     "type": "number"
+    },
+    "th": {
+     "type": "vector",
+     "width": 4
+    }
+   }
+  },
+  "cost": 4,
+  "lanes": [
+   {
+    "args": [
+     -5
+    ],
+    "result": {
+     "b": 0,
+     "th": [
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   },
+   {
+    "args": [
+     -1
+    ],
+    "result": {
+     "b": 1,
+     "th": [
+      1,
+      0,
+      0,
+      0
+     ]
+    }
+   },
+   {
+    "args": [
+     0
+    ],
+    "result": {
+     "b": 1,
+     "th": [
+      1,
+      0,
+      0,
+      0
+     ]
+    }
+   },
+   {
+    "args": [
+     0.5
+    ],
+    "result": {
+     "b": 2,
+     "th": [
+      1,
+      1,
+      0,
+      0
+     ]
+    }
+   },
+   {
+    "args": [
+     2
+    ],
+    "result": {
+     "b": 3,
+     "th": [
+      1,
+      1,
+      1,
+      0
+     ]
+    }
+   },
+   {
+    "args": [
+     3
+    ],
+    "result": {
+     "b": 3,
+     "th": [
+      1,
+      1,
+      1,
+      0
+     ]
+    }
+   },
+   {
+    "args": [
+     10
+    ],
+    "result": {
+     "b": 4,
+     "th": [
+      1,
+      1,
+      1,
+      1
+     ]
+    }
+   },
+   {
+    "args": [
+     11
+    ],
+    "result": {
+     "b": 4,
+     "th": [
+      1,
+      1,
+      1,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "name": "tables",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "t",
+    "i"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "t"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "i"
+    },
+    {
+     "id": "tableAt_3",
+     "op": "tableAt",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ],
+     "name": "price"
+    },
+    {
+     "id": "tableAt_4",
+     "op": "tableAt",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ],
+     "name": "vol"
+    },
+    {
+     "id": "tableWindow_5",
+     "op": "tableWindow",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ],
+     "name": "price",
+     "value": 3
+    },
+    {
+     "id": "record_6",
+     "op": "record",
+     "inputs": [
+      "tableAt_3",
+      "tableAt_4",
+      "tableWindow_5"
+     ],
+     "value": [
+      "at",
+      "vol",
+      "win"
+     ]
+    }
+   ],
+   "output": "record_6"
+  },
+  "paramTypes": [
+   {
+    "type": "table",
+    "columns": [
+     "price",
+     "vol"
+    ]
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "at": {
+     "type": "number"
+    },
+    "vol": {
+     "type": "number"
+    },
+    "win": {
+     "type": "vector",
+     "width": 3
+    }
+   }
+  },
+  "cost": 6,
+  "lanes": [
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        2.5,
+        -3,
+        4,
+        5.75,
+        6,
+        7,
+        8
+       ],
+       "vol": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80
+       ]
+      },
+      "lo": 2,
+      "hi": 6
+     },
+     4
+    ],
+    "result": {
+     "at": 5.75,
+     "vol": 50,
+     "win": [
+      -3,
+      4,
+      5.75
+     ]
+    }
+   },
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        2.5,
+        -3,
+        4,
+        5.75,
+        6,
+        7,
+        8
+       ],
+       "vol": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80
+       ]
+      },
+      "lo": 2,
+      "hi": 6
+     },
+     6
+    ],
+    "result": {
+     "at": 7,
+     "vol": 70,
+     "win": [
+      5.75,
+      6,
+      7
+     ]
+    }
+   },
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        2.5,
+        -3,
+        4,
+        5.75,
+        6,
+        7,
+        8
+       ],
+       "vol": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80
+       ]
+      },
+      "lo": 2,
+      "hi": 6
+     },
+     2
+    ],
+    "error": {
+     "nodeId": "tableWindow_5",
+     "op": "tableWindow"
+    }
+   },
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        2.5,
+        -3,
+        4,
+        5.75,
+        6,
+        7,
+        8
+       ],
+       "vol": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80
+       ]
+      },
+      "lo": 2,
+      "hi": 6
+     },
+     3
+    ],
+    "error": {
+     "nodeId": "tableWindow_5",
+     "op": "tableWindow"
+    }
+   },
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        2.5,
+        -3,
+        4,
+        5.75,
+        6,
+        7,
+        8
+       ],
+       "vol": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80
+       ]
+      },
+      "lo": 2,
+      "hi": 6
+     },
+     7
+    ],
+    "error": {
+     "nodeId": "tableAt_3",
+     "op": "tableAt"
+    }
+   },
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        2.5,
+        -3,
+        4,
+        5.75,
+        6,
+        7,
+        8
+       ],
+       "vol": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80
+       ]
+      },
+      "lo": 2,
+      "hi": 6
+     },
+     1
+    ],
+    "error": {
+     "nodeId": "tableAt_3",
+     "op": "tableAt"
+    }
+   },
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        2.5,
+        -3,
+        4,
+        5.75,
+        6,
+        7,
+        8
+       ],
+       "vol": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80
+       ]
+      },
+      "lo": 2,
+      "hi": 6
+     },
+     4.5
+    ],
+    "error": {
+     "nodeId": "tableAt_3",
+     "op": "tableAt"
+    }
+   },
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        2.5,
+        -3,
+        4,
+        5.75,
+        6,
+        7,
+        8
+       ],
+       "vol": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80
+       ]
+      },
+      "lo": 0,
+      "hi": 7
+     },
+     0
+    ],
+    "error": {
+     "nodeId": "tableWindow_5",
+     "op": "tableWindow"
+    }
+   }
+  ]
+ },
+ {
+  "name": "table-nan",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "t",
+    "i"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "t"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "i"
+    },
+    {
+     "id": "tableAt_3",
+     "op": "tableAt",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ],
+     "name": "price"
+    },
+    {
+     "id": "tableAt_4",
+     "op": "tableAt",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ],
+     "name": "vol"
+    },
+    {
+     "id": "add_5",
+     "op": "add",
+     "inputs": [
+      "tableAt_3",
+      "tableAt_4"
+     ]
+    }
+   ],
+   "output": "add_5"
+  },
+  "paramTypes": [
+   {
+    "type": "table",
+    "columns": [
+     "price",
+     "vol"
+    ]
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "number"
+  },
+  "cost": 5,
+  "lanes": [
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        null,
+        3
+       ],
+       "vol": [
+        1,
+        2,
+        3
+       ]
+      },
+      "lo": 0,
+      "hi": 2
+     },
+     0
+    ],
+    "result": 2
+   },
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        null,
+        3
+       ],
+       "vol": [
+        1,
+        2,
+        3
+       ]
+      },
+      "lo": 0,
+      "hi": 2
+     },
+     1
+    ],
+    "error": {
+     "nodeId": "tableAt_3",
+     "op": "tableAt"
+    }
+   },
+   {
+    "args": [
+     {
+      "columns": {
+       "price": [
+        1,
+        null,
+        3
+       ],
+       "vol": [
+        1,
+        2,
+        3
+       ]
+      },
+      "lo": 0,
+      "hi": 2
+     },
+     2
+    ],
+    "result": 6
+   }
+  ]
+ },
+ {
+  "name": "lazy-errors",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a",
+    "b",
+    "arr"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "b"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "arr"
+    },
+    {
+     "id": "constant_4",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "div_5",
+     "op": "div",
+     "inputs": [
+      "constant_4",
+      "param_1"
+     ]
+    },
+    {
+     "id": "constant_6",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "eq_7",
+     "op": "eq",
+     "inputs": [
+      "param_1",
+      "constant_6"
+     ]
+    },
+    {
+     "id": "select_8",
+     "op": "select",
+     "inputs": [
+      "eq_7",
+      "param_2",
+      "div_5"
+     ]
+    },
+    {
+     "id": "gt_9",
+     "op": "gt",
+     "inputs": [
+      "param_2",
+      "constant_6"
+     ]
+    },
+    {
+     "id": "gt_10",
+     "op": "gt",
+     "inputs": [
+      "div_5",
+      "constant_6"
+     ]
+    },
+    {
+     "id": "and_11",
+     "op": "and",
+     "inputs": [
+      "gt_9",
+      "gt_10"
+     ]
+    },
+    {
+     "id": "or_12",
+     "op": "or",
+     "inputs": [
+      "gt_9",
+      "gt_10"
+     ]
+    },
+    {
+     "id": "map_17",
+     "op": "map",
+     "inputs": [
+      "param_3"
+     ],
+     "body": {
+      "params": [
+       "x",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_13",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "eq_14",
+        "op": "eq",
+        "inputs": [
+         "param_13",
+         "constant_6"
+        ]
+       },
+       {
+        "id": "div_15",
+        "op": "div",
+        "inputs": [
+         "constant_4",
+         "param_13"
+        ]
+       },
+       {
+        "id": "select_16",
+        "op": "select",
+        "inputs": [
+         "eq_14",
+         "constant_6",
+         "div_15"
+        ]
+       }
+      ],
+      "output": "select_16"
+     }
+    },
+    {
+     "id": "fold_23",
+     "op": "fold",
+     "inputs": [
+      "param_3",
+      "constant_6"
+     ],
+     "body": {
+      "params": [
+       "acc",
+       "x",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_18",
+        "op": "param",
+        "inputs": [],
+        "name": "acc"
+       },
+       {
+        "id": "param_19",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "div_20",
+        "op": "div",
+        "inputs": [
+         "param_19",
+         "param_1"
+        ]
+       },
+       {
+        "id": "select_21",
+        "op": "select",
+        "inputs": [
+         "eq_7",
+         "constant_6",
+         "div_20"
+        ]
+       },
+       {
+        "id": "add_22",
+        "op": "add",
+        "inputs": [
+         "param_18",
+         "select_21"
+        ]
+       }
+      ],
+      "output": "add_22"
+     }
+    },
+    {
+     "id": "record_24",
+     "op": "record",
+     "inputs": [
+      "fold_23",
+      "map_17",
+      "select_8",
+      "and_11",
+      "or_12"
+     ],
+     "value": [
+      "f",
+      "m",
+      "s1",
+      "s2",
+      "s3"
+     ]
+    }
+   ],
+   "output": "record_24"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   },
+   {
+    "type": "array",
+    "length": 3,
+    "of": {
+     "type": "number"
+    }
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "f": {
+     "type": "number"
+    },
+    "m": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "number"
+     }
+    },
+    "s1": {
+     "type": "number"
+    },
+    "s2": {
+     "type": "boolean"
+    },
+    "s3": {
+     "type": "boolean"
+    }
+   }
+  },
+  "cost": 42,
+  "lanes": [
+   {
+    "args": [
+     0,
+     1,
+     [
+      0,
+      0,
+      0
+     ]
+    ],
+    "error": {
+     "nodeId": "div_5",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     2,
+     -1,
+     [
+      1,
+      2,
+      4
+     ]
+    ],
+    "result": {
+     "f": 3.5,
+     "m": [
+      1,
+      0.5,
+      0.25
+     ],
+     "s1": 0.5,
+     "s2": false,
+     "s3": true
+    }
+   },
+   {
+    "args": [
+     0,
+     -1,
+     [
+      1,
+      0,
+      1
+     ]
+    ],
+    "error": {
+     "nodeId": "div_5",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     0,
+     1,
+     [
+      1,
+      0,
+      1
+     ]
+    ],
+    "error": {
+     "nodeId": "div_5",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     0,
+     -1,
+     [
+      0,
+      0,
+      0
+     ]
+    ],
+    "error": {
+     "nodeId": "div_5",
+     "op": "div"
+    }
+   }
+  ]
+ },
+ {
+  "name": "reductions",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "v",
+    "arr",
+    "flags",
+    "k"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "v"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "arr"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "flags"
+    },
+    {
+     "id": "param_4",
+     "op": "param",
+     "inputs": [],
+     "name": "k"
+    },
+    {
+     "id": "sum_5",
+     "op": "sum",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "sum_6",
+     "op": "sum",
+     "inputs": [
+      "param_2"
+     ]
+    },
+    {
+     "id": "minOf_7",
+     "op": "minOf",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "maxOf_8",
+     "op": "maxOf",
+     "inputs": [
+      "param_2"
+     ]
+    },
+    {
+     "id": "argminFirst_9",
+     "op": "argminFirst",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "argmaxFirst_10",
+     "op": "argmaxFirst",
+     "inputs": [
+      "param_2"
+     ]
+    },
+    {
+     "id": "any_11",
+     "op": "any",
+     "inputs": [
+      "param_3"
+     ]
+    },
+    {
+     "id": "all_12",
+     "op": "all",
+     "inputs": [
+      "param_3"
+     ]
+    },
+    {
+     "id": "count_13",
+     "op": "count",
+     "inputs": [
+      "param_3"
+     ]
+    },
+    {
+     "id": "map_16",
+     "op": "map",
+     "inputs": [
+      "param_2"
+     ],
+     "body": {
+      "params": [
+       "x",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_14",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "gt_15",
+        "op": "gt",
+        "inputs": [
+         "param_14",
+         "param_4"
+        ]
+       }
+      ],
+      "output": "gt_15"
+     }
+    },
+    {
+     "id": "any_17",
+     "op": "any",
+     "inputs": [
+      "map_16"
+     ]
+    },
+    {
+     "id": "map_20",
+     "op": "map",
+     "inputs": [
+      "param_2"
+     ],
+     "body": {
+      "params": [
+       "x",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_18",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "gt_19",
+        "op": "gt",
+        "inputs": [
+         "param_18",
+         "param_4"
+        ]
+       }
+      ],
+      "output": "gt_19"
+     }
+    },
+    {
+     "id": "all_21",
+     "op": "all",
+     "inputs": [
+      "map_20"
+     ]
+    },
+    {
+     "id": "constant_24",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "constant_26",
+     "op": "constant",
+     "inputs": [],
+     "value": 1000000
+    },
+    {
+     "id": "map_30",
+     "op": "map",
+     "inputs": [
+      "param_2"
+     ],
+     "body": {
+      "params": [
+       "x",
+       "i"
+      ],
+      "nodes": [
+       {
+        "id": "param_22",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "param_23",
+        "op": "param",
+        "inputs": [],
+        "name": "i"
+       },
+       {
+        "id": "eq_25",
+        "op": "eq",
+        "inputs": [
+         "param_22",
+         "constant_24"
+        ]
+       },
+       {
+        "id": "sub_27",
+        "op": "sub",
+        "inputs": [
+         "param_23",
+         "param_4"
+        ]
+       },
+       {
+        "id": "abs_28",
+        "op": "abs",
+        "inputs": [
+         "sub_27"
+        ]
+       },
+       {
+        "id": "select_29",
+        "op": "select",
+        "inputs": [
+         "eq_25",
+         "constant_26",
+         "abs_28"
+        ]
+       }
+      ],
+      "output": "select_29"
+     }
+    },
+    {
+     "id": "argminFirst_31",
+     "op": "argminFirst",
+     "inputs": [
+      "map_30"
+     ]
+    },
+    {
+     "id": "record_32",
+     "op": "record",
+     "inputs": [
+      "all_12",
+      "argminFirst_9",
+      "argmaxFirst_10",
+      "any_11",
+      "count_13",
+      "all_21",
+      "minOf_7",
+      "maxOf_8",
+      "argminFirst_31",
+      "sum_5",
+      "sum_6",
+      "any_17"
+     ],
+     "value": [
+      "all",
+      "amn",
+      "amx",
+      "any",
+      "cnt",
+      "every",
+      "mn",
+      "mx",
+      "nearest",
+      "s",
+      "sa",
+      "some"
+     ]
+    }
+   ],
+   "output": "record_32"
+  },
+  "paramTypes": [
+   {
+    "type": "vector",
+    "width": 4
+   },
+   {
+    "type": "array",
+    "length": 4,
+    "of": {
+     "type": "number"
+    }
+   },
+   {
+    "type": "array",
+    "length": 3,
+    "of": {
+     "type": "boolean"
+    }
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "all": {
+     "type": "boolean"
+    },
+    "amn": {
+     "type": "number"
+    },
+    "amx": {
+     "type": "number"
+    },
+    "any": {
+     "type": "boolean"
+    },
+    "cnt": {
+     "type": "number"
+    },
+    "every": {
+     "type": "boolean"
+    },
+    "mn": {
+     "type": "number"
+    },
+    "mx": {
+     "type": "number"
+    },
+    "nearest": {
+     "type": "number"
+    },
+    "s": {
+     "type": "number"
+    },
+    "sa": {
+     "type": "number"
+    },
+    "some": {
+     "type": "boolean"
+    }
+   }
+  },
+  "cost": 62,
+  "lanes": [
+   {
+    "args": [
+     [
+      3,
+      1,
+      1,
+      2
+     ],
+     [
+      0,
+      5,
+      5,
+      2
+     ],
+     [
+      true,
+      false,
+      true
+     ],
+     1
+    ],
+    "result": {
+     "all": false,
+     "amn": 1,
+     "amx": 1,
+     "any": true,
+     "cnt": 2,
+     "every": false,
+     "mn": 1,
+     "mx": 5,
+     "nearest": 1,
+     "s": 7,
+     "sa": 12,
+     "some": true
+    }
+   },
+   {
+    "args": [
+     [
+      0.1,
+      0.2,
+      0.3,
+      0.4
+     ],
+     [
+      1e+308,
+      1e+308,
+      0,
+      0
+     ],
+     [
+      false,
+      false,
+      false
+     ],
+     0
+    ],
+    "error": {
+     "nodeId": "sum_6",
+     "op": "sum"
+    }
+   },
+   {
+    "args": [
+     [
+      "-0",
+      0,
+      -1,
+      -1
+     ],
+     [
+      1,
+      2,
+      3,
+      4
+     ],
+     [
+      true,
+      true,
+      true
+     ],
+     5
+    ],
+    "result": {
+     "all": true,
+     "amn": 2,
+     "amx": 3,
+     "any": true,
+     "cnt": 3,
+     "every": false,
+     "mn": -1,
+     "mx": 4,
+     "nearest": 3,
+     "s": -2,
+     "sa": 10,
+     "some": false
+    }
+   },
+   {
+    "args": [
+     [
+      10000000000000000,
+      1,
+      1,
+      -10000000000000000
+     ],
+     [
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      true,
+      false,
+      false
+     ],
+     2
+    ],
+    "result": {
+     "all": false,
+     "amn": 3,
+     "amx": 0,
+     "any": true,
+     "cnt": 1,
+     "every": false,
+     "mn": -10000000000000000,
+     "mx": 0,
+     "nearest": 0,
+     "s": 0,
+     "sa": 0,
+     "some": false
+    }
+   }
+  ]
+ },
+ {
+  "name": "signed-zero-extremes",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "v",
+    "a",
+    "b"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "v"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "b"
+    },
+    {
+     "id": "minOf_4",
+     "op": "minOf",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "maxOf_5",
+     "op": "maxOf",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "argminFirst_6",
+     "op": "argminFirst",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "argmaxFirst_7",
+     "op": "argmaxFirst",
+     "inputs": [
+      "param_1"
+     ]
+    },
+    {
+     "id": "min_8",
+     "op": "min",
+     "inputs": [
+      "param_2",
+      "param_3"
+     ]
+    },
+    {
+     "id": "max_9",
+     "op": "max",
+     "inputs": [
+      "param_2",
+      "param_3"
+     ]
+    },
+    {
+     "id": "record_10",
+     "op": "record",
+     "inputs": [
+      "argminFirst_6",
+      "argmaxFirst_7",
+      "max_9",
+      "min_8",
+      "minOf_4",
+      "maxOf_5"
+     ],
+     "value": [
+      "amn",
+      "amx",
+      "max",
+      "min",
+      "mn",
+      "mx"
+     ]
+    }
+   ],
+   "output": "record_10"
+  },
+  "paramTypes": [
+   {
+    "type": "vector",
+    "width": 3
+   },
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "amn": {
+     "type": "number"
+    },
+    "amx": {
+     "type": "number"
+    },
+    "max": {
+     "type": "number"
+    },
+    "min": {
+     "type": "number"
+    },
+    "mn": {
+     "type": "number"
+    },
+    "mx": {
+     "type": "number"
+    }
+   }
+  },
+  "cost": 10,
+  "lanes": [
+   {
+    "args": [
+     [
+      0,
+      "-0",
+      1
+     ],
+     0,
+     "-0"
+    ],
+    "result": {
+     "amn": 0,
+     "amx": 2,
+     "max": 0,
+     "min": "-0",
+     "mn": 0,
+     "mx": 1
+    }
+   },
+   {
+    "args": [
+     [
+      "-0",
+      0,
+      -1
+     ],
+     "-0",
+     0
+    ],
+    "result": {
+     "amn": 2,
+     "amx": 0,
+     "max": 0,
+     "min": "-0",
+     "mn": -1,
+     "mx": "-0"
+    }
+   },
+   {
+    "args": [
+     [
+      1,
+      0,
+      "-0"
+     ],
+     1,
+     "-0"
+    ],
+    "result": {
+     "amn": 1,
+     "amx": 0,
+     "max": 1,
+     "min": "-0",
+     "mn": 0,
+     "mx": 1
+    }
+   },
+   {
+    "args": [
+     [
+      -1,
+      "-0",
+      0
+     ],
+     "-0",
+     1
+    ],
+    "result": {
+     "amn": 0,
+     "amx": 1,
+     "max": 1,
+     "min": "-0",
+     "mn": -1,
+     "mx": "-0"
+    }
+   }
+  ]
+ },
+ {
+  "name": "operand-error-order",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a",
+    "b",
+    "c"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "b"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "c"
+    },
+    {
+     "id": "constant_4",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "div_5",
+     "op": "div",
+     "inputs": [
+      "constant_4",
+      "param_1"
+     ]
+    },
+    {
+     "id": "div_6",
+     "op": "div",
+     "inputs": [
+      "constant_4",
+      "param_2"
+     ]
+    },
+    {
+     "id": "div_7",
+     "op": "div",
+     "inputs": [
+      "div_5",
+      "div_6"
+     ]
+    },
+    {
+     "id": "mod_8",
+     "op": "mod",
+     "inputs": [
+      "constant_4",
+      "param_1"
+     ]
+    },
+    {
+     "id": "mod_9",
+     "op": "mod",
+     "inputs": [
+      "constant_4",
+      "param_2"
+     ]
+    },
+    {
+     "id": "mod_10",
+     "op": "mod",
+     "inputs": [
+      "mod_8",
+      "mod_9"
+     ]
+    },
+    {
+     "id": "constant_11",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "lt_12",
+     "op": "lt",
+     "inputs": [
+      "param_3",
+      "constant_11"
+     ]
+    },
+    {
+     "id": "sqrt_13",
+     "op": "sqrt",
+     "inputs": [
+      "param_3"
+     ]
+    },
+    {
+     "id": "sub_14",
+     "op": "sub",
+     "inputs": [
+      "sqrt_13",
+      "div_5"
+     ]
+    },
+    {
+     "id": "select_15",
+     "op": "select",
+     "inputs": [
+      "lt_12",
+      "constant_11",
+      "sub_14"
+     ]
+    },
+    {
+     "id": "record_16",
+     "op": "record",
+     "inputs": [
+      "div_7",
+      "mod_10",
+      "select_15"
+     ],
+     "value": [
+      "d",
+      "m",
+      "s"
+     ]
+    }
+   ],
+   "output": "record_16"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "d": {
+     "type": "number"
+    },
+    "m": {
+     "type": "number"
+    },
+    "s": {
+     "type": "number"
+    }
+   }
+  },
+  "cost": 16,
+  "lanes": [
+   {
+    "args": [
+     1,
+     2,
+     4
+    ],
+    "result": {
+     "d": 2,
+     "m": 0,
+     "s": 1
+    }
+   },
+   {
+    "args": [
+     0,
+     0,
+     1
+    ],
+    "error": {
+     "nodeId": "div_5",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     1,
+     0,
+     1
+    ],
+    "error": {
+     "nodeId": "div_6",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     0,
+     1,
+     1
+    ],
+    "error": {
+     "nodeId": "div_5",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     2,
+     4,
+     -1
+    ],
+    "result": {
+     "d": 2,
+     "m": 0,
+     "s": 0
+    }
+   }
+  ]
+ },
+ {
+  "name": "hoisted-body-output",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "k",
+    "arr"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "k"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "arr"
+    },
+    {
+     "id": "range_3",
+     "op": "range",
+     "inputs": [],
+     "value": 3
+    },
+    {
+     "id": "constant_5",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "constant_6",
+     "op": "constant",
+     "inputs": [],
+     "value": 2
+    },
+    {
+     "id": "mul_7",
+     "op": "mul",
+     "inputs": [
+      "param_1",
+      "constant_6"
+     ]
+    },
+    {
+     "id": "record_8",
+     "op": "record",
+     "inputs": [
+      "mul_7",
+      "constant_5"
+     ],
+     "value": [
+      "d",
+      "g"
+     ]
+    },
+    {
+     "id": "map_9",
+     "op": "map",
+     "inputs": [
+      "range_3"
+     ],
+     "body": {
+      "params": [
+       "c",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_4",
+        "op": "param",
+        "inputs": [],
+        "name": "c"
+       }
+      ],
+      "output": "record_8"
+     }
+    },
+    {
+     "id": "constant_11",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "map_16",
+     "op": "map",
+     "inputs": [
+      "param_2"
+     ],
+     "body": {
+      "params": [
+       "x",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_10",
+        "op": "param",
+        "inputs": [],
+        "name": "x"
+       },
+       {
+        "id": "fold_15",
+        "op": "fold",
+        "inputs": [
+         "param_2",
+         "constant_11"
+        ],
+        "body": {
+         "params": [
+          "a",
+          "y",
+          "_index"
+         ],
+         "nodes": [
+          {
+           "id": "param_12",
+           "op": "param",
+           "inputs": [],
+           "name": "a"
+          },
+          {
+           "id": "param_13",
+           "op": "param",
+           "inputs": [],
+           "name": "y"
+          },
+          {
+           "id": "add_14",
+           "op": "add",
+           "inputs": [
+            "param_12",
+            "param_1"
+           ]
+          }
+         ],
+         "output": "add_14"
+        }
+       }
+      ],
+      "output": "fold_15"
+     }
+    },
+    {
+     "id": "range_17",
+     "op": "range",
+     "inputs": [],
+     "value": 2
+    },
+    {
+     "id": "constant_19",
+     "op": "constant",
+     "inputs": [],
+     "value": "x"
+    },
+    {
+     "id": "map_20",
+     "op": "map",
+     "inputs": [
+      "range_17"
+     ],
+     "body": {
+      "params": [
+       "c",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_18",
+        "op": "param",
+        "inputs": [],
+        "name": "c"
+       }
+      ],
+      "output": "constant_19"
+     }
+    },
+    {
+     "id": "record_21",
+     "op": "record",
+     "inputs": [
+      "map_9",
+      "map_16",
+      "map_20"
+     ],
+     "value": [
+      "recs",
+      "sums",
+      "tag"
+     ]
+    }
+   ],
+   "output": "record_21"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "array",
+    "length": 2,
+    "of": {
+     "type": "number"
+    }
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "recs": {
+     "type": "array",
+     "length": 3,
+     "of": {
+      "type": "record",
+      "fields": {
+       "d": {
+        "type": "number"
+       },
+       "g": {
+        "type": "number"
+       }
+      }
+     }
+    },
+    "sums": {
+     "type": "array",
+     "length": 2,
+     "of": {
+      "type": "number"
+     }
+    },
+    "tag": {
+     "type": "array",
+     "length": 2,
+     "of": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "cost": 35,
+  "lanes": [
+   {
+    "args": [
+     5,
+     [
+      1,
+      2
+     ]
+    ],
+    "result": {
+     "recs": [
+      {
+       "d": 10,
+       "g": 1
+      },
+      {
+       "d": 10,
+       "g": 1
+      },
+      {
+       "d": 10,
+       "g": 1
+      }
+     ],
+     "sums": [
+      10,
+      10
+     ],
+     "tag": [
+      "x",
+      "x"
+     ]
+    }
+   },
+   {
+    "args": [
+     -1,
+     [
+      0,
+      0
+     ]
+    ],
+    "result": {
+     "recs": [
+      {
+       "d": -2,
+       "g": 1
+      },
+      {
+       "d": -2,
+       "g": 1
+      },
+      {
+       "d": -2,
+       "g": 1
+      }
+     ],
+     "sums": [
+      -2,
+      -2
+     ],
+     "tag": [
+      "x",
+      "x"
+     ]
+    }
+   },
+   {
+    "args": [
+     1e+308,
+     [
+      1,
+      1
+     ]
+    ],
+    "error": {
+     "nodeId": "mul_7",
+     "op": "mul"
+    }
+   }
+  ]
+ },
+ {
+  "name": "arith-chain-blame",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a",
+    "b"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "b"
+    },
+    {
+     "id": "mul_3",
+     "op": "mul",
+     "inputs": [
+      "param_1",
+      "param_2"
+     ]
+    },
+    {
+     "id": "constant_4",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "add_5",
+     "op": "add",
+     "inputs": [
+      "mul_3",
+      "constant_4"
+     ]
+    },
+    {
+     "id": "constant_6",
+     "op": "constant",
+     "inputs": [],
+     "value": 2
+    },
+    {
+     "id": "mul_7",
+     "op": "mul",
+     "inputs": [
+      "add_5",
+      "constant_6"
+     ]
+    },
+    {
+     "id": "sub_8",
+     "op": "sub",
+     "inputs": [
+      "mul_7",
+      "param_2"
+     ]
+    }
+   ],
+   "output": "sub_8"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "number"
+  },
+  "cost": 8,
+  "lanes": [
+   {
+    "args": [
+     2,
+     3
+    ],
+    "result": 11
+   },
+   {
+    "args": [
+     1e+200,
+     1e+200
+    ],
+    "error": {
+     "nodeId": "mul_3",
+     "op": "mul"
+    }
+   },
+   {
+    "args": [
+     1e+308,
+     2
+    ],
+    "error": {
+     "nodeId": "mul_3",
+     "op": "mul"
+    }
+   },
+   {
+    "args": [
+     1,
+     -1e+308
+    ],
+    "error": {
+     "nodeId": "mul_7",
+     "op": "mul"
+    }
+   }
+  ]
+ },
+ {
+  "name": "arith-root-output-checked",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "mul_2",
+     "op": "mul",
+     "inputs": [
+      "param_1",
+      "param_1"
+     ]
+    },
+    {
+     "id": "constant_3",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "add_4",
+     "op": "add",
+     "inputs": [
+      "mul_2",
+      "constant_3"
+     ]
+    }
+   ],
+   "output": "mul_2"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "number"
+  },
+  "cost": 4,
+  "lanes": [
+   {
+    "args": [
+     2
+    ],
+    "result": 4
+   },
+   {
+    "args": [
+     1e+200
+    ],
+    "error": {
+     "nodeId": "mul_2",
+     "op": "mul"
+    }
+   },
+   {
+    "args": [
+     -3
+    ],
+    "result": 9
+   }
+  ]
+ },
+ {
+  "name": "arith-body-output-checked",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a",
+    "arr"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "arr"
+    },
+    {
+     "id": "constant_5",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "map_7",
+     "op": "map",
+     "inputs": [
+      "param_2"
+     ],
+     "body": {
+      "params": [
+       "v",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_3",
+        "op": "param",
+        "inputs": [],
+        "name": "v"
+       },
+       {
+        "id": "mul_4",
+        "op": "mul",
+        "inputs": [
+         "param_3",
+         "param_3"
+        ]
+       },
+       {
+        "id": "add_6",
+        "op": "add",
+        "inputs": [
+         "mul_4",
+         "constant_5"
+        ]
+       }
+      ],
+      "output": "mul_4"
+     }
+    },
+    {
+     "id": "maxOf_8",
+     "op": "maxOf",
+     "inputs": [
+      "map_7"
+     ]
+    },
+    {
+     "id": "record_9",
+     "op": "record",
+     "inputs": [
+      "maxOf_8",
+      "param_1"
+     ],
+     "value": [
+      "r",
+      "s"
+     ]
+    }
+   ],
+   "output": "record_9"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "array",
+    "length": 2,
+    "of": {
+     "type": "number"
+    }
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "r": {
+     "type": "number"
+    },
+    "s": {
+     "type": "number"
+    }
+   }
+  },
+  "cost": 12,
+  "lanes": [
+   {
+    "args": [
+     1,
+     [
+      1,
+      2
+     ]
+    ],
+    "result": {
+     "r": 4,
+     "s": 1
+    }
+   },
+   {
+    "args": [
+     1,
+     [
+      1e+200,
+      1
+     ]
+    ],
+    "error": {
+     "nodeId": "mul_4",
+     "op": "mul"
+    }
+   }
+  ]
+ },
+ {
+  "name": "arith-fused-before-throwing-operand",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "a",
+    "b"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "a"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "b"
+    },
+    {
+     "id": "mul_3",
+     "op": "mul",
+     "inputs": [
+      "param_1",
+      "param_1"
+     ]
+    },
+    {
+     "id": "constant_4",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "div_5",
+     "op": "div",
+     "inputs": [
+      "constant_4",
+      "param_2"
+     ]
+    },
+    {
+     "id": "add_6",
+     "op": "add",
+     "inputs": [
+      "mul_3",
+      "div_5"
+     ]
+    }
+   ],
+   "output": "add_6"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "number"
+  },
+  "cost": 6,
+  "lanes": [
+   {
+    "args": [
+     2,
+     1
+    ],
+    "result": 5
+   },
+   {
+    "args": [
+     1e+200,
+     0
+    ],
+    "error": {
+     "nodeId": "mul_3",
+     "op": "mul"
+    }
+   },
+   {
+    "args": [
+     1,
+     0
+    ],
+    "error": {
+     "nodeId": "div_5",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     1e+200,
+     1
+    ],
+    "error": {
+     "nodeId": "mul_3",
+     "op": "mul"
+    }
+   }
+  ]
+ },
+ {
+  "name": "shared-eager-error-order",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "x",
+    "y"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "x"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "y"
+    },
+    {
+     "id": "constant_3",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "div_4",
+     "op": "div",
+     "inputs": [
+      "constant_3",
+      "param_1"
+     ]
+    },
+    {
+     "id": "div_5",
+     "op": "div",
+     "inputs": [
+      "constant_3",
+      "param_2"
+     ]
+    },
+    {
+     "id": "add_6",
+     "op": "add",
+     "inputs": [
+      "div_4",
+      "div_5"
+     ]
+    },
+    {
+     "id": "add_7",
+     "op": "add",
+     "inputs": [
+      "add_6",
+      "div_5"
+     ]
+    }
+   ],
+   "output": "add_7"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "number"
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "number"
+  },
+  "cost": 7,
+  "lanes": [
+   {
+    "args": [
+     1,
+     2
+    ],
+    "result": 2
+   },
+   {
+    "args": [
+     0,
+     0
+    ],
+    "error": {
+     "nodeId": "div_4",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     1,
+     0
+    ],
+    "error": {
+     "nodeId": "div_5",
+     "op": "div"
+    }
+   },
+   {
+    "args": [
+     0,
+     1
+    ],
+    "error": {
+     "nodeId": "div_4",
+     "op": "div"
+    }
+   }
+  ]
+ },
+ {
+  "name": "zero-param-callbacks",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "k",
+    "arr"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "k"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "arr"
+    },
+    {
+     "id": "map_3",
+     "op": "map",
+     "inputs": [
+      "param_2"
+     ],
+     "body": {
+      "params": [
+       "_elem",
+       "_index"
+      ],
+      "nodes": [],
+      "output": "param_1"
+     }
+    },
+    {
+     "id": "constant_4",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "gt_5",
+     "op": "gt",
+     "inputs": [
+      "param_1",
+      "constant_4"
+     ]
+    },
+    {
+     "id": "map_6",
+     "op": "map",
+     "inputs": [
+      "param_2"
+     ],
+     "body": {
+      "params": [
+       "_elem",
+       "_index"
+      ],
+      "nodes": [],
+      "output": "gt_5"
+     }
+    },
+    {
+     "id": "any_7",
+     "op": "any",
+     "inputs": [
+      "map_6"
+     ]
+    },
+    {
+     "id": "fold_8",
+     "op": "fold",
+     "inputs": [
+      "param_2",
+      "constant_4"
+     ],
+     "body": {
+      "params": [
+       "_acc",
+       "_elem",
+       "_index"
+      ],
+      "nodes": [],
+      "output": "param_1"
+     }
+    },
+    {
+     "id": "constant_9",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "div_10",
+     "op": "div",
+     "inputs": [
+      "constant_9",
+      "param_1"
+     ]
+    },
+    {
+     "id": "map_11",
+     "op": "map",
+     "inputs": [
+      "param_2"
+     ],
+     "body": {
+      "params": [
+       "_elem",
+       "_index"
+      ],
+      "nodes": [],
+      "output": "div_10"
+     }
+    },
+    {
+     "id": "record_12",
+     "op": "record",
+     "inputs": [
+      "map_11",
+      "fold_8",
+      "map_3",
+      "any_7"
+     ],
+     "value": [
+      "d",
+      "f",
+      "m",
+      "s"
+     ]
+    }
+   ],
+   "output": "record_12"
+  },
+  "paramTypes": [
+   {
+    "type": "number"
+   },
+   {
+    "type": "array",
+    "length": 2,
+    "of": {
+     "type": "number"
+    }
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "d": {
+     "type": "array",
+     "length": 2,
+     "of": {
+      "type": "number"
+     }
+    },
+    "f": {
+     "type": "number"
+    },
+    "m": {
+     "type": "array",
+     "length": 2,
+     "of": {
+      "type": "number"
+     }
+    },
+    "s": {
+     "type": "boolean"
+    }
+   }
+  },
+  "cost": 12,
+  "lanes": [
+   {
+    "args": [
+     1,
+     [
+      1,
+      2
+     ]
+    ],
+    "result": {
+     "d": [
+      1,
+      1
+     ],
+     "f": 1,
+     "m": [
+      1,
+      1
+     ],
+     "s": true
+    }
+   },
+   {
+    "args": [
+     -1,
+     [
+      0,
+      0
+     ]
+    ],
+    "result": {
+     "d": [
+      -1,
+      -1
+     ],
+     "f": -1,
+     "m": [
+      -1,
+      -1
+     ],
+     "s": false
+    }
+   },
+   {
+    "args": [
+     0,
+     [
+      1,
+      2
+     ]
+    ],
+    "error": {
+     "nodeId": "div_10",
+     "op": "div"
+    }
+   }
+  ]
+ },
+ {
+  "name": "grid-step",
+  "program": {
+   "format": "neurom-program",
+   "params": [
+    "state",
+    "action",
+    "params"
+   ],
+   "nodes": [
+    {
+     "id": "param_1",
+     "op": "param",
+     "inputs": [],
+     "name": "state"
+    },
+    {
+     "id": "param_2",
+     "op": "param",
+     "inputs": [],
+     "name": "action"
+    },
+    {
+     "id": "param_3",
+     "op": "param",
+     "inputs": [],
+     "name": "params"
+    },
+    {
+     "id": "get_4",
+     "op": "get",
+     "inputs": [
+      "param_3"
+     ],
+     "name": "grid"
+    },
+    {
+     "id": "get_5",
+     "op": "get",
+     "inputs": [
+      "param_1"
+     ],
+     "name": "pos"
+    },
+    {
+     "id": "mod_6",
+     "op": "mod",
+     "inputs": [
+      "get_5",
+      "get_4"
+     ]
+    },
+    {
+     "id": "div_7",
+     "op": "div",
+     "inputs": [
+      "get_5",
+      "get_4"
+     ]
+    },
+    {
+     "id": "floor_8",
+     "op": "floor",
+     "inputs": [
+      "div_7"
+     ]
+    },
+    {
+     "id": "constant_9",
+     "op": "constant",
+     "inputs": [],
+     "value": 1
+    },
+    {
+     "id": "eq_10",
+     "op": "eq",
+     "inputs": [
+      "param_2",
+      "constant_9"
+     ]
+    },
+    {
+     "id": "constant_11",
+     "op": "constant",
+     "inputs": [],
+     "value": 3
+    },
+    {
+     "id": "eq_12",
+     "op": "eq",
+     "inputs": [
+      "param_2",
+      "constant_11"
+     ]
+    },
+    {
+     "id": "constant_13",
+     "op": "constant",
+     "inputs": [],
+     "value": -1
+    },
+    {
+     "id": "constant_14",
+     "op": "constant",
+     "inputs": [],
+     "value": 0
+    },
+    {
+     "id": "select_15",
+     "op": "select",
+     "inputs": [
+      "eq_12",
+      "constant_13",
+      "constant_14"
+     ]
+    },
+    {
+     "id": "select_16",
+     "op": "select",
+     "inputs": [
+      "eq_10",
+      "constant_9",
+      "select_15"
+     ]
+    },
+    {
+     "id": "add_17",
+     "op": "add",
+     "inputs": [
+      "mod_6",
+      "select_16"
+     ]
+    },
+    {
+     "id": "sub_18",
+     "op": "sub",
+     "inputs": [
+      "get_4",
+      "constant_9"
+     ]
+    },
+    {
+     "id": "clamp_19",
+     "op": "clamp",
+     "inputs": [
+      "add_17",
+      "constant_14",
+      "sub_18"
+     ]
+    },
+    {
+     "id": "constant_20",
+     "op": "constant",
+     "inputs": [],
+     "value": 2
+    },
+    {
+     "id": "eq_21",
+     "op": "eq",
+     "inputs": [
+      "param_2",
+      "constant_20"
+     ]
+    },
+    {
+     "id": "eq_22",
+     "op": "eq",
+     "inputs": [
+      "param_2",
+      "constant_14"
+     ]
+    },
+    {
+     "id": "select_23",
+     "op": "select",
+     "inputs": [
+      "eq_22",
+      "constant_13",
+      "constant_14"
+     ]
+    },
+    {
+     "id": "select_24",
+     "op": "select",
+     "inputs": [
+      "eq_21",
+      "constant_9",
+      "select_23"
+     ]
+    },
+    {
+     "id": "add_25",
+     "op": "add",
+     "inputs": [
+      "floor_8",
+      "select_24"
+     ]
+    },
+    {
+     "id": "clamp_26",
+     "op": "clamp",
+     "inputs": [
+      "add_25",
+      "constant_14",
+      "sub_18"
+     ]
+    },
+    {
+     "id": "mul_27",
+     "op": "mul",
+     "inputs": [
+      "clamp_26",
+      "get_4"
+     ]
+    },
+    {
+     "id": "add_28",
+     "op": "add",
+     "inputs": [
+      "mul_27",
+      "clamp_19"
+     ]
+    },
+    {
+     "id": "get_29",
+     "op": "get",
+     "inputs": [
+      "param_3"
+     ],
+     "name": "seed"
+    },
+    {
+     "id": "u32_30",
+     "op": "u32",
+     "inputs": [
+      "get_29"
+     ]
+    },
+    {
+     "id": "get_31",
+     "op": "get",
+     "inputs": [
+      "param_1"
+     ],
+     "name": "cells"
+    },
+    {
+     "id": "get_36",
+     "op": "get",
+     "inputs": [
+      "param_1"
+     ],
+     "name": "t"
+    },
+    {
+     "id": "constant_37",
+     "op": "constant",
+     "inputs": [],
+     "value": 16
+    },
+    {
+     "id": "mul_38",
+     "op": "mul",
+     "inputs": [
+      "get_36",
+      "constant_37"
+     ]
+    },
+    {
+     "id": "constant_42",
+     "op": "constant",
+     "inputs": [],
+     "value": 0.1
+    },
+    {
+     "id": "map_50",
+     "op": "map",
+     "inputs": [
+      "get_31"
+     ],
+     "body": {
+      "params": [
+       "c",
+       "i"
+      ],
+      "nodes": [
+       {
+        "id": "param_32",
+        "op": "param",
+        "inputs": [],
+        "name": "c"
+       },
+       {
+        "id": "param_33",
+        "op": "param",
+        "inputs": [],
+        "name": "i"
+       },
+       {
+        "id": "eq_34",
+        "op": "eq",
+        "inputs": [
+         "param_33",
+         "add_28"
+        ]
+       },
+       {
+        "id": "get_35",
+        "op": "get",
+        "inputs": [
+         "param_32"
+        ],
+        "name": "ore"
+       },
+       {
+        "id": "add_39",
+        "op": "add",
+        "inputs": [
+         "mul_38",
+         "param_33"
+        ]
+       },
+       {
+        "id": "u32_40",
+        "op": "u32",
+        "inputs": [
+         "add_39"
+        ]
+       },
+       {
+        "id": "rand_41",
+        "op": "rand",
+        "inputs": [
+         "u32_30",
+         "u32_40"
+        ]
+       },
+       {
+        "id": "lt_43",
+        "op": "lt",
+        "inputs": [
+         "rand_41",
+         "constant_42"
+        ]
+       },
+       {
+        "id": "select_44",
+        "op": "select",
+        "inputs": [
+         "lt_43",
+         "constant_9",
+         "constant_14"
+        ]
+       },
+       {
+        "id": "add_45",
+        "op": "add",
+        "inputs": [
+         "get_35",
+         "select_44"
+        ]
+       },
+       {
+        "id": "select_46",
+        "op": "select",
+        "inputs": [
+         "eq_34",
+         "constant_14",
+         "add_45"
+        ]
+       },
+       {
+        "id": "get_47",
+        "op": "get",
+        "inputs": [
+         "param_32"
+        ],
+        "name": "seen"
+       },
+       {
+        "id": "or_48",
+        "op": "or",
+        "inputs": [
+         "get_47",
+         "eq_34"
+        ]
+       },
+       {
+        "id": "record_49",
+        "op": "record",
+        "inputs": [
+         "select_46",
+         "or_48"
+        ],
+        "value": [
+         "ore",
+         "seen"
+        ]
+       }
+      ],
+      "output": "record_49"
+     }
+    },
+    {
+     "id": "index_51",
+     "op": "index",
+     "inputs": [
+      "get_31",
+      "add_28"
+     ]
+    },
+    {
+     "id": "get_52",
+     "op": "get",
+     "inputs": [
+      "index_51"
+     ],
+     "name": "ore"
+    },
+    {
+     "id": "map_56",
+     "op": "map",
+     "inputs": [
+      "map_50"
+     ],
+     "body": {
+      "params": [
+       "c",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_53",
+        "op": "param",
+        "inputs": [],
+        "name": "c"
+       },
+       {
+        "id": "get_54",
+        "op": "get",
+        "inputs": [
+         "param_53"
+        ],
+        "name": "seen"
+       },
+       {
+        "id": "select_55",
+        "op": "select",
+        "inputs": [
+         "get_54",
+         "constant_9",
+         "constant_14"
+        ]
+       }
+      ],
+      "output": "select_55"
+     }
+    },
+    {
+     "id": "map_61",
+     "op": "map",
+     "inputs": [
+      "map_50"
+     ],
+     "body": {
+      "params": [
+       "c",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_57",
+        "op": "param",
+        "inputs": [],
+        "name": "c"
+       },
+       {
+        "id": "get_58",
+        "op": "get",
+        "inputs": [
+         "param_57"
+        ],
+        "name": "ore"
+       },
+       {
+        "id": "gt_59",
+        "op": "gt",
+        "inputs": [
+         "get_58",
+         "constant_14"
+        ]
+       },
+       {
+        "id": "select_60",
+        "op": "select",
+        "inputs": [
+         "gt_59",
+         "constant_9",
+         "constant_14"
+        ]
+       }
+      ],
+      "output": "select_60"
+     }
+    },
+    {
+     "id": "constant_62",
+     "op": "constant",
+     "inputs": [],
+     "value": 4
+    },
+    {
+     "id": "bits_63",
+     "op": "bits",
+     "inputs": [
+      "add_28",
+      "constant_62"
+     ]
+    },
+    {
+     "id": "get_64",
+     "op": "get",
+     "inputs": [
+      "param_1"
+     ],
+     "name": "score"
+    },
+    {
+     "id": "add_65",
+     "op": "add",
+     "inputs": [
+      "get_64",
+      "get_52"
+     ]
+    },
+    {
+     "id": "thermometer_66",
+     "op": "thermometer",
+     "inputs": [
+      "add_65"
+     ],
+     "value": [
+      1,
+      3,
+      6
+     ]
+    },
+    {
+     "id": "concat_67",
+     "op": "concat",
+     "inputs": [
+      "map_56",
+      "map_61",
+      "bits_63",
+      "thermometer_66"
+     ]
+    },
+    {
+     "id": "fold_73",
+     "op": "fold",
+     "inputs": [
+      "map_50",
+      "constant_14"
+     ],
+     "body": {
+      "params": [
+       "acc",
+       "c",
+       "_index"
+      ],
+      "nodes": [
+       {
+        "id": "param_68",
+        "op": "param",
+        "inputs": [],
+        "name": "acc"
+       },
+       {
+        "id": "param_69",
+        "op": "param",
+        "inputs": [],
+        "name": "c"
+       },
+       {
+        "id": "get_70",
+        "op": "get",
+        "inputs": [
+         "param_69"
+        ],
+        "name": "seen"
+       },
+       {
+        "id": "select_71",
+        "op": "select",
+        "inputs": [
+         "get_70",
+         "constant_9",
+         "constant_14"
+        ]
+       },
+       {
+        "id": "add_72",
+        "op": "add",
+        "inputs": [
+         "param_68",
+         "select_71"
+        ]
+       }
+      ],
+      "output": "add_72"
+     }
+    },
+    {
+     "id": "add_74",
+     "op": "add",
+     "inputs": [
+      "get_36",
+      "constant_9"
+     ]
+    },
+    {
+     "id": "set_75",
+     "op": "set",
+     "inputs": [
+      "param_1",
+      "map_50"
+     ],
+     "name": "cells"
+    },
+    {
+     "id": "set_76",
+     "op": "set",
+     "inputs": [
+      "set_75",
+      "add_28"
+     ],
+     "name": "pos"
+    },
+    {
+     "id": "set_77",
+     "op": "set",
+     "inputs": [
+      "set_76",
+      "add_74"
+     ],
+     "name": "t"
+    },
+    {
+     "id": "set_78",
+     "op": "set",
+     "inputs": [
+      "set_77",
+      "add_65"
+     ],
+     "name": "score"
+    },
+    {
+     "id": "eq_79",
+     "op": "eq",
+     "inputs": [
+      "fold_73",
+      "constant_37"
+     ]
+    },
+    {
+     "id": "record_80",
+     "op": "record",
+     "inputs": [
+      "eq_79",
+      "get_52",
+      "concat_67",
+      "fold_73"
+     ],
+     "value": [
+      "done",
+      "mined",
+      "obs",
+      "visible"
+     ]
+    },
+    {
+     "id": "record_81",
+     "op": "record",
+     "inputs": [
+      "record_80",
+      "set_78"
+     ],
+     "value": [
+      "event",
+      "state"
+     ]
+    }
+   ],
+   "output": "record_81"
+  },
+  "paramTypes": [
+   {
+    "type": "record",
+    "fields": {
+     "cells": {
+      "type": "array",
+      "length": 16,
+      "of": {
+       "type": "record",
+       "fields": {
+        "ore": {
+         "type": "number"
+        },
+        "seen": {
+         "type": "boolean"
+        }
+       }
+      }
+     },
+     "pos": {
+      "type": "number"
+     },
+     "t": {
+      "type": "number"
+     },
+     "score": {
+      "type": "number"
+     }
+    }
+   },
+   {
+    "type": "number"
+   },
+   {
+    "type": "record",
+    "fields": {
+     "seed": {
+      "type": "number"
+     },
+     "grid": {
+      "type": "number"
+     }
+    }
+   }
+  ],
+  "exact": true,
+  "result": {
+   "type": "record",
+   "fields": {
+    "event": {
+     "type": "record",
+     "fields": {
+      "done": {
+       "type": "boolean"
+      },
+      "mined": {
+       "type": "number"
+      },
+      "obs": {
+       "type": "vector",
+       "width": 39
+      },
+      "visible": {
+       "type": "number"
+      }
+     }
+    },
+    "state": {
+     "type": "record",
+     "fields": {
+      "cells": {
+       "type": "array",
+       "length": 16,
+       "of": {
+        "type": "record",
+        "fields": {
+         "ore": {
+          "type": "number"
+         },
+         "seen": {
+          "type": "boolean"
+         }
+        }
+       }
+      },
+      "pos": {
+       "type": "number"
+      },
+      "score": {
+       "type": "number"
+      },
+      "t": {
+       "type": "number"
+      }
+     }
+    }
+   }
+  },
+  "cost": 471,
+  "lanes": [
+   {
+    "args": [
+     {
+      "cells": [
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": true
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": true
+       }
+      ],
+      "pos": 5,
+      "t": 0,
+      "score": 0
+     },
+     1,
+     {
+      "seed": 7,
+      "grid": 4
+     }
+    ],
+    "result": {
+     "event": {
+      "done": false,
+      "mined": 0,
+      "obs": [
+       1,
+       0,
+       0,
+       0,
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       1,
+       0,
+       0,
+       0,
+       0,
+       1,
+       0,
+       1,
+       1,
+       0,
+       1,
+       1,
+       0,
+       1,
+       1,
+       0,
+       1,
+       1,
+       0,
+       1,
+       1,
+       0,
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "visible": 5
+     },
+     "state": {
+      "cells": [
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": true
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": true
+       }
+      ],
+      "pos": 6,
+      "t": 1,
+      "score": 0
+     }
+    }
+   },
+   {
+    "args": [
+     {
+      "cells": [
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       }
+      ],
+      "pos": 15,
+      "t": 3,
+      "score": 2.5
+     },
+     3,
+     {
+      "seed": 99,
+      "grid": 4
+     }
+    ],
+    "result": {
+     "event": {
+      "done": false,
+      "mined": 2,
+      "obs": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       1,
+       0,
+       0,
+       1,
+       1,
+       1,
+       0,
+       1,
+       1,
+       1,
+       0,
+       1,
+       1,
+       1,
+       0,
+       1,
+       0,
+       1,
+       0,
+       1,
+       1,
+       1,
+       1,
+       1,
+       0
+      ],
+      "visible": 1
+     },
+     "state": {
+      "cells": [
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 1,
+        "seen": false
+       }
+      ],
+      "pos": 14,
+      "t": 4,
+      "score": 4.5
+     }
+    }
+   },
+   {
+    "args": [
+     {
+      "cells": [
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       }
+      ],
+      "pos": 0,
+      "t": 9,
+      "score": -1
+     },
+     0,
+     {
+      "seed": 0,
+      "grid": 4
+     }
+    ],
+    "result": {
+     "event": {
+      "done": true,
+      "mined": 0,
+      "obs": [
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "visible": 16
+     },
+     "state": {
+      "cells": [
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 1,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 0,
+        "seen": true
+       }
+      ],
+      "pos": 0,
+      "t": 10,
+      "score": -1
+     }
+    }
+   },
+   {
+    "args": [
+     {
+      "cells": [
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 4,
+        "seen": false
+       },
+       {
+        "ore": 5,
+        "seen": false
+       },
+       {
+        "ore": 6,
+        "seen": false
+       },
+       {
+        "ore": 7,
+        "seen": false
+       },
+       {
+        "ore": 8,
+        "seen": false
+       },
+       {
+        "ore": 9,
+        "seen": true
+       },
+       {
+        "ore": 10,
+        "seen": true
+       },
+       {
+        "ore": 11,
+        "seen": true
+       },
+       {
+        "ore": 12,
+        "seen": true
+       },
+       {
+        "ore": 13,
+        "seen": true
+       },
+       {
+        "ore": 14,
+        "seen": true
+       },
+       {
+        "ore": 15,
+        "seen": true
+       }
+      ],
+      "pos": 3,
+      "t": 1,
+      "score": 1
+     },
+     2,
+     {
+      "seed": 5,
+      "grid": 4
+     }
+    ],
+    "result": {
+     "event": {
+      "done": false,
+      "mined": 7,
+      "obs": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       1,
+       0,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       0,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       0,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       1,
+       0,
+       1,
+       1,
+       1
+      ],
+      "visible": 8
+     },
+     "state": {
+      "cells": [
+       {
+        "ore": 0,
+        "seen": false
+       },
+       {
+        "ore": 1,
+        "seen": false
+       },
+       {
+        "ore": 2,
+        "seen": false
+       },
+       {
+        "ore": 3,
+        "seen": false
+       },
+       {
+        "ore": 4,
+        "seen": false
+       },
+       {
+        "ore": 5,
+        "seen": false
+       },
+       {
+        "ore": 6,
+        "seen": false
+       },
+       {
+        "ore": 0,
+        "seen": true
+       },
+       {
+        "ore": 8,
+        "seen": false
+       },
+       {
+        "ore": 9,
+        "seen": true
+       },
+       {
+        "ore": 10,
+        "seen": true
+       },
+       {
+        "ore": 11,
+        "seen": true
+       },
+       {
+        "ore": 12,
+        "seen": true
+       },
+       {
+        "ore": 13,
+        "seen": true
+       },
+       {
+        "ore": 14,
+        "seen": true
+       },
+       {
+        "ore": 15,
+        "seen": true
+       }
+      ],
+      "pos": 7,
+      "t": 2,
+      "score": 8
+     }
+    }
+   }
+  ]
+ }
+]

@@ -1,0 +1,109 @@
+/* styles.css — NEUROM studio shell (dark, ComfyUI-flavoured): fixed top bar, left rail, floating library drawer,
+   full-screen board (see editor/editor.css), bottom-right zoom toolbar and bottom status strip. Everything after the
+   shell section is the shared vocabulary the drawer and the module bodies use (buttons, inputs, notes, pins, tones). */
+:root{--bg:#16171b;--panel:#22242a;--panel-head:#2a2c34;--ink:#e6e8ec;--muted:#98a0aa;--line:#33363f;--line-strong:#474b57;--soft:#2c2f37;--grid-dot:#2e3138;--focus:#7aa2f7;
+  --inh:#5e8fe8;--spike:#f2bc4a;--plastic:#d9a040;--mod:#9a8ce8;--ok:#4fbf7e;--bad:#f0684d;--wire:#b8a878;--sens:#5fb8a6;
+  /* the training family (trainer, candidates, evaluator): its own rose, so a trainer never reads as an error (--bad) */
+  --train:#e5799c;
+  /* wire palette (editor/wire-palette.js colorEdges): no two wires on one block share an entry. Low indices are used first */
+  --wire-0:#7aa2f7;--wire-1:#f7768e;--wire-2:#9ece6a;--wire-3:#e0af68;--wire-4:#bb9af7;--wire-5:#2ac3de;--wire-6:#ff9e64;--wire-7:#73daca;--wire-8:#f5d76e;--wire-9:#db4b4b;--wire-10:#ff79c6;--wire-11:#c0caf5;
+  --topbar-h:52px;--rail-h:48px;--status-h:28px;--mono:ui-monospace,Menlo,Consolas,"SF Mono",monospace;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+body{margin:0;background:var(--bg);color:var(--ink);font:13.5px/1.55 "Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+[hidden]{display:none !important}
+a{color:var(--focus)}
+::selection{background:color-mix(in srgb,var(--focus) 35%,transparent)}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+
+/* ---------------------------------------------------------------- shell: top bar */
+header.app-header{position:fixed;top:0;left:0;right:0;height:var(--topbar-h);z-index:40;display:flex;align-items:center;gap:14px;padding:0 14px 0 12px;background:#131418;border-bottom:1px solid var(--line);box-shadow:0 1px 0 rgba(255,255,255,.02)}
+.app-header .brand{display:flex;align-items:baseline;gap:10px;min-width:0;flex:none}
+.app-header h1{margin:0;font-size:14px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+.app-header .brand .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38vw}
+.app-header .app-note{display:flex;gap:12px;min-width:0;flex:1;overflow:hidden;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.app-header .sync-note{display:flex;align-items:center;gap:6px;white-space:nowrap;color:var(--spike)}
+.app-header .sync-note button{height:22px;padding:0 8px;font-size:11px}
+.app-header .app-actions{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto;overflow-x:auto;overflow-y:hidden;max-width:70vw;scrollbar-width:none}
+.app-header .app-actions button{height:30px;white-space:nowrap}
+.app-header .lang-toggle{flex:none;display:flex;align-items:center;gap:2px;height:30px;padding:0 3px;font-size:12px}
+.lang-toggle span{padding:1px 7px;border-radius:4px;color:var(--muted);line-height:1.6}
+.lang-toggle span.on{background:var(--panel-head);color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px var(--line-strong)}
+
+/* ---------------------------------------------------------------- shell: rail + drawer */
+nav.nav-rail{position:fixed;top:var(--topbar-h);left:0;bottom:var(--status-h);width:var(--rail-h);z-index:35;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0;background:#131418;border-right:1px solid var(--line)}
+.nav-rail .rail-btn{width:36px;height:36px;padding:0;display:grid;place-items:center;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.02em;line-height:1}
+.nav-rail .rail-btn:hover{background:var(--soft);color:var(--ink)}
+.nav-rail .rail-btn.on{background:var(--panel-head);color:var(--ink);border-color:var(--line-strong);box-shadow:inset 3px 0 0 var(--focus)}
+aside#library-drawer.drawer{position:fixed;top:calc(var(--topbar-h) + 10px);left:calc(var(--rail-h) + 10px);bottom:calc(var(--status-h) + 10px);width:min(360px,calc(100vw - var(--rail-h) - 20px));z-index:36;display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line-strong);border-radius:12px;box-shadow:0 18px 48px -16px rgba(0,0,0,.9),0 2px 6px rgba(0,0,0,.5);overflow:hidden}
+.drawer .drawer-head{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 14px;border-bottom:1px solid var(--line);background:var(--panel-head)}
+.drawer .drawer-head h2{margin:0;flex:1;font-size:13px}
+.drawer .drawer-close{width:28px;height:28px;padding:0;border-color:transparent;color:var(--muted)}
+.drawer .drawer-body{flex:1;min-height:0;overflow:auto;padding:12px 14px 16px}
+
+/* ---------------------------------------------------------------- shell: conflict panel (a local save this workbench cannot read; ADR 0008) */
+dialog.conflict{width:min(560px,92vw);max-height:86vh;padding:0;border:1px solid var(--line-strong);border-radius:12px;background:var(--panel);color:var(--ink);box-shadow:0 24px 64px -16px rgba(0,0,0,.9);overflow:hidden}
+dialog.conflict[open]{display:flex;flex-direction:column}
+dialog.conflict::backdrop{background:rgba(0,0,0,.6)}
+.conflict .conflict-head{display:flex;align-items:center;min-height:40px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--panel-head)}
+.conflict .conflict-head h2{margin:0;font-size:13px;color:var(--spike)}
+.conflict .conflict-body{flex:1;min-height:0;overflow:auto;padding:4px 14px 14px}
+.conflict .conflict-reason{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:10px 0;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#191a1f;font-size:12px}
+.conflict .conflict-reason dt{color:var(--muted)}
+.conflict .conflict-reason dd{margin:0;font-family:var(--mono);overflow-wrap:anywhere}
+.conflict .conflict-confirm{margin-top:8px;padding:8px 10px;border:1px solid var(--bad);border-radius:6px}
+.conflict .conflict-confirm p{margin:0 0 4px}
+
+/* ---------------------------------------------------------------- shell: zoom toolbar + status strip */
+.canvas-toolbar{position:fixed;right:14px;bottom:calc(var(--status-h) + 12px);z-index:38;display:flex;align-items:center;gap:2px;padding:4px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line-strong);border-radius:10px;box-shadow:0 8px 24px -10px rgba(0,0,0,.9);backdrop-filter:blur(8px)}
+.canvas-toolbar button{min-width:32px;height:30px;padding:0 9px;border-color:transparent;background:transparent;color:var(--muted);font-size:12px;border-radius:6px;white-space:nowrap}
+.canvas-toolbar button:hover{background:var(--soft);color:var(--ink)}
+#canvas-zoom-label{min-width:48px;text-align:center;font-family:var(--mono);font-size:11.5px;color:var(--ink)}
+.editor-toolbar{position:fixed;top:calc(var(--topbar-h) + 12px);left:calc(var(--rail-h) + 16px);z-index:34;display:flex;gap:3px;padding:5px;border:1px solid var(--line-strong);border-radius:9px;background:var(--panel);box-shadow:0 5px 18px #0005}
+.editor-toolbar button{font-size:12px;border-color:transparent;background:transparent;padding:4px 8px}
+.editor-toolbar button:hover{background:var(--soft)}
+footer.status-strip{position:fixed;left:0;right:0;bottom:0;height:var(--status-h);z-index:40;display:flex;align-items:center;gap:14px;padding:0 12px;background:#131418;border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden}
+.status-strip #status{flex:1;min-width:0;margin:0;font:inherit;color:var(--ink);overflow:hidden;text-overflow:ellipsis;min-height:0}
+.status-strip #status.ok{color:var(--ok)}.status-strip #status.bad{color:var(--bad)}.status-strip #status.warn{color:var(--plastic)}
+
+/* ---------------------------------------------------------------- shared vocabulary */
+h2{font-size:14px;margin:0 0 8px;font-weight:700}
+h3{font-size:12px;color:var(--muted);font-weight:600;margin:12px 0 6px;letter-spacing:.04em}
+.sub{color:var(--muted);font-size:12px;font-weight:400}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0;font-size:13px;min-width:0}
+button{font:inherit;font-size:12.5px;padding:4px 10px;border:1px solid var(--line-strong);border-radius:6px;background:var(--soft);color:var(--ink);cursor:pointer;line-height:1.4;max-width:100%}
+button:hover{background:var(--line-strong)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+button:disabled{opacity:.4;cursor:default}
+input,select,textarea{font:inherit;font-size:12.5px;padding:3px 7px;background:#191a1f;color:var(--ink);border:1px solid var(--line-strong);border-radius:5px;min-width:0;max-width:100%}
+input[type=checkbox],input[type=radio]{accent-color:var(--focus);margin:0 2px 0 0}
+select{padding-right:4px}
+textarea{width:100%;font-family:var(--mono);font-size:12px}
+.note{font-size:12px;color:var(--muted);line-height:1.55;margin-top:6px;overflow-wrap:anywhere}
+.pin{display:inline-block;padding:0 6px;border:1px solid var(--line-strong);border-radius:4px;background:#191a1f;font-family:var(--mono);font-size:11.5px;max-width:100%;overflow-wrap:anywhere;word-break:break-all;vertical-align:baseline}
+.warn{color:var(--bad)}.ok{color:var(--ok)}.bad{color:var(--bad)}.m{color:var(--muted)}.pl{color:var(--plastic)}
+.mini{font-size:12px;padding:2px 8px}
+
+/* list items inside the drawer (palette entries, template cards) */
+.card{border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0;background:var(--soft)}.card:hover{border-color:var(--mod)}.card .meta{font-size:12px;color:var(--muted)}
+.card .mini{font-size:11px;padding:2px 6px;border-color:var(--line);color:var(--muted)}
+.pal{display:block;width:100%;text-align:left;margin:4px 0;padding:7px 10px;background:transparent;border-color:var(--line)}.pal:hover{background:var(--soft);border-color:var(--line-strong)}
+.pal-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 6px}
+.pal .m{font-family:var(--mono);font-size:10.5px}
+.card.tpl b{overflow-wrap:anywhere}.card.tpl-use{cursor:pointer}
+details>summary{cursor:pointer;font-size:12.5px;color:var(--muted);user-select:none}
+
+/* ---------------------------------------------------------------- narrow viewports: keep toolbars usable, board stays a board */
+@media (max-width:720px){
+  :root{--topbar-h:84px}
+  header.app-header{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;padding:8px}
+  .app-header .brand{grid-row:1;grid-column:1}
+  .app-header .brand .sub,.app-header .app-note{display:none}
+  .app-header .app-actions{display:contents}
+  .app-header .app-actions button{grid-row:2}
+  .status-strip .canvas-hint{display:none}
+  .canvas-toolbar{right:8px;bottom:calc(var(--status-h) + 8px);max-width:calc(100vw - 16px);overflow-x:auto;scrollbar-width:none}
+  .canvas-toolbar button{padding:0 7px}
+  aside#library-drawer.drawer{left:var(--rail-h);top:var(--topbar-h);bottom:var(--status-h);width:calc(100vw - var(--rail-h));border-radius:0}
+}

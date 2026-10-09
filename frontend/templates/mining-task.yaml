@@ -1,0 +1,415 @@
+# mining-task — the mining game. The template itself is the training module. Its sections are the seed partition, the
+# environment, reward + weights, metrics, trainer, candidates, evaluator, execution and map view. Its sub-canvas holds
+# 回路 (loop → net → readout → loop.action). The environment has these parts:
+# `params` (the rules: grid, steps, capacity, tile distribution, values, settlement, base, target, whether delivering
+# ends the episode), `sense` (what the agent can perceive: the view radius), `rng` (the LCG tables of the map generator)
+# and the scenario code module `scene` (the step budget, the action list and init/input/step). `scene` reads
+# params/sense/rng as inputs and is wired into `loop.scenario`. Environment parameters never reach the network. Only the
+# input bits do. `input` alone decides what the network sees (coal and gold in the square view, the base offset, the
+# bag, the steps left). The readout map alone decides which output slots act (a null entry is the explicit invalid
+# action).
+#
+# State    = { map: number[256] (x-major, cell = x*grid + y; cells beyond grid*grid are 0), x, y, baseX, baseY, steps, bagDirt,
+#              bagCoal, bagGold, bagCount, bagValue, delivered, hasDelivered, exited, settledValue, targetReached, invalid }
+# Actions: 7 slots N, E, S, W, dig, drop, stop|deliver. The last slot is `deliver` under base settlement. When
+# deliverEnds is off, a delivery empties the bag and the episode continues until the step budget ends.
+format: neurom-template
+id: mining-task
+revision: 1
+name: 挖矿任务
+kind: composite
+preset: { label: 挖矿任务 }
+modules:
+  params:
+    kind: params
+    title: 环境参数
+    config:
+      functions: []
+      fields:
+        grid: { type: int, label: 网格边长, min: 2, max: 16, default: 16 }
+        steps: { type: int, label: 步数上限, min: 1, max: 63, default: 63 }
+        capacity: { type: int, label: 背包容量, min: 1, max: 9, default: 3 }
+        distEmpty: { type: number, label: 空地概率, min: 0, max: 1, default: 0.67 }
+        distDirt: { type: number, label: 土概率, min: 0, max: 1, default: 0.2 }
+        distCoal: { type: number, label: 碳概率, min: 0, max: 1, default: 0.1 }
+        distGold: { type: number, label: 金概率, min: 0, max: 1, default: 0.03 }
+        valueDirt: { type: int, label: 土价值, min: 0, max: 100, default: 1 }
+        valueCoal: { type: int, label: 碳价值, min: 0, max: 100, default: 2 }
+        valueGold: { type: int, label: 金价值, min: 0, max: 100, default: 10 }
+        settlement: { type: enum, label: 结算方式, values: [anywhere, base], default: base }
+        baseX: { type: int, label: 基地 X, min: 0, max: grid - 1, default: 0 }
+        baseY: { type: int, label: 基地 Y, min: 0, max: grid - 1, default: 0 }
+        targetValue: { type: int, label: 目标价值, min: 1, max: 900, default: 1 }
+        deliverClearsBag: { type: boolean, label: 交付后清空背包, default: true }
+        deliverEnds: { type: boolean, label: 交付后结束回合, default: false }
+  sense:
+    kind: params
+    title: 感知参数
+    config:
+      fields:
+        radius: { type: int, label: 方形视野半径, min: 1, max: 4, default: 4 }
+  rng: { kind: random, title: 随机数, config: { multiplier: 1664525, increment: 1013904223, draws: 512 } }
+  weights:
+    kind: params
+    title: 奖励权重
+    config:
+      fields:
+        value: { type: number, label: 价值系数, min: -100, max: 100, default: 1 }
+        step: { type: number, label: 每步成本, min: -100, max: 100, default: 0 }
+        invalid: { type: number, label: 无效动作成本, min: -100, max: 100, default: 0 }
+        success: { type: number, label: 成功奖励, min: -100, max: 100, default: 0 }
+        failure: { type: number, label: 失败成本, min: -100, max: 100, default: 0 }
+  reward:
+    kind: code
+    title: 奖励
+    config:
+      inputs: [weights]
+      source: |-
+        /**
+         * 结算价值增量乘价值系数，减每步成本与无效动作成本；回合结束时加成功奖励或减失败成本。
+         * @param transition 本步转移
+         * @returns 本步奖励
+         */
+        export function reward(transition) {
+          return weights.value * (transition.next.settledValue - transition.prev.settledValue)
+            - weights.step
+            - (transition.next.invalid ? weights.invalid : 0)
+            + (transition.done ? (transition.success ? weights.success : -weights.failure) : 0);
+        }
+  settled:
+    kind: code
+    title: 结算价值
+    config:
+      source: |-
+        /**
+         * 回合结束时的结算价值。
+         * @param episode 回合摘要
+         * @returns 结算价值
+         */
+        export function settled(episode) {
+          return episode.final.settledValue;
+        }
+  ret:
+    kind: code
+    title: 回报
+    config:
+      source: |-
+        /**
+         * 回合累计回报。
+         * @param episode 回合摘要
+         * @returns 回报
+         */
+        export function ret(episode) {
+          return episode.return;
+        }
+  successRate:
+    kind: code
+    title: 成功率
+    config:
+      source: |-
+        /**
+         * 回合成功为 1，否则为 0。
+         * @param episode 回合摘要
+         * @returns 0 或 1
+         */
+        export function successRate(episode) {
+          return episode.success ? 1 : 0;
+        }
+  seeds:
+    kind: partition
+    title: 种子分区
+    config:
+      kind: seed
+      seed:
+        training: { seed: 1, count: 32 }
+        validation: { seed: 200000000, count: 64 }
+        test: { seed: 300000000, count: 256 }
+  scene:
+    kind: code
+    title: 场景
+    config:
+      inputs: [params, sense, rng]
+      source: |-
+        export const budget = params.steps;
+        /** 结算方式为 base 时最后一个动作是 deliver，否则是 stop。 */
+        export const actions = ['N', 'E', 'S', 'W', 'dig', 'drop', params.settlement === 'base' ? 'deliver' : 'stop'];
+        /**
+         * 按回合种子抽出的地图（基地格为空地）；智能体站在基地，背包为空。
+         * @param start 回合记录 { seed }
+         * @returns 初始状态 State
+         */
+        export function init(start) {
+          // The map generator is the LCG s' = s * 1664525 + 1013904223 (mod 2^32); its n-th state is affine in the seed,
+          // s_n = mul[n-1] * seed + add[n-1] (mod 2^32) (the rng module's tables), so every cell is drawn at once.
+          const N = params.grid;
+          const cells = N * N;
+          const th1 = params.distEmpty;
+          const th2 = th1 + params.distDirt;
+          const th3 = th2 + params.distCoal;
+          const seed = u32(start.seed);
+          // The generator is primed by drawing one whole map; the episode map is the second draw, so cell c is the
+          // LCG's (cells + c + 1)-th output.
+          const baseCell = params.baseX * N + params.baseY;
+          const map = range(256).map((c) => {
+            if (c >= cells || c === baseCell) return 0;
+            const r = add32(imul32(rng.mul[cells + c], seed), rng.add[cells + c]) / 4294967296;
+            return r < th1 ? 0 : r < th2 ? 1 : r < th3 ? 2 : 3;
+          });
+          return {
+            /** 地图：每格的矿种（0 空地、1 土、2 碳、3 金），(x, y) 是第 x * grid + y 格；超出 grid * grid 的格为 0 */
+            map,
+            /** 智能体的 x 坐标（0..grid - 1；E 使它 +1，W 使它 -1） */
+            x: params.baseX,
+            /** 智能体的 y 坐标（0..grid - 1；S 使它 +1，N 使它 -1） */
+            y: params.baseY,
+            /** 基地的 x 坐标（环境参数 baseX，给视图用） */
+            baseX: params.baseX,
+            /** 基地的 y 坐标（环境参数 baseY，给视图用） */
+            baseY: params.baseY,
+            /** 已用步数 */
+            steps: 0,
+            /** 背包里的土块数 */
+            bagDirt: 0,
+            /** 背包里的碳块数 */
+            bagCoal: 0,
+            /** 背包里的金块数 */
+            bagGold: 0,
+            /** 背包里的矿块总数，不超过 params.capacity */
+            bagCount: 0,
+            /** 背包里矿块的总价值（按 params.value* 计） */
+            bagValue: 0,
+            /** 累计已交付的价值（只有 base 结算会交付） */
+            delivered: 0,
+            /** 是否至少交付过一次 */
+            hasDelivered: false,
+            /** 是否已执行过 stop / deliver */
+            exited: false,
+            /** 结算价值：base 结算为 delivered，否则为 bagValue */
+            settledValue: 0,
+            /** 是否已达到目标价值（base 结算还须至少交付过一次） */
+            targetReached: false,
+            /** 上一步动作是否无效（未知动作或没有效果：状态不变，但消耗一步） */
+            invalid: false,
+          };
+        }
+
+        /**
+         * 移动、挖、丢、停止或交付。未知动作（读出的无效动作 -1）和没有效果的动作记为 invalid，状态不变。
+         * stop 后结束；base 结算下交付后是否结束由环境参数 deliverEnds 决定（不结束时可以多次往返，回合到步数上限截断）。
+         * 达到目标价值即成功。
+         * @param state 当前状态
+         * @param action 动作编号 0..6：N、E、S、W、dig（挖起脚下的矿）、drop（丢掉背包里价值最低的一块）、stop（base 结算下为 deliver）；其他值是无效动作
+         * @returns 新状态、是否结束、是否成功
+         */
+        export function step(state, action) {
+          const N = params.grid;
+          const edge = N - 1;
+          const base = params.settlement === 'base';
+          const atBase = state.x === params.baseX && state.y === params.baseY;
+          const tile = state.map[state.x * N + state.y];
+          // An unknown action (the readout's invalid action, -1) or an ineffective one is invalid: no state change, the step is consumed.
+          const known = action >= 0 && action <= 6;
+          const ineffective = action === 0 ? state.y === 0 : action === 1 ? state.x === edge : action === 2 ? state.y === edge : action === 3 ? state.x === 0
+            : action === 4 ? (tile === 0 || state.bagCount >= params.capacity) : action === 5 ? state.bagCount === 0 : (base && !atBase);
+          const invalid = !known || ineffective;
+          const move = !invalid && action < 4;
+          const x = move ? (action === 1 ? state.x + 1 : action === 3 ? state.x - 1 : state.x) : state.x;
+          const y = move ? (action === 0 ? state.y - 1 : action === 2 ? state.y + 1 : state.y) : state.y;
+          const dig = !invalid && action === 4;
+          const drop = !invalid && action === 5;
+          const finish = !invalid && action === 6;
+          const map = dig ? update(state.map, state.x * N + state.y, 0) : state.map;
+          // drop removes the cheapest bag item: lowest configured value, ties broken by lowest tile kind
+          const b1 = state.bagDirt > 0 ? 1 : 0;
+          const b2 = state.bagCoal > 0 && (b1 === 0 || params.valueCoal < params.valueDirt) ? 2 : b1;
+          const v2 = b2 === 1 ? params.valueDirt : params.valueCoal;
+          const cheapest = state.bagGold > 0 && (b2 === 0 || params.valueGold < v2) ? 3 : b2;
+          const deliver = finish && base;
+          const cleared = deliver && (params.deliverClearsBag || !params.deliverEnds);
+          const bagDirt = cleared ? 0 : dig && tile === 1 ? state.bagDirt + 1 : drop && cheapest === 1 ? state.bagDirt - 1 : state.bagDirt;
+          const bagCoal = cleared ? 0 : dig && tile === 2 ? state.bagCoal + 1 : drop && cheapest === 2 ? state.bagCoal - 1 : state.bagCoal;
+          const bagGold = cleared ? 0 : dig && tile === 3 ? state.bagGold + 1 : drop && cheapest === 3 ? state.bagGold - 1 : state.bagGold;
+          const delivered = deliver ? state.delivered + state.bagValue : state.delivered;
+          const hasDelivered = state.hasDelivered || deliver;
+          const exited = state.exited || (finish && (!base || params.deliverEnds));
+          const bagCount = bagDirt + bagCoal + bagGold;
+          const bagValue = bagDirt * params.valueDirt + bagCoal * params.valueCoal + bagGold * params.valueGold;
+          const settledValue = base ? delivered : bagValue;
+          const targetReached = settledValue >= params.targetValue && (!base || hasDelivered);
+          return {
+            state: {
+              map, x, y, baseX: state.baseX, baseY: state.baseY, steps: state.steps + 1,
+              bagDirt, bagCoal, bagGold, bagCount, bagValue,
+              delivered, hasDelivered, exited, settledValue, targetReached, invalid,
+            },
+            done: exited,
+            success: targetReached,
+          };
+        }
+
+        /**
+         * 视野方块第 k 格（x 优先：k = (dx + 4) * 9 + (dy + 4)）对应的地图格；超出感知参数 radius 或在地图外为 -1。
+         * 方块固定按最大半径 4 排成 9 × 9（输入最多 256 位：2 · 81 + 23 = 185），半径更小时外圈读作空地。
+         * @param state 当前状态
+         * @param k 视野格序号 0..80
+         * @returns 地图格序号或 -1
+         */
+        function cellOf(state, k) {
+          const N = params.grid;
+          const dx = Math.floor(k / 9) - 4;
+          const dy = (k % 9) - 4;
+          const x = state.x + dx;
+          const y = state.y + dy;
+          return Math.max(Math.abs(dx), Math.abs(dy)) <= sense.radius && x >= 0 && x < N && y >= 0 && y < N ? x * N + y : -1;
+        }
+
+        /**
+         * 网络的输入位：视野方块里每格有没有碳、有没有金（各 81 位；土和空地都是 0，视野外和地图外按空地），
+         * 再接基地相对位置、背包、背包满、剩余步数，共 185 位。
+         * 不给“最近的矿在哪个方向”：去哪里挖、什么时候回家由网络自己决定。
+         * @param state 当前状态
+         * @returns 输入位
+         */
+        export function input(state) {
+          const tiles = range(81).map((k) => {
+            const c = cellOf(state, k);
+            return c < 0 ? 0 : state.map[Math.max(c, 0)];
+          });
+          return concat(
+            tiles.map((v) => (v === 2 ? 1 : 0)),           // 0..80     coal in the view
+            tiles.map((v) => (v === 3 ? 1 : 0)),           // 81..161   gold in the view
+            bits(params.baseX - state.x + 15, 5),          // 162..166  base x offset (+15; the grid is at most 16)
+            bits(params.baseY - state.y + 15, 5),          // 167..171  base y offset
+            bits(Math.min(state.bagDirt, 3), 2),           // 172..173  dirt in the bag (saturates at 3)
+            bits(Math.min(state.bagCoal, 3), 2),           // 174..175  coal in the bag
+            bits(Math.min(state.bagGold, 3), 2),           // 176..177  gold in the bag
+            [state.bagCount >= params.capacity ? 1 : 0],   // 178       bag full
+            bits(params.steps - state.steps, 6),           // 179..184  steps left
+          );
+        }
+  loop: { kind: loop, title: 回路 }
+  readout: { kind: readout, title: 读出, config: { mode: argmax, map: [0, 1, 2, 3, 4, 5, 6] } }
+  net:
+    kind: network
+    title: 网络
+    config: { engine: dense-policy, kind: feedforward, inputs: 185, layers: [{ hidden: 32 }], ticks: 1, leak_shift: 0, reset: 0 }
+  trainer:
+    kind: trainer
+    title: 训练器
+    config: { method: reinforce, epochs: 600, lr: 0.003, replicas: 1, evalEvery: 100, seed: 1 }
+  cands: { kind: candidates, title: 候选 }
+  evaluator: { kind: evaluator, title: 评估器 }
+  execution: { kind: execution, title: 执行实例 }
+  map:
+    kind: view
+    title: 地图
+    config:
+      renderer: script
+      script: |-
+        // 挖矿地图：state.map 固定 256 格、按 x * grid + y 排列（IR 需要定长），边长 grid 在「环境参数」里，State 里没有。
+        // 格子 0 空地、1 土、2 碳、3 金；绿框是基地，黄线是到这一步为止的轨迹，只亮视野方块里的格子（网络只看得到这些）。
+        const COLORS = ['var(--bg)', '#c9a97a', '#5a5a5a', '#e0b400'];
+        const C = 20;
+
+        const component = {
+          props: ['ctx'],
+          setup(props) {
+            const N = Vue.computed(() => props.ctx.modules['环境参数']?.params?.grid);
+            const s = Vue.computed(() => props.ctx.state);
+            const radius = Vue.computed(() => {
+              const sense = props.ctx.modules['感知参数']?.params;
+              return Number.isInteger(sense?.radius) ? sense.radius : null;
+            });
+            const cells = Vue.computed(() => {
+              const n = N.value, st = s.value, r = radius.value, out = [];
+              if (!Number.isInteger(n) || !st) return out;
+              for (let x = 0; x < n; x++) for (let y = 0; y < n; y++) {
+                const tile = st.map[x * n + y] ?? 0;
+                const seen = r === null || Math.max(Math.abs(x - st.x), Math.abs(y - st.y)) <= r;
+                out.push({ key: x * n + y, x: x * C, y: y * C, fill: COLORS[tile] ?? COLORS[3], opacity: seen ? (tile ? 0.9 : 0.35) : (tile ? 0.3 : 0.12) });
+              }
+              return out;
+            });
+            const view = Vue.computed(() => {
+              const n = N.value, st = s.value, r = radius.value;
+              if (!st || r === null) return null;
+              const x0 = Math.max(0, st.x - r), y0 = Math.max(0, st.y - r), x1 = Math.min(n - 1, st.x + r), y1 = Math.min(n - 1, st.y + r);
+              return { x: x0 * C, y: y0 * C, w: (x1 - x0 + 1) * C - 1, h: (y1 - y0 + 1) * C - 1 };
+            });
+            const trail = Vue.computed(() => [props.ctx.history[0]?.prev, ...props.ctx.history.map((h) => h.next)]
+              .filter(Boolean).map((p) => `${p.x * C + C / 2},${p.y * C + C / 2}`).join(' '));
+            return { C, N, s, cells, view, trail, ok: Vue.computed(() => Number.isInteger(N.value)) };
+          },
+          template: `
+            <div v-if="!ok">读不到「环境参数」的 grid</div>
+            <svg v-else-if="s" :viewBox="'0 0 ' + N * C + ' ' + N * C" width="100%" style="display: block">
+              <rect v-for="c in cells" :key="c.key" :x="c.x" :y="c.y" :width="C - 1" :height="C - 1" :fill="c.fill" :opacity="c.opacity" />
+              <rect v-if="view" :x="view.x" :y="view.y" :width="view.w" :height="view.h" fill="none" stroke="var(--ink)" stroke-dasharray="3 3" opacity="0.6" />
+              <rect :x="s.baseX * C + 1" :y="s.baseY * C + 1" :width="C - 3" :height="C - 3" fill="none" stroke="var(--ok)" stroke-width="2" />
+              <polyline v-if="trail.includes(' ')" :points="trail" fill="none" stroke="var(--spike)" stroke-width="2" opacity="0.8" />
+              <circle :cx="s.x * C + C / 2" :cy="s.y * C + C / 2" :r="C / 4" fill="var(--spike)" stroke="#000" />
+            </svg>`,
+        };
+wires:
+  value:
+    - params.params→scene.params
+    - sense.params→scene.sense
+    - rng.rng→scene.rng
+    - scene.actions→readout.actions
+    - weights.params→reward.weights
+    - seeds.training→trainer.training
+    - seeds.validation→trainer.validation
+    - seeds.test→evaluator.partition
+    - loop.loop→trainer.loop
+    - loop.loop→evaluator.loop
+    - seeds.test→execution.partition
+    - loop.loop→execution.loop
+    - execution.execution→map.execution
+    - loop.input→net.in
+    - net.scores→readout.scores
+    - readout.action→loop.action
+    - net.structure→trainer.structure
+    - trainer.run→cands.run
+    - cands.weights→net.weights
+  call:
+    - scene.module→loop.scenario
+    - reward→trainer.objective
+    - reward→evaluator.objective
+    - settled→trainer.metric
+    - settled→evaluator.metrics
+    - ret→evaluator.metrics
+    - successRate→evaluator.metrics
+groups:
+  box:
+    title: 回路
+    loop: loop
+    members: [loop, net, readout]
+    expose: [loop.loop, loop.scenario, net.structure, net.weights, readout.actions]
+expose: [cands.artifact]
+slots:
+  - id: scenario
+    title: 场景
+    port: loop.scenario
+    create: [{ kind: code, title: 场景, ports: { module: scenario } }]
+  - id: training
+    title: 训练集
+    port: trainer.training
+    create:
+      - { kind: partition, title: 分区, ports: { training: training, validation: validation } }
+  - { id: validation, title: 验证集, port: trainer.validation }
+  - id: objective
+    title: 目标
+    port: trainer.objective
+    create: [{ kind: code, title: 奖励 }]
+  - id: metric
+    title: 指标
+    port: trainer.metric
+    create: [{ kind: code, title: 指标 }]
+  - id: evaluator
+    title: 评估
+    port: loop.loop
+    create: [{ kind: evaluator, title: 评估器 }]
+  - id: execution
+    title: 执行
+    port: loop.loop
+    create: [{ kind: execution, title: 执行实例 }]

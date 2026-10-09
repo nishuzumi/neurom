@@ -1,0 +1,15 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = []
+test = "test"
+network = "monad"            # Monad gas model, MIP-8 storage pages, 128 KB code limit (Foundry >= 1.8)
+optimizer = true
+optimizer_runs = 1000000      # for runtime: the engines run every step; a module is a clone (ModuleClone), so code size is paid once
+via_ir = true
+evm_version = "cancun"
+solc_version = "0.8.28"       # compiler behind the recorded gas numbers and ABIs; fetched on first build
+
+[rpc_endpoints]
+monad_testnet = "https://testnet-rpc.monad.xyz"
+monad_mainnet = "https://rpc.monad.xyz"

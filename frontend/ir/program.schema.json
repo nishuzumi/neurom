@@ -1,0 +1,471 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neurom-program",
+  "title": "neurom-program",
+  "description": "Serialisable typed computation graph for one code module. Flat DAG per scope: nodes reference nodes of the same or an enclosing scope by id through `inputs` (order matters); `output` names the result node. map/fold/scan carry a `body` scope with its own params. Types come from the call site (check/compile receive the parameter types). Static typing, limits and runtime semantics are shared verbatim by frontend/ir/*.js and training/ir.py.",
+  "type": "object",
+  "required": [
+    "format",
+    "params",
+    "nodes",
+    "output"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "neurom-program"
+    },
+    "params": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "uniqueItems": true
+    },
+    "nodes": {
+      "$ref": "#/$defs/nodes"
+    },
+    "output": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "op",
+        "inputs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "op": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "value": {
+          "description": "constant: number | boolean | string; record: ordered key list; range: length; bucket/thermometer: ascending edges; tableWindow: window length"
+        },
+        "name": {
+          "type": "string",
+          "description": "param: parameter name; get/set: record field; tableAt/tableWindow: column"
+        },
+        "body": {
+          "type": "object",
+          "required": [
+            "params",
+            "nodes",
+            "output"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "map: [elem, index]; fold/scan: [acc, elem, index]"
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/node"
+              },
+              "description": "may be empty: the output is then a node of an enclosing scope"
+            },
+            "output": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "type": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "number",
+                "boolean",
+                "string"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "vector"
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            }
+          },
+          "required": [
+            "type",
+            "width"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "array"
+            },
+            "length": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "of": {
+              "$ref": "#/$defs/type"
+            }
+          },
+          "required": [
+            "type",
+            "length",
+            "of"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "record"
+            },
+            "fields": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/type"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "fields"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "table"
+            },
+            "columns": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "type",
+            "columns"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "x-format": "neurom-program",
+  "x-limits": {
+    "maxNodes": 4096,
+    "maxCost": 2000000,
+    "maxVectorWidth": 4096,
+    "maxArrayLength": 4096,
+    "maxBitsWidth": 53,
+    "maxIdLength": 64,
+    "maxRecordFields": 256
+  },
+  "x-semantics": {
+    "scopes": "ids are unique across the whole program; a body node may reference nodes of enclosing scopes (closure), never the reverse; a `param` node resolves its name innermost-first (body params, then enclosing bodies, then program params); every scope is acyclic",
+    "cost": "worst-case node evaluations per call: every node of a scope counts 1, a map/fold/scan adds array length x cost(body); total must be <= 2,000,000; check() reports it",
+    "tiers": "exact rejects ln/exp; every other op is IEEE correctly rounded and bit-identical between JS and Python",
+    "values": "number: finite double; boolean; string; vector: list of `width` finite numbers; array: list of `length` values of `of`; record: plain object with exactly the declared fields; table: { columns: {name: numbers}, lo, hi } inclusive row window, hi = lo - 1 is empty",
+    "arithmetic": "add/sub/mul/div/mod/neg/min/max/abs/floor/ceil/round/clamp/sqrt take numbers only; a non-finite result is an error; div and mod by zero are errors; mod is JS % (fmod, sign of the dividend); round is JS Math.round (ties toward +infinity); clamp(x, lo, hi) errors when lo > hi; sqrt of a negative is an error; ln of a non-positive is an error; exp overflow is an error",
+    "comparison": "lt/lte/gt/gte compare numbers; eq/neq compare two numbers, two booleans or two strings (IEEE / exact equality)",
+    "logic": "and/or/not take booleans; and/or are lazy; select(condition, then, else) evaluates only the taken branch; both branches share one static type",
+    "vector": "vector(n numbers) -> vector(n); concat(vectors | arrays of numbers | arrays of vectors) -> flattened vector; bits(n, W): W constant 1..53, n integer 0 <= n < 2^W, bit i = (n >> i) & 1 least significant first; oneHot(n, W): W constant 1..4096, n integer 0..W-1; at(vector, i) / index(vector | array, i): i integer 0..length-1 at runtime; slice(vector, S, E): constants 0 <= S < E <= width, half-open",
+    "record": "get(record; name) reads a field; record(values; value = keys) builds a record; set(record, value; name) is a functional update keeping the field type",
+    "array": "array(values) same type; update(array, i, value) functional replace; range(value n) = [0..n-1]; map(array; body [elem, index]) -> array of body results; fold(array, init; body [acc, elem, index]) -> final acc; scan -> array of every acc; body result type must equal init type for fold/scan",
+    "u32": "u32(x): x safe integer -> x mod 2^32 (ToUint32); imul32/add32/sub32/xor32/and32/or32 take integers 0..2^32-1 and return the JS Math.imul / >>> 0 result; shl32/shr32(a, s): s integer 0..31, (a << s) >>> 0 and a >>> s",
+    "rand": "rand(key, counter): both 0..2^32-1; h = key ^ imul32(counter, 0x9e3779b9); h ^= h >>> 16; h = imul32(h, 0x7feb352d); h ^= h >>> 15; h = imul32(h, 0x846ca68b); h ^= h >>> 16; result h / 2^32 in [0, 1)",
+    "discretise": "bucket(x; edges ascending) = count(edges <= x); thermometer(x; edges) = vector with v[i] = x >= edges[i] ? 1 : 0",
+    "table": "tableAt(table, i; name) reads column `name` at row i, lo <= i <= hi; tableWindow(table, end; name, value k) = rows end-k+1..end, all within [lo, hi]; out-of-bounds and non-finite cells are runtime errors",
+    "static": "ids unique non-empty strings <= 64 chars; <= 4096 nodes including bodies; unknown ops, missing/extra value/name/body, wrong arity, wrong input types, unknown params/fields/columns are rejected",
+    "reduce": "sum/minOf/maxOf/argminFirst/argmaxFirst over a vector or numeric array (statically non-empty): sum adds left to right (non-finite result is an error); argminFirst/argmaxFirst return the index of the first extreme; any/all/count over a boolean array"
+  },
+  "x-ops": {
+    "constant": {
+      "arity": 0,
+      "value": "number | boolean | string"
+    },
+    "param": {
+      "arity": 0,
+      "name": "parameter"
+    },
+    "add": {
+      "arity": 2
+    },
+    "sub": {
+      "arity": 2
+    },
+    "mul": {
+      "arity": 2
+    },
+    "div": {
+      "arity": 2
+    },
+    "mod": {
+      "arity": 2
+    },
+    "neg": {
+      "arity": 1
+    },
+    "min": {
+      "arity": 2
+    },
+    "max": {
+      "arity": 2
+    },
+    "abs": {
+      "arity": 1
+    },
+    "floor": {
+      "arity": 1
+    },
+    "ceil": {
+      "arity": 1
+    },
+    "round": {
+      "arity": 1
+    },
+    "clamp": {
+      "arity": 3
+    },
+    "sqrt": {
+      "arity": 1
+    },
+    "ln": {
+      "arity": 1,
+      "tier": "approx"
+    },
+    "exp": {
+      "arity": 1,
+      "tier": "approx"
+    },
+    "lt": {
+      "arity": 2
+    },
+    "lte": {
+      "arity": 2
+    },
+    "gt": {
+      "arity": 2
+    },
+    "gte": {
+      "arity": 2
+    },
+    "eq": {
+      "arity": 2
+    },
+    "neq": {
+      "arity": 2
+    },
+    "and": {
+      "arity": 2,
+      "lazy": [
+        1
+      ]
+    },
+    "or": {
+      "arity": 2,
+      "lazy": [
+        1
+      ]
+    },
+    "not": {
+      "arity": 1
+    },
+    "select": {
+      "arity": 3,
+      "lazy": [
+        1,
+        2
+      ]
+    },
+    "vector": {
+      "arity": "variadic"
+    },
+    "concat": {
+      "arity": "variadic"
+    },
+    "bits": {
+      "arity": 2
+    },
+    "oneHot": {
+      "arity": 2
+    },
+    "at": {
+      "arity": 2
+    },
+    "slice": {
+      "arity": 3
+    },
+    "get": {
+      "arity": 1,
+      "name": "field"
+    },
+    "record": {
+      "arity": "variadic0",
+      "value": "keys"
+    },
+    "set": {
+      "arity": 2,
+      "name": "field"
+    },
+    "array": {
+      "arity": "variadic"
+    },
+    "index": {
+      "arity": 2
+    },
+    "update": {
+      "arity": 3
+    },
+    "range": {
+      "arity": 0,
+      "value": "length"
+    },
+    "map": {
+      "arity": 1,
+      "body": [
+        "elem",
+        "index"
+      ]
+    },
+    "fold": {
+      "arity": 2,
+      "body": [
+        "acc",
+        "elem",
+        "index"
+      ]
+    },
+    "scan": {
+      "arity": 2,
+      "body": [
+        "acc",
+        "elem",
+        "index"
+      ]
+    },
+    "u32": {
+      "arity": 1
+    },
+    "imul32": {
+      "arity": 2
+    },
+    "add32": {
+      "arity": 2
+    },
+    "sub32": {
+      "arity": 2
+    },
+    "xor32": {
+      "arity": 2
+    },
+    "and32": {
+      "arity": 2
+    },
+    "or32": {
+      "arity": 2
+    },
+    "shl32": {
+      "arity": 2
+    },
+    "shr32": {
+      "arity": 2
+    },
+    "rand": {
+      "arity": 2
+    },
+    "bucket": {
+      "arity": 1,
+      "value": "edges"
+    },
+    "thermometer": {
+      "arity": 1,
+      "value": "edges"
+    },
+    "tableAt": {
+      "arity": 2,
+      "name": "column"
+    },
+    "tableWindow": {
+      "arity": 2,
+      "name": "column",
+      "value": "length"
+    },
+    "sum": {
+      "arity": 1
+    },
+    "minOf": {
+      "arity": 1
+    },
+    "maxOf": {
+      "arity": 1
+    },
+    "argminFirst": {
+      "arity": 1
+    },
+    "argmaxFirst": {
+      "arity": 1
+    },
+    "any": {
+      "arity": 1
+    },
+    "all": {
+      "arity": 1
+    },
+    "count": {
+      "arity": 1
+    }
+  }
+}

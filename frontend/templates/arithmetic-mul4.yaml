@@ -1,0 +1,156 @@
+# arithmetic-mul4 — four-bit multiplication as a training module. There is one episode for each operand pair (a, b) ∈ 16×16, with one step.
+# The network reads a‖b (LSB first, 8 bits). It must emit the 8 result bits (LSB first). Training and validation both
+# use all 256 pairs. There is no held-out test set. The scene answers once: `step` returns done after the first action.
+format: neurom-template
+id: arithmetic-mul4
+revision: 1
+name: 四位乘法
+kind: composite
+description: a‖b（8 位，低位在前）→ a×b 的 8 个结果位；穷举 256 组，hinge 训练阈值层网络
+preset: { label: 四位乘法 · 内置产物, accept: { cands: arithmetic-mul4 } }
+modules:
+  target:
+    kind: code
+    title: 目标位
+    config:
+      source: |-
+        /**
+         * answer 的 8 位，低位在前。
+         * @param state 当前题目
+         * @returns {bits[8]} 目标位（低位在前）
+         */
+        export function target(state) {
+          return bits(state.answer, 8);
+        }
+  exact:
+    kind: code
+    title: exact
+    config:
+      source: |-
+        /**
+         * 结果等于 answer 记 1，否则记 0。
+         * @param episode 回合摘要
+         * @returns {number} 0 或 1
+         */
+        export function exact(episode) {
+          return episode.success ? 1 : 0;
+        }
+  bitAccuracy:
+    kind: code
+    title: bitAccuracy
+    config:
+      source: |-
+        /**
+         * 结果与 answer 相同的位所占的比例。
+         * @param episode 回合摘要
+         * @returns {number} 0..1 的按位正确率
+         */
+        export function bitAccuracy(episode) {
+          const got = bits(episode.final.action, 8), want = bits(episode.final.answer, 8);
+          return range(8).map(i => (at(got, i) === at(want, i) ? 1 : 0)).reduce((s, x) => s + x, 0) / 8;
+        }
+  pairs:
+    kind: partition
+    title: 穷举 256 组
+    config:
+      kind: enumerate
+      enumerate:
+        axes:
+          a: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+          b: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        roles: { training: all, validation: all, test: [] }
+  scene:
+    kind: code
+    title: 场景
+    config:
+      source: |-
+        export const budget = 1;
+        /** 操作数 a、b 和正确结果 answer。 */
+        export function init(start) {
+          return {
+            /** 第一个因数 */
+            a: start.a,
+            /** 第二个因数 */
+            b: start.b,
+            /** 正确结果：a × b（8 位） */
+            answer: start.a * start.b,
+            /** 读出给出的结果；step 之前为 -1 */
+            action: -1,
+          };
+        }
+        /** a‖b，各 4 位，低位在前，共 8 位。 */
+        export function input(state) {
+          return concat(bits(state.a, 4), bits(state.b, 4));
+        }
+        /** 记下结果；等于 answer 时成功。 */
+        export function step(state, action) {
+          return { state: { ...state, action }, done: true, success: action === state.answer };
+        }
+  loop: { kind: loop, title: 回路 }
+  readout:
+    kind: readout
+    config: { mode: bits, width: 8, decode: lsb-int }
+  net:
+    kind: network
+    config: { engine: threshold-layers, kind: feedforward, inputs: 8, layers: [112] }
+  trainer:
+    kind: trainer
+    config: { method: hinge, epochs: 4000, lr: 0.02, seed: 1, evalEvery: 100, backend: browser }
+  cands: { kind: candidates }
+  evaluator: { kind: evaluator }
+  report:
+    kind: view
+    config: { renderer: kv, path: report.metrics }
+wires:
+  value:
+    - pairs.training→trainer.training
+    - pairs.validation→trainer.validation
+    - pairs.validation→evaluator.partition
+    - loop.loop→trainer.loop
+    - loop.loop→evaluator.loop
+    - loop.input→net.in
+    - net.scores→readout.scores
+    - readout.action→loop.action
+    - net.structure→trainer.structure
+    - trainer.run→cands.run
+    - cands.weights→net.weights
+    - evaluator.report→report.report
+  call:
+    - scene.module→loop.scenario
+    - target→trainer.objective
+    - exact→evaluator.metrics
+    - bitAccuracy→evaluator.metrics
+groups:
+  box:
+    title: 回路
+    loop: loop
+    members: [loop, net, readout]
+    expose: [loop.loop, loop.scenario, net.structure, net.weights]
+expose: [cands.artifact]
+slots:
+  - id: scenario
+    title: 场景
+    port: loop.scenario
+    create: [{ kind: code, title: 场景, ports: { module: scenario } }]
+  - id: training
+    title: 训练集
+    port: trainer.training
+    create:
+      - { kind: partition, title: 分区, ports: { training: training, validation: validation } }
+  - { id: validation, title: 验证集, port: trainer.validation }
+  - id: objective
+    title: 目标
+    port: trainer.objective
+    create: [{ kind: code, title: 目标位 }]
+  - id: metric
+    title: 指标
+    port: trainer.metric
+    create: [{ kind: code, title: 指标 }]
+  - id: evaluator
+    title: 评估
+    port: loop.loop
+    create: [{ kind: evaluator, title: 评估器 }]
+  - id: execution
+    title: 执行
+    port: loop.loop
+    create: [{ kind: execution, title: 执行实例 }]

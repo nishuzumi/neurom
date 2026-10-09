@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEUROM 模块工作台</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="brand"><h1>NEUROM <span class="sub">模块工作台</span></h1></div>
+  <span class="app-note"><span id="save-note"></span><span id="python-note"></span><span id="sync-note" class="sync-note" role="alert" hidden>另一个标签页改了工作区 <button id="sync-load" type="button">载入</button><button id="sync-keep" type="button" title="把本页的工作区写过去。这会覆盖另一个标签页的修改">用本页覆盖</button></span></span>
+  <div class="app-actions"><button id="ws-export" title="把整个工作区（模块图、运行、产物、我的模板、视角）保存为 JSON 文件">保存工作区</button><button id="ws-import" title="打开 neurom-workbench 工作区文件。如果文件打不开，会显示原因，当前工作区保持不变">打开</button><input id="ws-file" type="file" accept="application/json,.json" hidden></div>
+  <button id="lang-toggle" class="lang-toggle" title="中文 / English" aria-label="Language: 中文 / English"><span data-locale="zh">中</span><span data-locale="en">EN</span></button><!-- i18n-ignore -->
+</header>
+<nav class="nav-rail" aria-label="工作区导航">
+  <button class="rail-btn" data-drawer="palette" title="添加模块：示例、模板、空白模块" aria-controls="library-drawer" aria-expanded="false"><b>＋</b><span>添加</span></button>
+  <button class="rail-btn" data-drawer="templates" title="模板库：内置与我的模板" aria-controls="library-drawer" aria-expanded="false"><b>▦</b><span>模板</span></button>
+  <button class="rail-btn" data-drawer="workspace" title="工作区文件" aria-controls="library-drawer" aria-expanded="false"><b>▤</b><span>文件</span></button>
+</nav>
+<aside id="library-drawer" class="drawer" hidden aria-label="模块与模板库">
+  <div class="drawer-head"><h2 id="drawer-title"></h2><button class="drawer-close" aria-label="关闭抽屉">×</button></div>
+  <div class="drawer-body">
+    <div id="palette"></div>
+    <div id="template-lib" hidden></div>
+    <div id="ws-tools" hidden><h3>工作区文件</h3><p class="note">保存的内容包括模块图、连线、组合、运行记录、产物、我的模板和视角。打开已保存的工作区会替换当前画布。只能读取 neurom-workbench 文件。如果文件打不开，界面显示它的格式和出错位置，当前工作区保持不变。</p><button id="ws-clear">清空整个工作区</button><p class="note">清空前，先用顶部的“保存工作区”导出备份。</p></div>
+  </div>
+</aside>
+<dialog id="conflict" class="conflict" aria-labelledby="conflict-title">
+  <div class="conflict-head"><h2 id="conflict-title">本地工作区无法读取</h2></div>
+  <div class="conflict-body">
+    <p class="note">工作台不能读取浏览器里保存的工作区。工作台原样保留它。处理之前，自动保存暂停，所以不会覆盖它。</p>
+    <dl class="conflict-reason">
+      <dt>找到的格式</dt><dd id="conflict-format"></dd>
+      <dt>出错位置</dt><dd id="conflict-path"></dd>
+      <dt>原因</dt><dd id="conflict-message"></dd>
+    </dl>
+    <p class="note">导出本地存档。按上面的出错位置和原因修改它（可以交给 AI）。然后打开改好的文件。</p>
+    <div class="row"><button id="conflict-export" type="button">导出本地存档</button><button id="conflict-open" type="button" title="打开改好的 neurom-workbench 文件。工作台和平时一样严格地校验它。打开成功后，它就是工作区">打开改好的文件</button><button id="conflict-discard" type="button">丢弃本地存档</button><input id="conflict-file" type="file" accept="application/json,.json" hidden></div>
+    <p id="conflict-error" class="note bad" role="alert" hidden></p>
+    <div id="conflict-confirm" class="conflict-confirm" role="alert" hidden><p>删除本地存档，工作区从空白开始？你不能撤销这个操作。先导出本地存档。</p><div class="row"><button id="conflict-discard-yes" type="button" class="bad">确定丢弃</button><button id="conflict-discard-no" type="button">取消</button></div></div>
+  </div>
+</dialog>
+<main id="workspace-viewport" tabindex="0" aria-label="模块图画布"></main>
+<div class="canvas-toolbar" aria-label="画布视角"><button id="canvas-fit-selection" title="定位选中的模块">选中</button><button id="canvas-fit-all" title="显示全部模块（F）">全览</button><button id="canvas-zoom-out" aria-label="缩小画布">−</button><span id="canvas-zoom-label">100%</span><button id="canvas-zoom-in" aria-label="放大画布">＋</button></div>
+<div class="editor-toolbar" aria-label="画布编辑">
+  <button id="editor-undo" title="撤销编辑（Ctrl / ⌘ Z）">撤销</button><button id="editor-redo" title="重做编辑（Ctrl / ⌘ Shift Z）">重做</button>
+  <button id="editor-copy" title="复制选中的模块（Ctrl / ⌘ C）">复制</button><button id="editor-paste" title="粘贴模块与它们之间的连线（Ctrl / ⌘ V）">粘贴</button>
+  <button id="editor-group" title="把选中的模块打包成一个组合（Ctrl / ⌘ G）">打包</button><button id="editor-ungroup" title="解包选中的组合（Ctrl / ⌘ Shift G）">解包</button>
+  <button id="editor-arrange" title="按连线层次整理选中的模块位置">整理</button><button id="editor-save-template" title="把选中的模块保存为我的模板">存为模板</button>
+</div>
+<footer class="status-strip"><span id="status" role="status"></span><span class="canvas-hint">双指 / 滚轮平移 · 捏合或 ⌘ 滚轮缩放 · F 全览 · 值线实线，调用线虚线 ƒ</span></footer>
+<script type="module" src="graph_app.js"></script>
+</body>
+</html>

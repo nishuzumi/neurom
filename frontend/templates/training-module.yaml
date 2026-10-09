@@ -1,0 +1,60 @@
+# training-module — a blank training module: one trainer trains one network. The loop box (回路 → 网络 → 读出 →
+# 回路.action), the trainer that drives it and the candidates that feed the trained weights back are wired (the expected
+# wires). The task decides the slots: the scenario, the partitions, the objective and metric, evaluators and
+# executions. The 「+」 of each slot adds its `create`. A code entry without config starts from the stub of the
+# contract of the slot port (core/prefab.js stubSource). The user then edits that stub.
+format: neurom-template
+id: training-module
+revision: 1
+name: 训练模块
+kind: composite
+description: 一个训练器训练一个网络：回路、网络、读出、训练器、候选已接好；场景、分区、目标和指标填进槽位
+modules:
+  loop: { kind: loop, title: 回路 }
+  net: { kind: network, title: 网络 }
+  readout: { kind: readout, title: 读出 }
+  trainer: { kind: trainer, title: 训练器 }
+  cands: { kind: candidates, title: 候选 }
+wires:
+  value:
+    - loop.input→net.in
+    - net.scores→readout.scores
+    - readout.action→loop.action
+    - loop.loop→trainer.loop
+    - net.structure→trainer.structure
+    - trainer.run→cands.run
+    - cands.weights→net.weights
+groups:
+  box:
+    title: 回路
+    loop: loop
+    members: [loop, net, readout]
+    expose: [loop.loop, loop.scenario, net.structure, net.weights]
+expose: [cands.artifact]
+slots:
+  - id: scenario
+    title: 场景
+    port: loop.scenario
+    create: [{ kind: code, title: 场景, ports: { module: scenario } }]
+  - id: training
+    title: 训练集
+    port: trainer.training
+    create:
+      - { kind: partition, title: 分区, ports: { training: training, validation: validation } }
+  - { id: validation, title: 验证集, port: trainer.validation }
+  - id: objective
+    title: 目标
+    port: trainer.objective
+    create: [{ kind: code, title: 奖励 }]
+  - id: metric
+    title: 指标
+    port: trainer.metric
+    create: [{ kind: code, title: 指标 }]
+  - id: evaluator
+    title: 评估
+    port: loop.loop
+    create: [{ kind: evaluator, title: 评估器 }]
+  - id: execution
+    title: 执行
+    port: loop.loop
+    create: [{ kind: execution, title: 执行实例 }]

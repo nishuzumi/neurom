@@ -1,0 +1,216 @@
+/* editor/editor.css — Vue Flow surface in the studio's dark theme: the module host boxes (ModuleNode.vue), the nested groups (GroupNode.vue), port bands, wires, and Vue Flow's chrome (minimap, resizer, edges). Each `kind-*` class sets the kind colour of a module (--col) once. Both the flow node wrapper and its minimap rect carry that class. */
+.neurom-editor{position:fixed;inset:var(--topbar-h) 0 var(--status-h) var(--rail-h);overflow:clip;background:var(--bg);outline:none;touch-action:none;overscroll-behavior:none}
+.neurom-editor .vue-flow{width:100%;height:100%;background:var(--bg)}
+.neurom-editor .vue-flow__pane{cursor:default}
+.neurom-editor .vue-flow__pane.draggable{cursor:default}
+.neurom-editor .vue-flow__pane.dragging{cursor:grabbing}
+/* holding Space turns the whole canvas into a grab handle (editor/index.ts) */
+.neurom-editor.space-pan,.neurom-editor.space-pan *{cursor:grab!important}
+.neurom-editor.space-panning,.neurom-editor.space-panning *{cursor:grabbing!important}
+
+/* ---------------------------------------------------------------- nodes (shared) */
+.neurom-editor .vue-flow__node{font:inherit;color:var(--ink);border-radius:10px;background:transparent;padding:0;border:0;box-shadow:none;text-align:left}
+.neurom-editor .vue-flow__node.dragging{opacity:.94}
+.neurom-editor .vue-flow__node:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.neurom-editor .vue-flow__node-module{min-width:0;max-width:none;user-select:text;-webkit-user-select:text}
+.neurom-editor .vue-flow__node-group{width:auto;min-width:0;max-width:none;padding:0;text-align:left}
+/* an expanded group gets `pointer-events:none` inline (editor/index.ts: Vue Flow's inline `all` beats any rule here). Its header takes the pointer back */
+.neurom-editor .vue-flow__node-group.group-expanded .group-head{pointer-events:auto}
+
+/* resizing draws nothing. The bottom-right corner and the four edges are invisible drag areas (the cursor turns into a
+   resize arrow over them). The other corners are removed. The keyboard handle sits in that corner and only shows its
+   focus ring. */
+.editor-resize-key{position:absolute;right:1px;bottom:1px;width:22px;height:22px;padding:0;border:0;border-radius:0 0 8px;background:transparent;opacity:0;z-index:3;pointer-events:none}
+.editor-resize-key:focus-visible{outline:2px solid var(--focus);opacity:1}
+.neurom-editor .vue-flow__resize-control.editor-resize-line{border-color:transparent}
+.neurom-editor .vue-flow__resize-control.editor-resize-handle{width:14px;height:14px;background:transparent;border:0;border-radius:0;z-index:4}
+.neurom-editor .vue-flow__resize-control.editor-resize-handle:not(.bottom.right){display:none}
+
+/* ---------------------------------------------------------------- kind colours: the node wrapper (index.ts) and the minimap rect (EditorRoot.vue) carry `kind-<kind>` */
+.neurom-editor .vue-flow__node-module,.neurom-editor .vue-flow__minimap-node{--col:var(--muted)}
+.neurom-editor .kind-params,.neurom-editor .kind-dataset,.neurom-editor .kind-partition{--col:var(--plastic)}
+.neurom-editor .kind-code,.neurom-editor .kind-bits{--col:var(--sens)}
+.neurom-editor .kind-readout,.neurom-editor .kind-network{--col:var(--mod)}
+.neurom-editor .kind-loop{--col:var(--inh)}
+.neurom-editor .kind-trainer,.neurom-editor .kind-candidates,.neurom-editor .kind-evaluator{--col:var(--train)}
+.neurom-editor .kind-execution,.neurom-editor .kind-view,.neurom-editor .kind-deployment{--col:var(--focus)}
+
+/* ---------------------------------------------------------------- module host box (ModuleNode.vue): the host owns the width; bodies fill it */
+.mnode{position:relative;width:100%;height:100%;display:flex;flex-direction:column;background:var(--panel);border:2px solid var(--col);border-radius:8px;overflow:visible;font-size:12px;line-height:1.3}
+.mnode.has-problem{border-style:dashed}
+/* selection must not touch layout. A thicker border (even offset by a negative margin) narrows the content box of the
+   width:100% frame. That shifts right-aligned header / port items and re-wraps soft-wrapped code. So the ring is a
+   shadow outside the 2px border, with zero geometry change. It divides by --zoom (index.ts paintView), so it keeps
+   about 2 screen pixels when zoomed out. */
+.vue-flow__node.selected .mnode{border-color:var(--spike);box-shadow:0 0 0 max(1px,calc(2px / var(--zoom,1))) var(--spike)}
+.mnode-head{display:flex;align-items:center;gap:6px;height:32px;flex:none;padding:0 6px 0 10px;border-radius:6px 6px 0 0;background:color-mix(in srgb,var(--col) 18%,transparent);cursor:grab}
+.mnode-head:active{cursor:grabbing}
+.mnode-kind{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--col);white-space:nowrap}
+.mnode-title{flex:1 1 auto;min-width:40px;padding:1px 4px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--ink);font:inherit;font-size:13px;font-weight:700}
+.mnode-title:hover,.mnode-title:focus{border-color:var(--line-strong);background:var(--bg)}
+.mnode-problem{flex:none;min-width:18px;padding:0 5px;border-radius:9px;text-align:center;font-family:var(--mono);font-size:11px;font-weight:700;background:var(--bg)}
+.mnode-problem.bad{color:var(--bad);border:1px solid var(--bad)}
+.mnode-problem.m{color:var(--muted);border:1px solid var(--line-strong)}
+.mnode-act,.mnode-del{font:inherit;font-size:11px;padding:1px 6px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--muted);cursor:pointer;line-height:1.4;flex:none}
+.mnode-act:hover{color:var(--ink);background:var(--soft)}
+/* icon-only header actions (⚙, collapse, delete): a fixed square with a HeadIcon.vue SVG centred in it, so every icon
+   has the same size, weight and centre line whatever the font */
+.mnode-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0}
+.mnode-icon svg{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.mnode-del{color:var(--bad);opacity:.75}
+.mnode-del:hover{opacity:1;background:color-mix(in srgb,var(--bad) 18%,transparent)}
+.mnode-body{flex:1 1 auto;min-height:0;width:100%;position:relative;overflow:visible;cursor:auto;border-top:1px solid color-mix(in srgb,var(--col) 30%,transparent);border-radius:0 0 6px 6px;padding:8px 10px;box-sizing:border-box;display:flex;flex-direction:column}
+.mnode-body>*{width:100%;box-sizing:border-box;flex:1 0 auto}
+/* sized host (explicit height): the body scrolls and does not spill over the frame. `.bfill` inside a body takes the extra height */
+.mnode.sized .mnode-body{overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
+.mnode-body .bfill{flex:1 0 auto}
+/* the host frame is the one size control. Text areas never get their own resize handle. Small form fields grow with their text */
+:where(.mnode-body) textarea{resize:none;field-sizing:content;min-height:calc(3lh + 8px);max-height:16lh}
+/* one accent highlight per module: the ring of the selected node. Text fields inside a module mark focus quietly, as
+   ComfyUI does (a neutral ring on the focused widget). They get no global 2px accent outline, only a brighter border.
+   The caret shows where typing goes. Borderless fields (code, doc comment) brighten their surrounding box (bodies-a.css). */
+.mnode :is(input:not([type=checkbox],[type=radio],[type=range],[type=file]),textarea):focus-visible{outline:none}
+.mnode :is(input,textarea):not(.bad):focus-visible{border-color:var(--muted)}
+
+/* ---------------------------------------------------------------- groups (GroupNode.vue): expanded = a dashed frame around the members. Collapsed = one node with the exposed ports */
+.cgroup{--col:var(--focus);position:relative;width:100%;height:100%;box-sizing:border-box;border:1px dashed var(--col);border-radius:12px;background:color-mix(in srgb,var(--col) 5%,transparent);font-size:12px;line-height:1.3}
+.cgroup.collapsed{height:auto;border:2px solid var(--col);border-radius:8px;background:var(--panel)}
+.group-head{display:flex;align-items:center;gap:6px;height:32px;padding:0 6px 0 12px;color:var(--col);font-size:12px;cursor:grab;background:color-mix(in srgb,var(--col) 12%,transparent);border-radius:11px 11px 0 0;white-space:nowrap}
+.cgroup.collapsed .group-head{border-radius:6px 6px 0 0}
+.cgroup.collapsed .cgroup-title{min-width:80px}
+.cgroup-badge{flex:none;font-weight:700}
+.cgroup-title{flex:1 1 auto;min-width:60px;padding:1px 4px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--ink);font:inherit;font-weight:600}
+.cgroup-title:hover,.cgroup-title:focus{border-color:var(--line-strong);background:var(--bg)}
+.cgroup-meta{flex:0 1 auto;min-width:0;color:var(--muted);font-family:var(--mono);font-size:10.5px;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.cgroup-body{margin:0;padding:6px 12px 8px;color:var(--muted);font-size:11.5px}
+.vue-flow__node-group.selected .cgroup{border-style:solid;border-color:var(--spike);box-shadow:0 0 0 max(2px,calc(3px / var(--zoom,1))) var(--spike)}
+
+/* ---------------------------------------------------------------- loop box (GroupNode.vue, view.box): the loop is the frame.
+   The box draws its run in the room that sizes.ts LOOP_FRAME keeps around the members (left 250 · right 230 ·
+   top 130 · bottom 140):
+   - `Start ← loop` across the top
+   - the left column init → State → input
+   - `action` on the right
+   - `step` and the end below
+   - `scenario` on the left border under Start (the return line keeps to a gutter inside it)
+   Stations are protocol signatures and graph values. The thick lines (.lb-flow, measured by GroupNode) are the loop's
+   own run. They are not graph wires. An expanded frame passes the pointer through (index.ts). Stations and handles
+   take it back. */
+.cgroup.box{--col:var(--inh);border-style:solid;border-width:2px}
+.box-summary{overflow-wrap:anywhere}
+.lb{position:absolute;inset:0;pointer-events:none}
+.neurom-editor .group-expanded .lb :is(.lb-st,.lb-scen,.vue-flow__handle){pointer-events:auto}
+.lb-flow{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.lb-flow path{fill:none;stroke:var(--inh);stroke-width:2.5}
+.lb-flow marker path{fill:var(--inh);stroke:none}
+.lb-flow path.entry{stroke-dasharray:5 4}
+.lb-flow path.exit{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 4}
+.lb-flow .faint{opacity:.35}
+.lb-flow text{fill:var(--muted);font-family:var(--mono);font-size:11px}
+.lb-st{position:absolute;box-sizing:border-box;padding:6px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel);font-size:11.5px;line-height:1.4;color:var(--ink);cursor:default}
+.lb-st h4{margin:0 0 3px;font-family:var(--mono);font-size:11px;font-weight:700;white-space:nowrap}
+.lb-st h4 small{margin-left:4px;font-family:inherit;font-weight:400;color:var(--muted)}
+.lb-st p{margin:2px 0 0}
+.lb-st.fn{border-color:var(--sens)}.lb-st.fn h4{color:var(--sens)}
+.lb-st.val{border-color:var(--inh)}.lb-st.val h4{color:var(--inh)}
+.lb-st:is(.edge,.opt){border-style:dashed}
+.lb-st.edge h4{color:var(--muted)}
+.lb-st.absent{opacity:.6}
+.lb-mono{font-family:var(--mono);font-size:11px}
+.lb-none{color:var(--muted)}
+.lb-fn{all:unset;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--muted);text-decoration:underline dotted;text-underline-offset:2px}
+.lb-fn:hover,.lb-fn:focus-visible{color:var(--ink)}
+.lb-tag{display:inline-block;padding:0 6px;border:1px solid var(--line-strong);border-radius:4px;line-height:17px}
+.lb-drivers{display:flex;flex-wrap:wrap;gap:2px 14px}
+.lb-driver small{color:var(--muted);font-size:11px}
+.lb-actions{color:var(--muted);overflow-wrap:anywhere}
+.lb-bits{display:flex;flex-wrap:wrap;gap:1px;margin-top:4px}
+.lb-bits i{width:5px;height:9px;border-radius:1px;background:var(--soft)}
+.lb-bits i.on{background:var(--spike)}
+/* where each station sits (the frame's room, LOOP_FRAME) */
+.lb-start{left:14px;right:14px;top:42px}
+.lb-col{position:absolute;left:34px;top:130px;width:200px;display:flex;flex-direction:column;gap:26px}
+.lb-col .lb-st{position:relative}
+.lb-init{min-height:56px}
+.lb-state{min-height:44px}
+.lb-action{right:14px;top:150px;width:200px}
+.lb-step{left:250px;bottom:70px;max-width:340px}
+.lb-end{right:14px;bottom:14px;width:200px}
+.lb-scen{position:absolute;left:0;top:104px;width:0;height:0}
+.lb-scen span{position:absolute;left:34px;top:-8px;white-space:nowrap;font-family:var(--mono);font-size:11px;color:var(--muted)}
+/* the four handles: `loop` and `scenario` on the frame's left border, `input` on the input station's right edge,
+   `action` on the action station's left edge */
+.neurom-editor .lb .lb-start .vue-flow__handle.port-slot{left:-21px;right:auto;top:calc(50% - 6px)}
+.neurom-editor .lb .lb-scen .vue-flow__handle.port-slot{left:-6px;right:auto;top:-6px}
+.neurom-editor .lb .lb-input .vue-flow__handle.port-slot{left:auto;right:-7px;top:16px}
+.neurom-editor .lb .lb-action .vue-flow__handle.port-slot{left:-7px;right:auto;top:16px}
+
+/* ---------------------------------------------------------------- ports (NodePorts.vue)
+   ComfyUI-style: the port band of a node sits under its title, inputs top-left and outputs top-right. The slot of each
+   port is fixed on the node border at its row (inputs on the left edge, outputs on the right). An unconnected slot is a
+   ring in its reference-type colour (--pt). A connected slot is filled. When it carries exactly one wire, the fill is
+   the palette colour of the wire (--wc). The slot is absolute against the node frame with top:auto, so it stays
+   vertically on its row. */
+[data-type=bits]{--pt:var(--wire)}
+[data-type=fn],[data-type=handle-module]{--pt:var(--sens)}
+[data-type=number],[data-type=boolean],[data-type=string],[data-type=vector],[data-type=array],[data-type=record],[data-type=any]{--pt:var(--plastic)}
+[data-type=table],[data-type^=handle-partition]{--pt:var(--plastic)}
+[data-type=handle-weights],[data-type=handle-structure],[data-type=handle-artifact]{--pt:var(--mod)}
+[data-type=handle-run],[data-type=handle-report]{--pt:var(--train)}
+[data-type=handle-execution],[data-type=handle-deployment]{--pt:var(--focus)}
+[data-type=handle-loop]{--pt:var(--inh)}
+.port-row.call .port-name{font-style:italic}
+.port-row.required:not(.bound) .port-name::after{content:" *";color:var(--bad)}
+.ports{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 14px;padding:6px 12px;flex:none;min-width:0;background:var(--bg);font-size:11.5px;line-height:1.3;cursor:grab}
+.ports:active{cursor:grabbing}
+/* ports closing a host (no body below: collapsed module / group): round with the frame's inner radius (8px − 2px border)
+   like `.mnode-body`, else the square background covers the curved border. (The resize key after it is absolutely positioned.) */
+.ports:not(:has(~ .mnode-body)){border-radius:0 0 6px 6px}
+.ports-col{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ports-out{align-items:flex-end;text-align:right}
+.port-row{display:flex;align-items:center;gap:6px;min-height:20px;min-width:0;max-width:100%}
+.port-name{overflow-wrap:anywhere;min-width:0}
+.port-row:not(.bound) .port-name{color:var(--muted)}
+/* record outputs: +/− toggle left of the name. An expanded port and its field rows read left→right as a tree */
+.port-toggle{flex:none;width:16px;height:16px;padding:0;border:1px solid var(--line-strong);border-radius:4px;background:var(--panel);color:var(--ink);font:inherit;font-size:12px;line-height:14px;text-align:center;cursor:pointer}
+.port-toggle:hover{border-color:var(--focus);color:var(--focus)}
+.port-toggle:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.ports-out .port-row.expanded,.ports-out .port-row.tree{align-self:stretch;justify-content:flex-start;text-align:left}
+.port-tree{flex:none;font-family:var(--mono);white-space:pre;color:var(--muted);letter-spacing:-.5px}
+.port-row.tree:not(.can-expand) .port-tree{margin-right:22px}
+.port-row.path .port-name{font-family:var(--mono);font-size:10.5px}
+.neurom-editor .vue-flow__handle{min-width:0;min-height:0}
+.neurom-editor .vue-flow__handle.port-slot{position:absolute;top:auto;bottom:auto;transform:none;box-sizing:border-box;width:12px;height:12px;margin:0;padding:0;border-radius:50%;border:2px solid var(--pt,var(--wire));background:var(--bg);z-index:2}
+.neurom-editor .vue-flow__handle.port-slot.target{left:-7px;right:auto}
+.neurom-editor .vue-flow__handle.port-slot.source,.neurom-editor .vue-flow__handle.port-slot.target.facing{right:-7px;left:auto}
+.neurom-editor .vue-flow__handle.port-slot.bound{background:var(--wc,var(--pt,var(--wire)));border-color:var(--wc,var(--pt,var(--wire)))}
+.neurom-editor .vue-flow__handle.port-slot.connectable{cursor:crosshair}
+/* the wire under the pointer and the selected wire light up at their two slots */
+.neurom-editor .vue-flow__handle.port-slot.hot{border-color:var(--ink);box-shadow:0 0 0 3px color-mix(in srgb,var(--wc,var(--pt)) 55%,transparent),0 0 10px var(--wc,var(--pt))}
+.neurom-editor .vue-flow__handle.port-slot.sel{border-color:var(--focus);box-shadow:0 0 0 3px rgba(120,160,255,.35)}
+.neurom-editor .vue-flow__handle.port-slot.connectable:hover,.neurom-editor .vue-flow__handle.connecting{background:var(--spike);border-color:var(--spike)}
+.neurom-editor .vue-flow__handle.connectionindicator.valid{background:var(--ok);border-color:var(--ok)}
+.neurom-editor .vue-flow__handle.connectionindicator:not(.valid).connecting{background:var(--bad);border-color:var(--bad)}
+
+/* ---------------------------------------------------------------- wires */
+.neurom-editor .vue-flow__edge .vue-flow__edge-interaction{cursor:pointer}
+.neurom-editor .vue-flow__connection-path{stroke:var(--wire);stroke-width:2px;fill:none}
+.neurom-editor .vue-flow__connectionline.valid .vue-flow__connection-path{stroke:var(--ok)}
+/* a wire under the pointer glows and names itself. Call wires are dashed */
+.neurom-editor .canvas-link.hot .vue-flow__edge-path{filter:drop-shadow(0 0 3px rgba(255,255,255,.55))}
+
+/* ---------------------------------------------------------------- vue flow chrome */
+.neurom-editor .vue-flow__minimap{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line-strong);border-radius:10px;box-shadow:0 8px 24px -10px rgba(0,0,0,.9);margin:0 0 12px 12px;overflow:hidden}
+.neurom-editor .vue-flow__minimap svg{display:block}
+.neurom-editor .vue-flow__minimap-node{fill:var(--col);stroke:var(--line-strong)}
+/* a group frame is an outline, so the members drawn inside stay visible. A training module's well is recessed (EditorRoot.vue) */
+.neurom-editor .vue-flow__minimap-node.group{fill:none;stroke:var(--muted)}
+.neurom-editor .vue-flow__minimap-node.well{fill:var(--bg);stroke:none}
+.neurom-editor .vue-flow__selection,.neurom-editor .vue-flow__nodesselection-rect{background:color-mix(in srgb,var(--focus) 12%,transparent);border:1px dashed var(--focus)}
+.neurom-editor .vue-flow__edge-labels{pointer-events:none}
+
+.binding-label{position:absolute;pointer-events:none;color:var(--muted);font-size:11px;white-space:nowrap;background:var(--bg);padding:2px 6px;border-radius:4px}
+.binding-label.hot{color:var(--ink);border:1px solid var(--wc,var(--line-strong));box-shadow:0 4px 14px -6px rgba(0,0,0,.9);z-index:5}
+.edge-route-handle{stroke:var(--panel);stroke-width:2px;vector-effect:non-scaling-stroke;pointer-events:all;cursor:move;touch-action:none;transition:r .12s}
+.canvas-link.selected .edge-route-handle{stroke:var(--focus)}
+.edge-route-handle:hover,.edge-route-handle:focus{fill:var(--focus);stroke:var(--ink);outline:none}

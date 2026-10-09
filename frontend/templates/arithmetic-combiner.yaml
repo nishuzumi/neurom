@@ -1,0 +1,201 @@
+# arithmetic-combiner — a trained policy network. Its one layer is a tool layer over three frozen arithmetic networks.
+# There is one episode for each question (op, a, b) ∈ {*,+,-}×16×16, with one step. The index mod 5 splits the
+# enumeration 3 : 1 : 1 into training / validation / test.
+#   loop.input = op pins (one-hot in *,+,- order) ‖ a[4] ‖ b[4]                                   (11 bits)
+#   policy     = dense network `layers: [{ tools: tools, data: 8 }]`. The head of its tool layer reads the 11 input bits.
+#                The head selects a tool (0 ADD4, 1 SUB4, 2 MUL4, in the order of the wires into `tools`) and 8 data bits.
+#                Only the selected tool runs on those bits. The builtin ADD4 / SUB4 / MUL4 networks (frozen on their own
+#                `artifact`) are tools through the `run` of their bits readouts (5 / 5 / 8 bits). The layer is last, so
+#                its 8 result bits (zero-extended) are the network's output. The bits readout decodes them lsb-int as
+#                the loop's action (the answer).
+# The answer is correct when it equals a+b / a−b (borrow in bit 4) / a·b. REINFORCE trains the choice and the data bits
+# on that reward only. The head reads the input directly. A hidden layer before the tool layer would have to carry all
+# 8 operand bits (ADR 0010).
+format: neurom-template
+id: arithmetic-combiner
+revision: 1
+name: 组合器 · 工具层调用 3 个网络
+kind: composite
+description: 策略网络的工具层按题目选出冻结的 ADD4 / SUB4 / MUL4 之一，并决定交给它的 8 个数据位；只运行被选中的网络，它的结果就是答案。奖励只看答案对不对，REINFORCE 同时训练选择与数据位
+preset: { label: 组合器 · 内置 ADD4 / SUB4 / MUL4 与策略产物已接受 }
+modules:
+  questions:
+    kind: partition
+    title: 穷举 3×16×16
+    config:
+      kind: enumerate
+      enumerate:
+        axes:
+          op: ['*', '+', '-']
+          a: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+          b: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        roles:
+          training: { mod: 5, rem: [2, 3, 4] }
+          validation: { mod: 5, rem: [1] }
+          test: { mod: 5, rem: [0] }
+  scene:
+    kind: code
+    title: 算术题
+    config:
+      source: |-
+        export const budget = 1;
+        /** 运算符 op 和操作数 a、b。 */
+        export function init(start) {
+          return {
+            /** 运算符：*、+ 或 - */
+            op: start.op,
+            /** 第一个操作数 */
+            a: start.a,
+            /** 第二个操作数 */
+            b: start.b,
+            /** 读出给出的结果；step 之前为 -1 */
+            action: -1,
+          };
+        }
+        /** 运算符 one-hot（*、+、- 顺序，3 位）‖ a（4 位）‖ b（4 位），共 11 位。 */
+        export function input(state) {
+          return concat(oneHot(state.op === '*' ? 0 : state.op === '+' ? 1 : 2, 3), bits(state.a, 4), bits(state.b, 4));
+        }
+        /** op 为 +、-、* 时分别是 a + b、（a−b）mod 16 加借位（a < b 时第 4 位为 1）、a × b。 */
+        function want(q) {
+          return q.op === '+' ? q.a + q.b : q.op === '-' ? (q.a >= q.b ? q.a - q.b : q.a - q.b + 32) : q.a * q.b;
+        }
+        /** 记下结果；等于 want(state) 时成功。 */
+        export function step(state, action) {
+          return { state: { ...state, action }, done: true, success: action === want(state) };
+        }
+  reward:
+    kind: code
+    title: 奖励
+    config:
+      source: |-
+        /**
+         * 结果正确为 1，否则为 0。
+         * @param transition 本步转移
+         * @returns 本步奖励
+         */
+        export function reward(transition) {
+          return transition.success ? 1 : 0;
+        }
+  exact:
+    kind: code
+    title: exact
+    config:
+      source: |-
+        /**
+         * 结果正确记 1，否则记 0。
+         * @param episode 回合摘要
+         * @returns {number} 0 或 1
+         */
+        export function exact(episode) {
+          return episode.success ? 1 : 0;
+        }
+  loop: { kind: loop, title: 回路 }
+  policy:
+    kind: network
+    title: 策略
+    config: { engine: dense-policy, kind: feedforward, inputs: 11, layers: [{ tools: tools, data: 8 }], ticks: 1, leak_shift: 0, reset: 0 }
+  policyOut:
+    kind: readout
+    title: 答案
+    config: { mode: bits, width: 8, decode: lsb-int }
+  add4:
+    kind: network
+    title: ADD4（内置）
+    config: { engine: threshold-layers, kind: feedforward, inputs: 8, layers: [12], artifact: '0xc024ed2ae71a90c1715fd23a1bb2e325d272cb4ce499d72628bf712bf1196bd6' }
+  add4Readout:
+    kind: readout
+    config: { mode: bits, width: 5, decode: lsb-int }
+  sub4:
+    kind: network
+    title: SUB4（内置）
+    config: { engine: threshold-layers, kind: feedforward, inputs: 8, layers: [16], artifact: '0x6636c9d89f36bfb65748398c34d13978dda24680ba8e8441642c5cf2fd8e7cb5' }
+  sub4Readout:
+    kind: readout
+    config: { mode: bits, width: 5, decode: lsb-int }
+  mul4:
+    kind: network
+    title: MUL4（内置）
+    config: { engine: threshold-layers, kind: feedforward, inputs: 8, layers: [112], artifact: '0xa00571aec1b0e065bc215e7816d923d49f276a884f5630b43a044a95708f66b5' }
+  mul4Readout:
+    kind: readout
+    config: { mode: bits, width: 8, decode: lsb-int }
+  trainer:
+    kind: trainer
+    title: 策略训练
+    config: { method: reinforce, epochs: 100, lr: 0.1, entropy: 0.03, replicas: 8, seed: 1, evalEvery: 10, backend: browser }
+  cands:
+    kind: candidates
+    title: 策略候选
+    config: { accepted: '0x29d829d888cc06fc25568a51c89574938aaf4eda9decb26c553c593a1f41c458' }
+  evaluator:
+    kind: evaluator
+    title: 按运算评估
+    config: { groupBy: op }
+  report:
+    kind: view
+    config: { renderer: kv, path: report.metrics }
+  execution:
+    kind: execution
+    title: 执行实例
+wires:
+  value:
+    - questions.training→trainer.training
+    - questions.validation→trainer.validation
+    - questions.test→evaluator.partition
+    - questions.test→execution.partition
+    - loop.loop→trainer.loop
+    - loop.loop→evaluator.loop
+    - loop.loop→execution.loop
+    - loop.input→policy.in
+    - policy.scores→policyOut.scores
+    - policyOut.action→loop.action
+    - add4.scores→add4Readout.scores
+    - sub4.scores→sub4Readout.scores
+    - mul4.scores→mul4Readout.scores
+    - policy.structure→trainer.structure
+    - trainer.run→cands.run
+    - cands.weights→policy.weights
+    - evaluator.report→report.report
+  call:
+    - scene.module→loop.scenario
+    - add4Readout.run→policy.tools
+    - sub4Readout.run→policy.tools
+    - mul4Readout.run→policy.tools
+    - reward→trainer.objective
+    - exact→trainer.metric
+    - exact→evaluator.metrics
+groups:
+  box:
+    title: 回路
+    loop: loop
+    members: [loop, policy, policyOut]
+    expose: [loop.loop, loop.scenario, policy.structure, policy.tools, policy.weights]
+expose: [cands.artifact]
+slots:
+  - id: scenario
+    title: 场景
+    port: loop.scenario
+    create: [{ kind: code, title: 场景, ports: { module: scenario } }]
+  - id: training
+    title: 训练集
+    port: trainer.training
+    create:
+      - { kind: partition, title: 分区, ports: { training: training, validation: validation } }
+  - { id: validation, title: 验证集, port: trainer.validation }
+  - id: objective
+    title: 目标
+    port: trainer.objective
+    create: [{ kind: code, title: 奖励 }]
+  - id: metric
+    title: 指标
+    port: trainer.metric
+    create: [{ kind: code, title: 指标 }]
+  - id: evaluator
+    title: 评估
+    port: loop.loop
+    create: [{ kind: evaluator, title: 评估器 }]
+  - id: execution
+    title: 执行
+    port: loop.loop
+    create: [{ kind: execution, title: 执行实例 }]

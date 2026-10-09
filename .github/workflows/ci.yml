@@ -1,0 +1,44 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Foundry (Monad execution needs >= 1.8.0)
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.0
+      - name: Test under Monad execution
+        working-directory: contracts
+        run: forge test --network monad -vvv
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Check generated ABIs
+        run: python3 contracts/scripts/export_abi.py --check
+  training:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install numpy and the CPU torch the bundle trainers use
+        run: pip install -r training/requirements.txt -r training/requirements-torch.txt --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Python tests (IR / runner / trainers against the JS-generated fixtures, workspace service)
+        run: python3 -m unittest discover -s training -p 'test_*.py'
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Check frontend behavior, i18n coverage (i18n.test.js) and types
+        run: |
+          npm test
+          npm run typecheck
+      - run: npm run build
