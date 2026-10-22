@@ -305,7 +305,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule);color
   <h3>连一根线时发生什么</h3>
   <p><code>ModuleGraph.connect</code> 依次检查这些项：端点、线的种类、句柄、单一来源、类型可赋值和环。然后它临时装上这根线，运行一次 <code>resolve</code>。如果出现新的问题（“未完成”类问题除外），它回滚这根线。</p>
   <p><code>resolve.js</code> 做不动点迭代。它先取各种类的 <code>ports</code>，再反复调用 <code>infer</code> 推出输出类型，最多 24 轮。然后它检查每根线、必填输入和种类自己的 <code>problems</code>。它还把类型化的调用登记进 <code>Resolution.calls</code>。</p>
-  <p class="where">值类型：number、boolean、string、vector、array、record、table、handle。位向量最宽 256（<code>core/types.js</code> 的 <code>MAX_BITS</code>）。</p>
+  <p class="where">值类型：number、boolean、string、vector、array、record、table、handle。位向量最宽 65535（<code>core/types.js</code> 的 <code>MAX_BITS</code>，ADR 0021）。</p>
 
   <h3>16 种模块种类</h3>
   <p>按注册顺序列出，也就是面板顺序（<code>frontend/core/kinds/index.js</code>）。<code>kinds/scenario.js</code> 不是种类，它定义场景的角色合约。</p>
@@ -327,7 +327,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule);color
       <tr><td><code>network</code></td><td>网络：FF / LIF，1..8 层，<code>weightBits</code> 8 或 16</td><td>入 <code>in</code>、<code>weights</code>（回路输入）、每个工具层一个调用输入。出 <code>scores</code>、<code>structure</code></td></tr>
       <tr><td><code>trainer</code></td><td>训练器：REINFORCE / 交叉熵 / hinge</td><td>入 <code>loop</code>、<code>structure</code>、目标、可选指标、<code>training</code>、可选 <code>validation</code>。出 <code>run</code></td></tr>
       <tr><td><code>view</code></td><td>视图：画执行或报告，不参与计算</td><td>入 <code>execution</code>、<code>report</code>。没有输出</td></tr>
-      <tr><td><code>bits</code></td><td>位线：切片、拼接位向量，总宽 ≤ 256</td><td>入 若干位向量。出 <code>bits</code></td></tr>
+      <tr><td><code>bits</code></td><td>位线：切片、拼接位向量，总宽 ≤ 65535</td><td>入 若干位向量。出 <code>bits</code></td></tr>
     </tbody>
   </table></div>
 
@@ -377,7 +377,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule);color
     <thead><tr><th>角色</th><th>必填</th><th>签名</th><th>谁在什么时候调用</th></tr></thead>
     <tbody>
       <tr><td><code>init</code></td><td>否</td><td><code>init(start) → State</code></td><td>运行器在 <code>reset</code> 时调用。没有 init 时，Start 就是初始 State</td></tr>
-      <tr><td><code>input</code></td><td>是</td><td><code>input(state[, table]) → bits[1..256]</code></td><td>每一步开始时。网络只看得到这些位</td></tr>
+      <tr><td><code>input</code></td><td>是</td><td><code>input(state[, table]) → bits[1..65535]</code></td><td>每一步开始时。网络只看得到这些位</td></tr>
       <tr><td><code>step</code></td><td>是</td><td><code>step(state, action[, table]) → {state, done, success}</code></td><td>回路体算出动作之后</td></tr>
       <tr><td><code>budget</code></td><td>是</td><td><code>export const budget</code>，正整数</td><td>每回合的步数上限。到达上限时截断回合</td></tr>
       <tr><td><code>actions</code></td><td>否</td><td><code>export const actions = [...]</code></td><td>单独接给读出，命名动作槽</td></tr>
@@ -481,7 +481,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule);color
     <tbody>
       <tr><td>JS</td><td><code>frontend/runtime/dense-policy.js</code></td><td><code>frontend/runtime/threshold-layers.js</code></td></tr>
       <tr><td>链上</td><td><code>DensePolicyEngine.sol</code></td><td><code>ThresholdLayersEngine.sol</code></td></tr>
-      <tr><td>层</td><td>1..8 层，每层宽 1..256。每层是普通层或工具层</td><td>1..8 个映射，每层宽 1..256</td></tr>
+      <tr><td>层</td><td>1..8 层，每层宽 1..65535。每层是普通层或工具层</td><td>1..8 个映射，每层宽 1..65535</td></tr>
       <tr><td>状态</td><td>FF 无状态。LIF 每个普通层的电位跨步保留</td><td>无</td></tr>
       <tr><td>每层计算</td><td><code>z = (Σ W·x)·2^k + f·b</code>。FF 在 <code>z ≥ 1</code> 时激活</td><td>如果 <code>Σ W·x·2^k − th ≥ 0</code>，输出位是 1，否则是 0。每层输出 0/1 位。最后一层的位就是 scores</td></tr>
       <tr><td>训练方法</td><td>REINFORCE、交叉熵</td><td>hinge</td></tr>
@@ -570,7 +570,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule);color
 
   <h3>自动保存与多标签页</h3>
   <ul>
-    <li>改动后 300 ms 防抖写入 localStorage，键名 <code>neurom-workbench</code>（<code>graph_app.js</code> 的 <code>persist</code> / <code>saveWorkspace</code>）。</li>
+    <li>改动后 300 ms 防抖写入 localStorage，键名 <code>neurom-workbench</code>（<code>graph_app.js</code> 的 <code>persist</code> / <code>saveWorkspace</code>）。产物按内容 id 存进 IndexedDB 的 <code>neurom-artifacts</code>（<code>core/local-save.js</code>）。存档只用 <code>artifactIds</code> 记下 IndexedDB 里已经有的产物，其余的产物仍写在存档里，所以存档不会引用不存在的产物。写入是同步的，关页面时也一样。IndexedDB 里的产物不自动删除，因为所有标签页共用它们。没有 <code>artifactIds</code> 的旧存档照常打开。浏览器没有 IndexedDB 时，存档照旧写入全部产物。</li>
     <li>同源的所有标签页共用这一份存档。标签页只在自己改过内容时才写入。所以旧标签页刷新或关闭时不会覆盖新内容。</li>
     <li>如果另一个标签页存了不同内容，本页不默默接受，也不覆盖。本页显示提示：“载入”用对方的内容，“用本页覆盖”写回本页的内容。</li>
     <li>Python 训练的运行另外存在 Workspace 服务自己的运行目录里（<code>training/workspace.py</code>），所以浏览器刷新后还能重新挂上。</li>
@@ -691,7 +691,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule);color
 
   <h3>部署：通常一笔交易</h3>
   <ol class="steps">
-    <li><b>本地准备</b><code>deploymentOf(artifact)</code> 校验产物，并计算形状（dense 3 个词，阈值 2 个词）。然后它把权重编码成按列的字节，切成 ≤ 114,688 字节的块。每块的 id = <code>keccak256(数据)</code>。<span class="where"><code>frontend/module-chain.js</code></span></li>
+    <li><b>本地准备</b><code>deploymentOf(artifact)</code> 校验产物，并计算形状（dense 4 个词，阈值 2 个词）。然后它把权重编码成按列的字节，切成 ≤ 114,688 字节的块。每块的 id = <code>keccak256(数据)</code>。<span class="where"><code>frontend/module-chain.js</code></span></li>
     <li><b>先部署工具</b>如果网络有工具层，部署桥递归处理每个工具。如果同一官方 Factory 里已有同一产物的模块，并且核对通过，部署桥复用这个模块。否则部署桥先部署这个工具。代码工具不能部署。</li>
     <li><b>只读规划</b>按 CREATE2 公式算出每个权重块的地址。查出链上已有哪些块。估算 gas。</li>
     <li><b>预检</b><code>checkDeploy(spec, data)</code> 运行和部署完全相同的检查，但什么都不创建。所以被拒绝的模块不花任何交易。</li>
@@ -699,7 +699,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule);color
     <li><b>放不下就拆</b>如果估算 + 10% 超过 30M，先用 <code>createChunk</code> 创建缺少的块，每笔交易一块。部署桥一直这样做，直到剩下的块和模块装得进最后一笔交易。如果单独一块也放不下，部署桥明确报错。</li>
     <li><b>可续传</b>块地址只由 Factory 和内容决定。如果部署中断，重新规划，然后从缺少的块继续。已有的块不重发。</li>
   </ol>
-  <p><code>deploy</code> 的检查在 <code>ModuleFactory._check</code> 里。如果 <code>version</code> 为 0，它用该引擎 id 的最新版本，否则 <code>version</code> 必须是该引擎 id 列出的版本。端口宽度是 1..256。工具必须是本 Factory 的模块，深度 ≤ 3。引擎的 <code>check</code> 必须接受形状，状态宽度 ≤ 256。权重块地址和总字节数必须与形状一致，身份必须装得进克隆。</p>
+  <p><code>deploy</code> 的检查在 <code>ModuleFactory._check</code> 里。如果 <code>version</code> 为 0，它用该引擎 id 的最新版本，否则 <code>version</code> 必须是该引擎 id 列出的版本。端口宽度是 1..65535。工具必须是本 Factory 的模块，深度 ≤ 3。引擎的 <code>check</code> 必须接受形状，状态宽度 ≤ 256。权重块地址和总字节数必须与形状一致，身份必须装得进克隆。</p>
 
   <h3>一步：模块 → 引擎版本 → 权重块</h3>
   <ol class="steps">
@@ -867,7 +867,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule);color
       <tr><td>无效动作</td><td>Invalid Action</td><td>读出表里标 <code>null</code> 的槽，解码为 −1。它用掉一步，但不改状态。</td></tr>
       <tr><td>网络</td><td>Network</td><td>把输入位变成整数 scores 的模块。权重来自自己的 <code>artifact</code> 或 <code>weights</code>，不能两者都有。</td></tr>
       <tr><td>工具层</td><td>Tool Layer</td><td>稠密网络层列表里的 <code>{ tools, data? }</code> 一项：选一个工具、给它数据位、拼接结果。</td></tr>
-      <tr><td>工具</td><td>Tool</td><td>接进工具层的 <code>(bits) → bits</code> 函数：代码导出，或冻结网络的位读出 <code>run</code>。</td></tr>
+      <tr><td>工具</td><td>Tool</td><td>接进工具层的 <code>(bits) → bits</code> 函数：代码导出，或冻结网络的读出（位读出或 argmax 读出）的 <code>run</code>。</td></tr>
       <tr><td>数据集</td><td>Dataset</td><td>导入后按内容 hash 固定的一张表。</td></tr>
       <tr><td>分区</td><td>Partition</td><td>把回合分成训练 / 验证 / 测试的模块。</td></tr>
       <tr class="g"><th colspan="3">训练与结果</th></tr>
@@ -988,7 +988,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule);color
   <div class="tw"><table>
     <thead><tr><th>项目</th><th class="num">值</th><th>性质</th><th>来源</th></tr></thead>
     <tbody>
-      <tr><td>位向量宽度、网络输入 / 输出宽度</td><td class="num">1..256</td><td>代码常量</td><td><code>core/types.js</code> <code>MAX_BITS</code>、<code>ModuleFactory.MAX_PORT</code></td></tr>
+      <tr><td>位向量宽度、网络输入 / 输出宽度、动作、层宽</td><td class="num">1..65535</td><td>代码常量</td><td><code>core/types.js</code> <code>MAX_BITS</code>、<code>ModuleFactory.MAX_PORT</code>、引擎 <code>MAX_WIDTH</code>、ADR 0021</td></tr>
       <tr><td>网络层数</td><td class="num">1..8</td><td>代码常量</td><td><code>runtime/dense-policy.js</code>、两种引擎的 <code>MAX_LAYERS</code></td></tr>
       <tr><td>weightBits</td><td class="num">8 或 16</td><td>代码常量</td><td><code>WEIGHT_BITS</code>、ADR 0015</td></tr>
       <tr><td>每区域移位 k</td><td class="num">0..20</td><td>代码常量</td><td><code>training/quantize.js</code>、引擎 <code>MAX_SHIFT</code></td></tr>

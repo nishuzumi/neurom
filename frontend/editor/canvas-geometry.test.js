@@ -24,10 +24,11 @@ function counter({ prefab = false } = {}) {
   if (prefab) graph.setPrefab(group.id, { slots: [], expect: [] });
   return { graph, ids, group: group.id, box: groupIds.box };
 }
-/** every placed builtin template, as graph_app.js places one: prefab groups expanded, then 整理 of its modules */
+/** every placed builtin template, as graph_app.js places one: when it holds a prefab (its group or a nested group), every
+ *  group expanded, then 整理 of its modules */
 function placed(template) {
-  const graph = new ModuleGraph(), r = instantiateInto(graph, template, { x: 0, y: 0 });
-  if (r.group?.prefab) for (const id of [r.group.id, ...Object.values(r.groupIds)]) graph.setGroupLayout(id, { collapsed: false });
+  const graph = new ModuleGraph(), r = instantiateInto(graph, template, { x: 0, y: 0 }), groups = r.group ? [r.group.id, ...Object.values(r.groupIds)] : [];
+  if (groups.some(id => graph.group(id).prefab)) for (const id of groups) graph.setGroupLayout(id, { collapsed: false });
   return { graph, r };
 }
 
@@ -85,6 +86,20 @@ test('Arrange leaves no two units of a level overlapping, for every builtin temp
       assert.ok(!intersects(geo.rect(a), geo.rect(b)), `${template.id}: ${a} and ${b} overlap in ${parent ?? 'the canvas'}`);
     }
   }
+});
+
+test('Arrange lets a frame that splits itself pick its columns by the aspect alone, and lays its level out around it', () => {
+  const { graph, group } = counter({ prefab: true });
+  const alone = geometryOf(graph).geo.frame(group);
+  assert.ok(alone.columns.length > 1, 'with nothing near, the frame splits its sections');
+  // a module just left of the frame: a second column would reach it
+  const blocker = graph.addNode({ kind: 'params', title: 'blocker' });
+  graph.moveNode(blocker.id, alone.well.x - 24 - 440 - 20 - 100, alone.rect.y);
+  const { geo, apply } = geometryOf(graph);
+  assert.equal(geo.frame(group).columns.length, 1, 'the neighbour stops the frame at one column');
+  apply(geo.arrange(null)?.moves ?? []);
+  assert.equal(geo.frame(group).columns.length, alone.columns.length, 'Arrange of the canvas: the count of the frame alone');
+  assert.ok(!intersects(geo.rect(group), geo.rect(blocker.id)), 'the neighbour moves out of the frame');
 });
 
 test('docking: every member port maps to one flow node handle and back — own card, collapsed group, loop box, section, tool card', () => {

@@ -18,14 +18,14 @@ import { canonicalJSON } from './canonical.js';
 import { docsOf } from './docs.js';
 import { isRef, resolveSignature, typeName } from './types.js';
 import { functionParamDocs } from './kinds/code.js';
-import { REQUIRED_CALLS, SCENARIO_CALLS, SCENARIO_CONSTS, SCENARIO_ORDER, roleText, scenarioSignatures, scenarioStub } from './kinds/scenario.js';
+import { REQUIRED_CALLS, SCENARIO_CALLS, SCENARIO_CONSTS, SCENARIO_ORDER, roleExports, roleText, scenarioSignatures, scenarioStub } from './kinds/scenario.js';
 import { t } from '../i18n.js';
 
 /**
- * @typedef {{ node: string, port: string, wire: string, via: 'call' | 'scenario', title: string, when: string | null, label: string }} Caller
+ * @typedef {{ node: string, port: string, wire: string, via: 'call' | 'scenario', role?: string, title: string, when: string | null, label: string }} Caller
  *   one caller: the consumer node and its port, the wire the role reaches it by (`call`: a call wire from the export,
- *   `scenario`: the `module` wire into a loop's `scenario`), its title, when it calls (raw text) and how a type's
- *   source names it (`训练器.objective`, `回路 的 input`)
+ *   `scenario`: the `module` wire into a loop's `scenario`, with `role` the function role the export fills there),
+ *   its title, when it calls (raw text) and how a type's source names it (`训练器.objective`, `回路 的 input`)
  * @typedef {{ type: unknown, label: string }} RoleParam
  *   a parameter as callers[0] declares it: its type over callers[0]'s named types (null while unknown) and that type
  *   by the name callers[0] gives it
@@ -39,7 +39,8 @@ import { t } from '../i18n.js';
  *   wire. `refs`: callers[0]'s named types (State, Transition…). `signature`: callers[0]'s contract with its `<ref>`s
  *   (null for a const role). `result`: what the protocol declares it returns, over refs. `returns`: what the result
  *   means (raw text)
- * @typedef {{ name: string, kind: 'function' | 'const', required: boolean, text: string }} ScenarioRole
+ * @typedef {{ name: string, role: string, kind: 'function' | 'const', required: boolean, text: string }} ScenarioRole
+ *   `name` the export that fills the role in the loop (its `roles` config), `role` the protocol's name for it
  * @typedef {{ loop: string, title: string, withTable: boolean, I: number | null, roles: ScenarioRole[], stub: string }} Scenario
  *   `roles` in file order, each with the text that adds it. `stub` the scenario a new module starts from
  */
@@ -57,18 +58,19 @@ export function named(T, refs) {
 const sceneMemo = new WeakMap(), rolesMemo = new WeakMap();
 const memoIn = (memo, res) => { let m = memo.get(res); if (!m) memo.set(res, (m = new Map())); return m; };
 
-/** The context loop `loopId` writes its scenario against, with its signatures (kinds/scenario.js) for that context. */
+/** The context loop `loopId` writes its scenario against, with its signatures (kinds/scenario.js) for that context
+ *  and `exports`, the export that fills each function role there (roleExports). */
 function sceneOf(graph, res, loopId) {
   const memo = memoIn(sceneMemo, res);
   if (memo.has(loopId)) return memo.get(loopId);
-  const refs = res.refsOf(loopId), withTable = refs.Table != null;
+  const refs = res.refsOf(loopId), withTable = refs.Table != null, exports = roleExports(graph.nodes.get(loopId));
   const I = graph.consumers(loopId, 'input').map(c => res.refsOf(c.node).I).find(Number.isInteger) ?? null;
   const signatures = scenarioSignatures(withTable, I);
-  const roles = SCENARIO_ORDER.map(name => {
-    const fn = SCENARIO_CALLS.includes(name);
-    return { name, kind: fn ? 'function' : 'const', required: fn ? REQUIRED_CALLS.includes(name) : SCENARIO_CONSTS[name].required, text: roleText(name, fn ? signatures[name] : null) };
+  const roles = SCENARIO_ORDER.map(role => {
+    const fn = SCENARIO_CALLS.includes(role), name = fn ? exports[role] : role;
+    return { name, role, kind: fn ? 'function' : 'const', required: fn ? REQUIRED_CALLS.includes(role) : SCENARIO_CONSTS[role].required, text: roleText(name, fn ? signatures[role] : null) };
   });
-  const scene = { refs, signatures, scenario: { loop: loopId, title: graph.nodes.get(loopId)?.title ?? loopId, withTable, I, roles, stub: scenarioStub(withTable, I) } };
+  const scene = { refs, signatures, exports, scenario: { loop: loopId, title: graph.nodes.get(loopId)?.title ?? loopId, withTable, I, roles, stub: scenarioStub(withTable, I, exports) } };
   memo.set(loopId, scene);
   return scene;
 }
@@ -112,29 +114,32 @@ function build(graph, res, codeId) {
     };
   };
 
+  /** the function role export `name` fills in scene `s`, or null */
+  const roleIn = (s, name) => SCENARIO_CALLS.find(role => s.exports[role] === name) ?? null;
   const roleOf = name => {
     const calls = [];
     for (const c of graph.consumers(codeId, name)) {
       const port = res.portsOf(c.node).inputs.find(p => p.id === c.port);
       if (port?.signature) calls.push({ c, port });
     }
-    const scenarioFn = SCENARIO_CALLS.includes(name) ? scenes : [], scenarioConst = name in SCENARIO_CONSTS && !calls.length ? scenes : [];
+    const scenarioFn = scenes.filter(s => roleIn(s, name)), scenarioConst = name in SCENARIO_CONSTS && !calls.length ? scenes : [];
     const callers = [
       ...calls.map(({ c, port }) => ({ node: c.node, port: c.port, wire: c.wire.id, via: 'call', title: title(c.node), when: port.when ?? null, label: `${title(c.node)}.${c.port}` })),
-      ...[...scenarioFn, ...scenarioConst].map(s => ({ node: s.loop, port: 'scenario', wire: s.wire, via: 'scenario', title: title(s.loop), when: scenarioConst.length ? SCENARIO_CONSTS[name].when : s.signatures[name].when, label: t('{consumer} 的 {role}', { consumer: title(s.loop), role: name }) })),
+      ...scenarioFn.map(s => { const role = roleIn(s, name); return { node: s.loop, port: 'scenario', wire: s.wire, via: 'scenario', role, title: title(s.loop), when: s.signatures[role].when, label: t('{consumer} 的 {role}', { consumer: title(s.loop), role }) }; }),
+      ...scenarioConst.map(s => ({ node: s.loop, port: 'scenario', wire: s.wire, via: 'scenario', role: name, title: title(s.loop), when: SCENARIO_CONSTS[name].when, label: t('{consumer} 的 {role}', { consumer: title(s.loop), role: name }) })),
     ];
     if (!callers.length) return null;
-    const required = scenarioConst.length ? SCENARIO_CONSTS[name].required : scenarioFn.length ? REQUIRED_CALLS.includes(name) : true;
+    const [s] = scenarioFn, role = s ? roleIn(s, name) : null;
+    const required = scenarioConst.length ? SCENARIO_CONSTS[name].required : role ? REQUIRED_CALLS.includes(role) : true;
     if (calls.length) {
       const [{ c, port }] = calls, refs = res.refsOf(c.node), rec = res.calls.get(c.wire.id);
       return fnRole(name, required, callers, port.signature, refs, rec ? rec.paramTypes.slice(0, rec.k) : null, rec ? rec.exact : port.signature.exact === true, i => d.arg(c.node, c.port, i));
     }
-    const [s] = scenes;
     if (scenarioConst.length) {
-      const spec = SCENARIO_CONSTS[name];
-      return { name, kind: 'const', required, callers, refs: s.refs, signature: null, params: [], result: spec.type, args: [], exact: false, returns: spec.returns, argDoc: () => null };
+      const spec = SCENARIO_CONSTS[name], [first] = scenes;
+      return { name, kind: 'const', required, callers, refs: first.refs, signature: null, params: [], result: spec.type, args: [], exact: false, returns: spec.returns, argDoc: () => null };
     }
-    const sig = s.signatures[name];
+    const sig = s.signatures[role];
     return fnRole(name, required, callers, sig, s.refs, null, true, i => (isRef(sig.params[i]) ? d.ref(s.loop, sig.params[i].slice(1, -1)) : null));
   };
 

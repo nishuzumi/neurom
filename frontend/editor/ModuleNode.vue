@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // ModuleNode.vue — the host box of every module on the canvas, whatever its kind. From top to bottom:
-// - a kind-coloured header (title, kind badge, problem badge, the kind's own header actions, collapse / delete).
+// - a kind-coloured header (title, kind badge, problem badge, the kind's own header actions, 「运行到这里」, collapse /
+//   delete).
 // - the standard port band (NodePorts.vue: value ports solid, call ports marked ƒ).
 // - the kind's body from modules/registry.ts.
 // The host owns the width (node.uiSize.w or the kind default, AGENTS.md). The body fills it. Collapsed, only header and
@@ -15,6 +16,7 @@ import { NodeResizer } from '@vue-flow/node-resizer';
 import NodePorts from './NodePorts.vue';
 import ToolCanvas from './ToolCanvas.vue';
 import HeadIcon from './HeadIcon.vue';
+import RunUpTo from './RunUpTo.vue';
 import { BODIES } from './modules/registry';
 import { problemHint } from './graph-view';
 import { RUNTIME_KEY, type EditorRuntime, type ModuleNodeView } from './types';
@@ -57,7 +59,7 @@ function rename(e: Event) { rt.rename(view.value.nodeId, (e.target as HTMLInputE
 </script>
 
 <template>
-  <section ref="root" class="mnode" :class="[`kind-${view.kind}`, { collapsed: view.collapsed, sized, 'has-problem': problemCount > 0 }]" :aria-label="t('{kind} 模块 {title}', { kind: view.kindLabel, title: view.title })">
+  <section ref="root" class="mnode" :class="[`kind-${view.kind}`, { collapsed: view.collapsed, sized, resizing, 'has-problem': problemCount > 0 }]" :aria-label="t('{kind} 模块 {title}', { kind: view.kindLabel, title: view.title })">
     <NodeResizer v-if="!view.collapsed" :min-width="NODE_W_MIN" :max-width="NODE_W_MAX" :min-height="minHeight" :max-height="NODE_H_MAX" line-class-name="editor-resize-line" handle-class-name="editor-resize-handle"
       @resize-start="onResizeStart" @resize-end="onResizeEnd" />
     <header class="mnode-head" :title="t('拖动移动。双击标题折叠 / 展开')">
@@ -66,6 +68,7 @@ function rename(e: Event) { rt.rename(view.value.nodeId, (e.target as HTMLInputE
       <span v-if="problemCount" class="mnode-problem bad" :title="problemHint(view.problems)" :aria-label="t('{count} 个问题', { count: problemCount })">{{ problemCount }}</span>
       <span v-else-if="incompleteCount" class="mnode-problem m" :title="problemHint(view.problems)" :aria-label="t('{count} 项未连接', { count: incompleteCount })">{{ incompleteCount }}</span>
       <component :is="head" v-if="head" :node-id="view.nodeId" />
+      <RunUpTo :node-id="view.nodeId" :kind="view.kind" :title="view.title" />
       <button type="button" class="mnode-act mnode-icon nodrag" :aria-expanded="!view.collapsed" :title="view.collapsed ? t('展开模块内容') : t('折叠为只显示端口')" :aria-label="view.collapsed ? t('展开模块内容') : t('折叠为只显示端口')" @click.stop="rt.toggleCollapse(view.nodeId)"><HeadIcon :name="view.collapsed ? 'plus' : 'minus'" /></button>
       <button type="button" class="mnode-del mnode-icon nodrag" :title="t('删除模块（可撤销）')" :aria-label="t('删除模块 {title}', { title: view.title })" @click.stop="rt.removeNode(view.nodeId)"><HeadIcon name="close" /></button>
     </header>

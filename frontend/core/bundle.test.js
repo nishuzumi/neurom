@@ -76,6 +76,46 @@ test('a network’s own `artifact` is its model; with a weights wire or a traine
   assert.throws(() => buildBundle(graph, ids.evaluator, { artifacts }), /没有已接受的权重/);
 });
 
+test('a trainer `init` carries the accepted artifact of its candidates; none accepted or a misfit is a problem', async () => {
+  const { graph, ids } = counterGraph();
+  assert.equal('init' in buildBundle(graph, ids.trainer), false, 'without the wire the bundle has no init');
+  const artifact = await makeArtifact({ bundle: buildBundle(graph, ids.trainer), model: counterModel(1) });
+  const narrowGraph = counterGraph();
+  narrowGraph.graph.patchConfig(narrowGraph.ids.net, { layers: [{ hidden: 4 }] });
+  const narrow = await makeArtifact({ bundle: buildBundle(narrowGraph.graph, narrowGraph.ids.trainer), model: counterModel(1, { hidden: 4 }) });
+  const artifacts = id => [artifact, narrow].find(a => a.id === id) ?? null;
+  graph.connect({ kind: 'value', from: { node: ids.cands, port: 'weights' }, to: { node: ids.trainer, port: 'init' } });
+  const initProblems = () => graph.problems().filter(p => p.node === ids.trainer && p.port === 'init');
+  assert.equal(initProblems().length, 1, 'no accepted artifact yet');
+  assert.equal(initProblems()[0].incomplete, true);
+  assert.throws(() => buildBundle(graph, ids.trainer, { artifacts }), error => error instanceof BundleError && /init/.test(error.message));
+  graph.patchConfig(ids.cands, { accepted: artifact.id });
+  assert.deepEqual(initProblems(), []);
+  const b = buildBundle(graph, ids.trainer, { artifacts });
+  assert.deepEqual(b.init, { artifactId: artifact.id, model: artifact.model });
+  assert.equal(b.loop.nodes[ids.net].model, null, 'the trained network itself stays without a model');
+  graph.patchConfig(ids.cands, { accepted: narrow.id });
+  assert.throws(() => buildBundle(graph, ids.trainer, { artifacts }), /产物不兼容：网络结构不同/);
+});
+
+test('a trainer `gate` takes an evaluator report only; a missing condition or a metric the evaluator does not have is a problem', () => {
+  const { graph, ids } = counterGraph();
+  const before = buildBundle(graph, ids.trainer);
+  assert.throws(() => graph.connect({ kind: 'value', from: { node: ids.cands, port: 'weights' }, to: { node: ids.trainer, port: 'gate' } }), /report/);
+  graph.connect({ kind: 'value', from: { node: ids.evaluator, port: 'report' }, to: { node: ids.trainer, port: 'gate' } });
+  const gateProblems = () => graph.problems().filter(p => p.node === ids.trainer && p.port === 'gate');
+  assert.equal(gateProblems().length, 1, 'no condition yet');
+  assert.equal(gateProblems()[0].incomplete, true);
+  graph.patchConfig(ids.trainer, { gate: { metric: 'speed', min: 1 } });
+  assert.match(gateProblems()[0].message, /speed/);
+  assert.ok(!gateProblems()[0].incomplete);
+  assert.throws(() => buildBundle(graph, ids.trainer), /speed/);
+  graph.patchConfig(ids.trainer, { gate: { metric: graph.node(ids.steps).title, max: 4 } });
+  assert.deepEqual(gateProblems(), []);
+  assert.deepEqual(buildBundle(graph, ids.trainer), before, 'the gate and its condition do not change the bundle');
+  assert.throws(() => graph.patchConfig(ids.trainer, { gate: { metric: 'steps', min: 'high' } }), /gate\.min/);
+});
+
 test('hash stability: key order does not matter; env hash is shared across consumers and instances of one loop', async () => {
   const one = counterGraph(), two = counterGraph();
   const b1 = buildBundle(one.graph, one.ids.trainer), b2 = buildBundle(two.graph, two.ids.trainer);

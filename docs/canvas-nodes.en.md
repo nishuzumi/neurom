@@ -13,7 +13,7 @@ The three kinds of node share one port band (`NodePorts.vue`), one wiring model 
 ```mermaid
 flowchart LR
   subgraph host["ModuleNode.vue host (positioned container)"]
-    head["header: kind badge · name · problem badge · collapse / delete"] --> band["NodePorts port band"] --> body["modules/registry.ts → the kind's Body"]
+    head["header: kind badge · name · problem badge · run up to here · collapse / delete"] --> band["NodePorts port band"] --> body["modules/registry.ts → the kind's Body"]
   end
   graphview["graph-view.ts portSpecs / problemView / loopSummary"] --> band
   wiring["wiring.ts useWiring(wires)"] --> band
@@ -27,7 +27,7 @@ flowchart LR
 ## The host `ModuleNode.vue`
 
 1. **Frame**: a positioned box (`position: relative`, which fills the Vue Flow node). Port slots have absolute positions relative to it, on the left and right borders. The host sets the width: `node.uiSize.w`, or if it is not set, the natural width of the kind in `sizes.ts`. The root of the content component fills the host (`width: 100%`) and sets no `min-width` of its own (AGENTS.md).
-2. **Header**: the drag handle. The header has the kind badge (`kindOf(kind).label` through `t()`), the editable name, the problem badge, collapse and delete. On the problem badge, red is the number of errors and grey is the number of unconnected items. On hover, the badge shows the full text. Controls in the header have `nodrag`.
+2. **Header**: the drag handle. The header has the kind badge (`kindOf(kind).label` through `t()`), the editable name, the problem badge, collapse and delete. On the problem badge, red is the number of errors and grey is the number of unconnected items. On hover, the badge shows the full text. Controls in the header have `nodrag`. The headers of candidates, trainer, evaluator, execution and script modules also have ▶ 「运行到这里」 (run up to here, `RunUpTo.vue`, ADR 0023). The section headers of these modules in a training module also have this button. While a chain runs, all of these buttons are disabled, and the button of the module that the chain runs for is lit.
 3. **`<NodePorts>`**: the port band. `graph-view.ts portSpecs(graph, resolution, nodeId)` generates the port band from the resolution of the module graph.
 4. **Content**: `BODIES[kind]` from `modules/registry.ts`, whose only prop is `nodeId`. Content components get `graph`, `resolution()`, `session(kind, nodeId)`, `edit(label, fn)` and `status()` through `inject(WORKBENCH)` (`workbench-context.ts`). Content components change configuration only through `edit()` and runtime state only through sessions.
 5. **Size**:
@@ -37,13 +37,13 @@ flowchart LR
    - Other: there are no other size controls in the content (text boxes have no resize grip). When the node is collapsed, only the header and the port band remain.
 6. **Tool layers** (networks, ADR 0010 §9):
    - Sub-canvas: after the content, each tool layer has one foldable sub-canvas 「工具层 · port」, in layer order. The fold state is in `node.uiFolded`.
-   - Cards inside: a module wired only into that tool port shows inside the sub-canvas as a full card. A frozen network with its bits readout counts as one module: the `run` of the readout is wired there. The network feeds only that readout. The unwired ports of this module are slots `${module id}/${port}` on the host node. If you wire the module elsewhere from one of these slots, the module goes back to the outer canvas.
+   - Cards inside: a module wired only into that tool port shows inside the sub-canvas as a full card. A frozen network with its readout (a bits readout or an argmax readout) counts as one module: the `run` of the readout is wired there. The network feeds only that readout. The unwired ports of this module are slots `${module id}/${port}` on the host node. If you wire the module elsewhere from one of these slots, the module goes back to the outer canvas.
    - Tools outside: a tool that is also wired elsewhere stays outside. The sub-canvas has only a label, and a click on the label moves to the tool.
    - Membership: membership comes only from the wires (`editor/tool-canvas.js`). The system does not store it.
    - 「+ 工具」: this adds a `(bits) → bits` code tool, or a frozen network that runs a selected artifact, and wires it. Each of these operations is one history entry.
    - During execution: on the current step of the execution that runs the network, the chosen tool is highlighted. It shows the data bits it received and its result. The other tools are dimmed. When the sub-canvas is folded, it shows a one-line summary.
    - Width: the host takes the width that its cards need (`graph-view.ts TOOL_CANVAS`). The card grid fills this width.
-   - Available artifacts: any network read out as bits (FF, LIF, or with tool layers of its own, ADR 0014). If you select an artifact with tool layers, the system also adds the network tools that the artifact used in training. The system wires these tools into its tool ports. You must wire code tools manually.
+   - Available artifacts: any network with a readout, a bits readout or an argmax readout (FF, LIF, or with tool layers of its own, ADR 0014). The list marks an artifact with an argmax readout with `argmax`. If you select an artifact with tool layers, the system also adds the network tools that the artifact used in training. The system wires these tools into its tool ports. You must wire code tools manually.
    - Nesting: when tools nest more than 3 levels deep, the outermost network shows a problem. The system refuses a wire that directly causes this deep nesting.
 
 The host draws no slots and does not set the wire colours.
@@ -64,15 +64,18 @@ When a group has `loop` (`group.loop` = the id of a loop module), `GroupNode.vue
   - Left column: `init(start) → State` → `State` → `input(state) → bits[I]`. The `input` handle is on its right edge and feeds the body.
   - Right: `action: number`. The `action` handle is on its left edge.
   - Bottom: `step(state, action)` and the end condition.
+  - Below each function role is the export that fills it, as `<scene>.<export>`. When the `roles` config of the loop maps the role to another export of the scenario, the box shows that export, for example `场景.duelStep` (ADR 0022). A click opens the code of that export.
 
   The frame shows only protocol signatures, values that come from the graph (`graph-view.ts loopContract`) and empty states. `sizes.ts LOOP_FRAME` keeps space for these stations, so the members do not cover them.
 - When the box is collapsed, it shows its exposed ports and a one-line summary of the body: "each step: input bits → network → readout → … → action" (`graph-view.ts loopSummary`, in evaluation order). When the loop is not closed, the summary is "loop not closed".
 - The problem badge in the header shows the problems of the loop module. When the box is in a training module, these problems show on the header of the training module. The box is only a view: the body comes from the wires. When the members of the box differ from "loop module + body", the loop reports "The members of loop box … differ from the loop body (extra: …; missing: …)". A move of a module into or out of the box does not change the body. Only a change of wires changes the body.
-- A loop module that is not in a loop box shows as an ordinary card (`LoopBody.vue`).
+- A loop module that is not in a loop box shows as an ordinary card (`LoopBody.vue`). A loop in a loop box has no card, so its `roles` config changes in the template or in the config.
 
 ## The training module `TrainingModuleNode.vue`
 
 An expanded prefab shows as one frame (ADR 0011). The split of its members comes only from the wires (`editor/training-module.js trainingModule`). This split is presentation only. It never changes the graph.
+
+Each builtin task template shows as such a frame after you place it, for example mining and the tank battle. The replay view of the tank battle is a view section in the left column. Its view script draws the map (bricks, steel, base), the tanks and the bullets.
 
 - **Sections** (the left column): sections are not Vue Flow nodes and have no port band. These modules are sections:
   - Trainers, candidates, evaluators, executions, partitions and datasets are always sections.
@@ -80,7 +83,7 @@ An expanded prefab shows as one frame (ADR 0011). The split of its members comes
   - Code, params, view and random modules are sections when each of their wires connects them to a section.
 
   The code modules of the frame share one 「代码」 section (`CodeTabs.vue`, grouped by module). Each section has a head row (kind, title, problems, fold, delete). Below the head row is the body component of the kind.
-- **Columns**: the sections go into columns in sequence, so that the whole frame is about `TRAIN_FRAME.aspect`. More columns make the frame wider to the left, and the frame stops before a neighbour at its level. When a section becomes taller at run time, only its column becomes longer. The system splits the columns again only after the first measurements, on Arrange, or when the sections or their fold states change (`training-module.js sectionColumns`). The kind label at the left of a head row is a drag grip. A drop stores the split in the `columns` of the group (the 「代码」 section as all the code modules it shows), and after that the frame uses the stored split (`placeSections / moveSection`).
+- **Columns**: the sections go into columns in sequence, so that the whole frame is about `TRAIN_FRAME.aspect`. More columns make the frame wider to the left, and the frame stops before a neighbour at its level. When Arrange lays out the level of the frame, the split does not look at the neighbours. Arrange then puts the neighbours around the frame. When a section becomes taller at run time, only its column becomes longer. The system splits the columns again only after the first measurements, on Arrange, or when the sections or their fold states change (`training-module.js sectionColumns`). The kind label at the left of a head row is a drag grip. A drop stores the split in the `columns` of the group (the 「代码」 section as all the code modules it shows), and after that the frame uses the stored split (`placeSections / moveSection`).
 - **Sub-canvas** (right): every other member is an ordinary node inside the recessed sub-canvas. The sub-canvas is only background. The pointer goes through it to the pane.
 - **Ports** (`sectionPorts`):
   - A section port wired into the sub-canvas is a handle on the left edge of the sub-canvas.
@@ -95,10 +98,23 @@ Each kind has one `editor/modules/<Kind>Body.vue`, registered in `BODIES` of `re
 
 | Component | Content |
 |---|---|
-| `LoopBody.vue` | A loop that shows as a card: scenario status (unwired / error / incomplete / ready), input width I, the body summary, the driver ports that run it, and the problems of the loop (disallowed kinds in the body, box mismatch, drivers that do not agree on the episode kind) |
-| `TrainerBody.vue` | Method, backend and the recipe fields that the method reads. Which network of the loop it trains (the one wired into `structure`, every other network runs frozen). Python connection state, start / cancel, progress with curves, the run list |
+| `LoopBody.vue` | A loop that shows as a card: scenario status (unwired / error / incomplete / ready), input width I, the body summary, the driver ports that run it, the form of the export of each role (`roles`, ADR 0022), and the problems of the loop (disallowed kinds in the body, box mismatch, drivers that do not agree on the episode kind) |
+| `TrainerBody.vue` | Method, backend and the recipe fields that the method reads. Which network of the loop it trains (the one wired into `structure`, every other network runs frozen). When `gate` has a wire: the condition (a metric of that evaluator, a minimum, a maximum), and below the start button the gate state with its reason (ADR 0020). Python connection state, start / cancel, progress with curves, the run list |
 | `EvaluatorBody.vue` | Select the partition role, and run the whole loop greedily on that partition (every network on its accepted weights). The metrics table, the curve grouped by an enumerate axis, which artifact each network ran, sample episodes |
 | `ExecutionBody.vue` | Select an episode of the partition, step / run / pause / reset, manual actions, scrub the history. The history shows the input bits of every step, the action, how the step ended, and the values that every body module produced (the `values` of the executor). A network with tool layers shows which tool each tool layer called on that step (a frozen network by its title, a code tool as `module.function`). It also shows the data bits that it gave to the tool and the result (only that tool ran). The views wired to `execution` render the state |
+
+The content component of a script module is `ScriptBody.vue` (ADR 0019). The host is a vertical box, and the user can resize it freely:
+
+- The first row has only 「✎ 编辑代码」. This button opens the dialog `ScriptFiles.vue`. The left side of the dialog is the file list (new, delete, select). The right side is `ScriptEditor.vue`, the same editor as for a view script. The dialog changes only a draft. 「保存并重新运行」 writes the draft as one history entry, and 「取消」 discards the draft.
+- Below the file list of the dialog are the declared function inputs and value inputs (new, rename, delete). Under each name is the module wired into it. When the dialog saves, the wires of the inputs follow a rename (`carryInputLists` in `common.ts`). Each list is calculated on its own: by position when the count does not change, else by name.
+- The declared inputs are the ports on the left of the standard port band (ƒ marks a function input).
+- Below the first row is `renderers/script-module.vue`. It is `.bfill` and fills the remaining height of the host. When the host has no explicit height, this area is 440px high.
+- The page uses `@babel/parser` to rewrite the `import` and `export` statements of each file (`renderers/script-module.js`). The line numbers do not change. The loader in the sandbox (`renderers/script-module-runtime.js`) runs the rewritten files and draws the views in the CSS grid of `layout`. The sandbox document comes from `script-frame.js`, with the same CSP and permissions as a view script.
+- When the script fails, the error shows above the iframe, with the file and the line.
+- The call bridge: the sandbox sends `{ type: 'call', id, name, args }`. The page runs the call outside the sandbox with `core/script-calls.js` and replies `{ type: 'reply', id, result }` or `{ type: 'reply', id, error }`. The values of the value inputs go into the sandbox in `{ type: 'values', functions, values }`: one time before `load`, and again when they change. After a reset or a new iframe, the replies of the old run are dropped.
+- While the user resizes the host, the host has the class `resizing`. Then the iframe does not get pointer events, so a drag over the iframe does not stop the gesture.
+
+The script module 坦克对战 of the tank battle template has 3 files: `main.js`, `game.js` and `views.js`. Its layout is `'board side' / 'log log'`. The battlefield is on the top left. The side panel (`Controls`, the result and the state of both sides) is on the top right. The log is below them.
 
 ## `NodePorts.vue`
 
@@ -161,8 +177,9 @@ Add a new handle type to `HANDLES` in `core/types.js` and also to `editor.css`. 
 ## Arrange (`canvas-geometry.ts arrange`)
 
 - Arrange puts units in layers from left to right by wire depth. When there are many layers, it wraps them into rows, so that the result is about the aspect of the viewport. In each layer, it sorts the units by the barycentre of their neighbours to decrease crossings. It puts each unit level with the units that feed it, where possible.
+- Arrange does not wrap between two adjacent layers that both have a training module. These training modules are stages that follow one another, so they stay in one row from left to right (ADR 0020).
 - A wire counts between two units at the current level: the two units that contain its ends. Thus a wire that goes across group boundaries connects the member units that contain its endpoints.
-- Wires into loop inputs count as usual. Only the wires that close a cycle do not count: the trained network's own candidates → `weights`, through its trainer. Thus frozen weights stand before the loop box that they feed.
+- Wires into loop inputs count as usual. Only the wires that close a cycle do not count. Examples are the trained network's own candidates → `weights`, through its trainer, and a trainer's own candidates → `init`. Thus frozen weights stand before the loop box that they feed. The candidates of an earlier stage → `init` do not close a cycle, so that wire counts: the earlier stage stands on the left.
 - A wire into the facing input of a driver (`training-module.js facing`: a `loop` or `structure` handle) counts as a wire from the driver to the item that it drives. The pairs are: trainer, evaluator, execution → the loop, and trainer → the trained network. Thus drivers stand before the loop box.
 - If a unit only gives a whole module to one consumer (a scenario to its loop), the unit follows the rules of that consumer: the same layer, directly below it.
 - In a training module, Arrange arranges only the sub-canvas. The sections keep their column split (refer to "The training module" above). Drivers, the environment and candidates are sections, so the sub-canvas holds the loop box and the remaining members (ADR 0011).

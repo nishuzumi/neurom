@@ -12,7 +12,7 @@
 import { createLockstep, trainedOf } from '../core/loop.js';
 import { denseStateWidth } from '../runtime/dense-policy.js';
 import { QatPolicy, rngOf, mixSeed, softmaxInto, argmax, assertTapeBudget, meanSpikeRate, safeLog } from './dense-core.js';
-import { Run, epochEpisodes, epochSize, drawEpisodes, selectionOf, validateGreedy, validationEpisodes, finishResult, anySet } from './run.js';
+import { Run, epochEpisodes, epochSize, drawEpisodes, selectionOf, validateGreedy, validationEpisodes, finishResult, anySet, startEvaluation } from './run.js';
 
 /**
  * Roll `episodes` out in lockstep with the teacher. Returns per decided step `{X, Y, M, D}` (intercepted input bits,
@@ -52,9 +52,10 @@ export async function trainCrossEntropy(bundle, { onProgress, isCancelled, table
   run.report({ phase: 'init', epoch: 0, loss: null, metric: null, metricName: selection.name });
 
   const policy = new QatPolicy(net, recipe.surrogateWidth);
-  policy.init(rngOf(mixSeed(recipe.seed, 0)));
   const lockstep = createLockstep(bundle, { tables });
-  {
+  if (bundle.init) policy.restore(bundle.init.model);                                 // the start of the run: no random weights, no calibration (ADR 0020)
+  else {
+    policy.init(rngOf(mixSeed(recipe.seed, 0)));
     const rng = rngOf(mixSeed(recipe.seed, 1));
     const calibration = teacherBatch(lockstep, drawEpisodes(training, recipe.calibrationEpisodes, rng), rng, 1, I, O);
     const rows = calibration.steps.flatMap(step => Array.from({ length: calibration.B }, (_, b) => b).filter(b => step.D[b]).map(b => step.X.subarray(b * I, (b + 1) * I)));
@@ -66,7 +67,8 @@ export async function trainCrossEntropy(bundle, { onProgress, isCancelled, table
 
   const curves = { loss: [], metric: [], agreement: [], spikeRate: [], gradNorm: [] }, evaluations = [];
   const p = new Float64Array(O), V = new Float64Array(B * H);
-  let best = null;
+  let best = bundle.init ? startEvaluation({ bundle, run, model: policy.export(), quantization: policy.quantization(), validation, tables, selection, labelled: anySet, curves, evaluations,
+    fields: s => ({ validationAccuracy: s.accuracy, validationSuccessRate: s.successRate }) }) : null;
   for (let epoch = 0; epoch < recipe.epochs; epoch++) {
     const rng = rngOf(mixSeed(recipe.seed, 1000 + epoch));
     const { steps, labelled } = teacherBatch(lockstep, epochEpisodes(training, recipe, rng), rng, recipe.exploration, I, O);

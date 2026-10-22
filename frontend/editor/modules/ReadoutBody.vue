@@ -5,6 +5,7 @@
 // width follows O, so adding / removing slots re-types the network feeding it.
 import { computed } from 'vue';
 import { staticValue } from '../../core/bundle.js';
+import { MAX_BITS } from '../../core/types.js';
 import { t } from '../../i18n.js';
 import { useWorkbench } from '../workbench-context';
 import { useNode } from './common';
@@ -73,7 +74,7 @@ const unmapped = computed(() => { const c = cfg.value; if (!c || c.mode !== 'arg
         </template>
       </div>
       <div class="brow">
-        <button type="button" class="mini" :disabled="cfg.map.length >= 256" @click="addSlot">{{ t('＋ 槽') }}</button>
+        <button type="button" class="mini" :disabled="cfg.map.length >= MAX_BITS" @click="addSlot">{{ t('＋ 槽') }}</button>
         <button type="button" class="mini" :title="t('槽 k → 动作 k')" @click="fillIdentity">{{ t('按顺序') }}</button>
         <span v-if="unmapped.length" class="bhint">{{ t('未映射的动作：{names}', { names: unmapped.map(x => `${x.i} · ${x.name}`).join(', ') }) }}</span>
       </div>

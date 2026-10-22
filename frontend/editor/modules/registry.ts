@@ -21,6 +21,7 @@ import ViewBody from './ViewBody.vue';
 import DeploymentBody from './DeploymentBody.vue';
 import BitsBody from './BitsBody.vue';
 import LoopBody from './LoopBody.vue';
+import ScriptBody from './ScriptBody.vue';
 
 interface BodyEntry { body: Component; head?: Component }
 /** props: `{ nodeId: string }`. The body reads everything else through `useWorkbench()` (workbench-context.ts). */
@@ -38,6 +39,7 @@ export const BODIES: Record<string, BodyEntry> = {
   evaluator: { body: EvaluatorBody },
   execution: { body: ExecutionBody },
   view: { body: ViewBody },
+  script: { body: ScriptBody },
   deployment: { body: DeploymentBody },
   bits: { body: BitsBody },
   loop: { body: LoopBody },

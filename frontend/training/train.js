@@ -7,6 +7,7 @@ import { readoutProblem } from '../core/readout.js';
 import { METHODS, requiredReadout, toolLayerProblem } from '../core/kinds/trainer.js';
 import { trainedOf, refWidth } from '../core/loop.js';
 import { abortError } from './run.js';
+import { modelProblem } from '../core/sessions/executor.js';
 import { trainReinforce } from './reinforce.js';
 import { trainCrossEntropy } from './cross-entropy.js';
 import { trainHinge } from './hinge.js';
@@ -41,6 +42,8 @@ export function trainingProblem(bundle) {
   const width = refWidth(bundle.loop, bundle.loop.nodes[trained.id].in);
   if (width !== network.inputs) return t('网络输入 {inputs} 位与接入的 {width} 位不一致', { inputs: network.inputs, width: String(width) });
   for (const [id, n] of Object.entries(bundle.loop.nodes)) if (n.kind === 'network' && id !== trained.id && !n.model) return t('网络 {name} 没有已接受的权重', { name: id });
+  const start = bundle.init ? modelProblem(bundle.init.model, network) : '';
+  if (start) return t('init 的模型不适合训练的网络：{problem}', { problem: start });
   if (!partitions.training) return t('必需输入 {port} 尚未连接', { port: 'training' });
   if (network.engine === 'dense-policy' && !(Array.isArray(network.layers) && network.layers.length && network.layers.every(denseLayer))) return t('稠密网络的每一层必须是 hidden 为正整数的普通层，或宽度已定的工具层');
   if (network.engine === 'threshold-layers' && !(Array.isArray(network.layers) && network.layers.length)) return t('阈值层网络需要 layers');

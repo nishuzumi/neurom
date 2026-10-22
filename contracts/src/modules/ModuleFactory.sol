@@ -27,7 +27,8 @@ import "./Roles.sol";
 ///         transaction, the deployer creates some chunks first with createChunk. The Factory is the only way to create
 ///         either. It vouches for how a module was assembled, not for the quality of the model it carries.
 contract ModuleFactory {
-    uint256 public constant MAX_PORT = 256;
+    /// @notice The largest number of input bits and of outputs of a module (ADR 0021).
+    uint256 public constant MAX_PORT = 65535;
     /// @notice Largest chunk content (112 KiB). It is under Monad's 128 KB code limit. It is the largest size whose
     ///         creation, estimate + 10% (the deployer's margin), fits one 30M-gas transaction on Monad.
     uint256 public constant MAX_CHUNK_BYTES = 114_688;

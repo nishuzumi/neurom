@@ -2,7 +2,7 @@
 // (kinds/code.js) whose `module` output is wired into a loop's `scenario` port (kinds/loop.js). This file fixes only
 // the protocol — the roles the runner (core/runner.js) calls and what each means. The scenario declares them by
 // exporting functions and consts of those names:
-//   init(start) → State (optional, absent: State is the Start record itself) · input(state[, table]) → bits[1..256] ·
+//   init(start) → State (optional, absent: State is the Start record itself) · input(state[, table]) → bits[1..65535] ·
 //   step(state, action[, table]) → { state: State, done: boolean, success: boolean } · const budget (the step limit) ·
 //   const actions (optional: the action names).
 // What a run starts from and the rows it may read come from the loop's drivers. `Start` is the record their
@@ -19,6 +19,15 @@ import { joinList, t } from '../../i18n.js';
 /** The function roles, in bundle order. `init` is optional. */
 export const SCENARIO_CALLS = Object.freeze(['init', 'input', 'step']);
 export const REQUIRED_CALLS = Object.freeze(['input', 'step']);
+/**
+ * The export that fills each function role of loop `loop` (a loop node, or null): `{ init, input, step }` → export
+ * names. The loop's `config.roles` maps a role to another export, so one scenario file serves several loops in
+ * different modes. A role the config does not map is filled by the export of its own name.
+ */
+export function roleExports(loop) {
+  const roles = loop?.config?.roles ?? {};
+  return Object.fromEntries(SCENARIO_CALLS.map(role => [role, roles[role] || role]));
+}
 /** The const roles: `budget` (required) is the step limit, an exported `actions` the action table (bundle `env.actions`). */
 export const BUDGET = 'budget';
 export const ACTIONS = 'actions';
@@ -77,71 +86,76 @@ export function roleText(name, sig) {
   return `export function ${name}(${sig.names.join(', ')}) {\n  ${sig.stub ?? ''}\n}\n`;
 }
 /** A scenario that satisfies the protocol: every function role and every required const, each its stub
- *  (`withTable`, `I`: scenarioSignatures). */
-export function scenarioStub(withTable, I = null) {
+ *  (`withTable`, `I`: scenarioSignatures). `exports` (roleExports) names the function of each role. */
+export function scenarioStub(withTable, I = null, exports = roleExports(null)) {
   const sigs = scenarioSignatures(withTable, I);
-  return SCENARIO_ORDER.filter(n => SCENARIO_CALLS.includes(n) || SCENARIO_CONSTS[n].required).map(n => roleText(n, sigs[n] ?? null)).join('');
+  return SCENARIO_ORDER.filter(n => SCENARIO_CALLS.includes(n) || SCENARIO_CONSTS[n].required).map(n => roleText(exports[n] ?? n, sigs[n] ?? null)).join('');
 }
 
 /**
  * The scenario typed as the runner calls it. `scene` is the scenario code node (null while unwired). `sceneInType`
  * types that module's inputs. `tag` is the episode kind the loop's drivers run it on (null while unknown). `Table` is
- * their dataset's type (null without one). → `{ scene, analysis, refs, calls, signatures }`: refs (Start, State,
- * Transition, Episode, I, Table, each null while unknown), each role's typed call `{ result, error, bound }` (absent
- * when the scenario has no such role) and the analysis of the file (kinds/code.js).
+ * their dataset's type (null without one). `exports` (roleExports) names the export that fills each role. → `{ scene,
+ * analysis, refs, calls, signatures, exports }`: refs (Start, State, Transition, Episode, I, Table, each null while
+ * unknown), each role's typed call `{ result, error, bound }` (absent when the scenario has no such export) and the
+ * analysis of the file (kinds/code.js). Errors name the export.
  */
-export function analyseScenario(scene, sceneInType, { tag = null, Table = null } = {}) {
+export function analyseScenario(scene, sceneInType, { tag = null, Table = null, exports = roleExports(null) } = {}) {
   const refs = { Start: tag ? startTypeOf(tag) : null, State: null, Transition: null, Episode: null, I: null, Table: Table ?? null }, calls = {}, sig = scenarioSignatures(!!Table);
-  if (!scene) return { scene: null, analysis: null, refs, calls, signatures: sig };
+  if (!scene) return { scene: null, analysis: null, refs, calls, signatures: sig, exports };
   const analysis = analyseModule(scene, sceneInType), fns = analysis.module.functions, tbl = Table ? [Table] : [];
-  const call = (name, args) => {
-    const r = callFunction(analysis, name, args, { exact: true });
+  const fn = role => fns[exports[role]];
+  const call = (role, args) => {
+    const name = exports[role], r = callFunction(analysis, name, args, { exact: true });
     let error = r.error;
     if (!error) {
-      const s = resolveSignature(sig[name], refs);
+      const s = resolveSignature(sig[role], refs);
       if (unresolvedRefs({ params: [], result: s.result }).length) error = incomplete(t('{name} 的返回类型尚未确定', { name }));
       else { const problem = mismatch(r.result, s.result); if (problem) error = new Error(t('{name} 的返回值{problem}', { name, problem })); }
     }
-    return (calls[name] = { result: r.result, error, bound: r.bound });
+    return (calls[role] = { result: r.result, error, bound: r.bound });
   };
   if (refs.Start) {
-    if (!fns.init) refs.State = refs.Start;
+    if (!fn('init')) refs.State = refs.Start;
     else { const init = call('init', [refs.Start]); if (!init.error) refs.State = init.result; }
   }
   if (refs.State) {
     refs.Transition = transitionType(refs.State); refs.Episode = episodeType(refs.State);
-    if (fns.input) { const input = call('input', [refs.State, ...tbl]); if (!input.error) refs.I = input.result.width; }
-    if (fns.step) {
+    if (fn('input')) { const input = call('input', [refs.State, ...tbl]); if (!input.error) refs.I = input.result.width; }
+    if (fn('step')) {
       const step = call('step', [refs.State, NUMBER, ...tbl]);
       const extra = step.error || step.result?.type !== 'record' ? [] : Object.keys(step.result.fields).filter(k => !STEP_FIELDS.includes(k));
-      if (extra.length) step.error = new Error(t('step 只能返回 state、done、success 三个字段，多了 {names}', { names: joinList(extra) }));
+      if (extra.length) step.error = new Error(t('{name} 只能返回 state、done、success 三个字段，多了 {names}', { name: exports.step, names: joinList(extra) }));
     }
   }
   // roles the chain above did not reach still say why
-  const why = refs.Start ? name => incomplete(t('{name} 要等 init 的类型确定', { name })) : () => incomplete(t('先把回路接到训练器、评估器或执行实例：它们的分区决定回合从什么开始'));
-  for (const name of SCENARIO_CALLS) if (fns[name] && !(name in calls)) calls[name] = { result: null, error: fns[name].error ?? why(name), bound: null };
-  return { scene, analysis, refs, calls, signatures: sig };
+  const why = refs.Start ? name => incomplete(t('{name} 要等 {init} 的类型确定', { name, init: exports.init })) : () => incomplete(t('先把回路接到训练器、评估器或执行实例：它们的分区决定回合从什么开始'));
+  for (const role of SCENARIO_CALLS) if (fn(role) && !(role in calls)) calls[role] = { result: null, error: fn(role).error ?? why(exports[role]), bound: null };
+  return { scene, analysis, refs, calls, signatures: sig, exports };
 }
 
 /**
  * Why the scenario `a` (analyseScenario's result) cannot be run, as problems on the loop's `scenario` port. A missing
  * role or an unused export is `incomplete`: it blocks bundles, training and evaluation, but not wiring. A blank code
- * module can be wired before its roles are written.
+ * module can be wired before its roles are written. An export that any loop on this scene uses as a role is not
+ * unused: one file serves several loops, each with its own role exports.
  */
 export function scenarioProblems(ctx, a) {
-  const { scene, analysis, calls } = a;
+  const { scene, analysis, calls, exports } = a;
   if (!scene) return [];
   const mod = analysis.module, out = [], port = 'scenario';
   if (mod.error) return [{ port, message: t('场景 {title} 的代码无法编译', { title: scene.title }), incomplete: true }];
   const exported = name => mod.consts.find(c => c.exported && c.name === name);
   const A = exported(ACTIONS) ? analysis.types[ACTIONS] : null;
   if (A && !(A.type === 'array' && A.of.type === 'string')) out.push({ port, message: t('actions 需要字符串数组，得到 {type}', { type: typeName(A) }) });
-  for (const name of REQUIRED_CALLS) if (!mod.functions[name]) out.push({ port, message: t('场景 {title} 没有导出函数 {name}', { title: scene.title, name }), incomplete: true });
-  for (const name of SCENARIO_CALLS) { const call = calls[name]; if (call?.error) out.push({ port, message: t('{name}：{error}', { name, error: call.error.message }), incomplete: !!call.error.incomplete }); }
-  // an exported function the runner does not call and nothing else is wired to is most likely a misspelt role
+  // init is optional only under its own name: a loop that maps it to another export needs that export (ADR 0022)
+  for (const role of [...REQUIRED_CALLS, ...(exports.init !== 'init' ? ['init'] : [])]) if (!mod.functions[exports[role]]) out.push({ port, message: t('场景 {title} 没有导出函数 {name}', { title: scene.title, name: exports[role] }), incomplete: true });
+  for (const role of SCENARIO_CALLS) { const call = calls[role]; if (call?.error) out.push({ port, message: t('{name}：{error}', { name: exports[role], error: call.error.message }), incomplete: !!call.error.incomplete }); }
+  // an exported function no loop on this scene calls and nothing else is wired to is most likely a misspelt role
+  const used = new Set(ctx.consumers(scene.id, 'module').filter(c => c.port === 'scenario').flatMap(c => Object.values(roleExports(ctx.node(c.node)))));
   for (const name of Object.keys(mod.functions)) {
-    if (SCENARIO_CALLS.includes(name) || ctx.consumers(scene.id, name).length) continue;
-    out.push({ port, incomplete: true, message: t('场景导出了 {name}，但运行器不调用它，也没有接到别处（运行器调用：{roles}）', { name, roles: joinList(SCENARIO_CALLS) }) });
+    if (used.has(name) || ctx.consumers(scene.id, name).length) continue;
+    out.push({ port, incomplete: true, message: t('场景导出了 {name}，但运行器不调用它，也没有接到别处（运行器调用：{roles}）', { name, roles: joinList(SCENARIO_CALLS.map(role => exports[role])) }) });
   }
   if (!exported(BUDGET)) out.push({ port, message: t('场景 {title} 没有导出常量 budget（每回合最多几步）', { title: scene.title }), incomplete: true });
   else { const B = analysis.types[BUDGET]; if (B && mismatch(B, NUMBER)) out.push({ port, message: t('budget 需要数字，得到 {type}', { type: typeName(B) }) }); }
@@ -158,9 +172,10 @@ export function scenarioRefDoc(node, name, d, part) {
   const p = d.producers(node.id, 'scenario')[0], scene = p ? d.node(p.node) : null;
   switch (name) {
     case 'State': {
-      if (!scene || !scene.config.exports.some(e => e.kind === 'function' && e.name === 'init')) return d.ref(node.id, 'Start');
+      const init = roleExports(node).init;
+      if (!scene || !scene.config.exports.some(e => e.kind === 'function' && e.name === init)) return d.ref(node.id, 'Start');
       const params = scenarioSignatures(withTable).init.params;
-      return functionResultDoc(scene, 'init', i => (isRef(params[i]) ? d.ref(node.id, params[i].slice(1, -1)) : null), d);
+      return functionResultDoc(scene, init, i => (isRef(params[i]) ? d.ref(node.id, params[i].slice(1, -1)) : null), d);
     }
     case 'Start': {
       if (!part) return null;

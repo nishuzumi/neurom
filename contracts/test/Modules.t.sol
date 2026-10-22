@@ -10,6 +10,8 @@ interface IVm {
     function cool(address) external;
     function load(address target, bytes32 slot) external view returns (bytes32);
     function expectEmit() external;
+    function pauseGasMetering() external;
+    function resumeGasMetering() external;
 }
 
 /// Prints with `forge test -vv` (Foundry's console).
@@ -39,7 +41,7 @@ contract Actor {
 /// One transaction playing a whole game: `forward` once per input, like the mining game contract will.
 contract Game {
     function play(INeuromModule m, bytes[] calldata inputs) external view returns (uint256 sum) {
-        for (uint256 i; i < inputs.length; i++) { (, uint8 a,,) = m.forward(inputs[i]); sum += a; }
+        for (uint256 i; i < inputs.length; i++) { (, uint16 a,,) = m.forward(inputs[i]); sum += a; }
     }
 }
 
@@ -51,6 +53,16 @@ contract Meter {
         uint256 g = gasleft();
         (ok,) = target.call(data);
         used = g - gasleft();
+    }
+
+    /// Gas of one call as it comes, and its return data. The call runs in this contract's own frame, so the memory of
+    /// the test contract does not add to the number.
+    function once(address target, bytes calldata data) external returns (uint256 used, bytes memory ret) {
+        uint256 g = gasleft();
+        bool ok;
+        (ok, ret) = target.call(data);
+        used = g - gasleft();
+        require(ok, "call");
     }
 }
 
@@ -74,10 +86,17 @@ contract ReentrantEngine is CheckingEngine {
 /// Real versions of one engine id never do (ADR 0017).
 contract ShiftedEngine is DensePolicyEngine {
     function run(uint8 kind, uint16 inputs, uint16 outputs, uint256[] calldata shape, address[] calldata chunks, uint256[] calldata tools, uint256[] calldata state, bytes calldata input)
-        external view override returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages)
+        external view override returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages)
     {
         (scores, action, counts, voltages) = _run(kind, inputs, outputs, shape, chunks, tools, state, input);
         for (uint256 k; k < scores.length; k++) scores[k] += 1000;
+    }
+}
+
+/// EngineBase._affine on a Vec made from `x`, so a test can reach a Σx that no small network reaches.
+contract AffineProbe is DensePolicyEngine {
+    function affine(bytes memory blob, uint256 rows, uint256[] memory x, int256 factor, uint256 bits, uint256 k) external pure returns (int256[] memory) {
+        return _affine(blob, 0, rows, _vec(x), factor, bits, k);
     }
 }
 
@@ -203,18 +222,18 @@ contract ModulesTest {
 
     // ------------------------------------------------------------------------------------------------ specs
 
-    /// Three words. shape[0] = layout. shape[1] = layer count, ticks, leak, `bits`, reset, every shift 0. shape[2] = `th`
-    /// as every plain layer's threshold (FF: 1), 0 for a tool layer. A test sets a shift or a per-layer threshold in the
-    /// words itself.
+    /// Four words. shape[0], shape[1] = the layer descriptors (64 bits each, four per word). shape[2] = layer count,
+    /// ticks, leak, `bits`, reset, every shift 0. shape[3] = `th` as every plain layer's threshold (FF: 1), 0 for a tool
+    /// layer. A test sets a shift or a per-layer threshold in the words itself.
     function _denseShape(Layer[] memory l, uint256 bits, uint8 ticks_, uint8 leak, uint32 th, int16 rst) internal pure returns (uint256[] memory s) {
-        s = new uint256[](3);
+        s = new uint256[](4);
         for (uint256 k; k < l.length; k++) {
             uint256 K = l[k].tools.length;
-            uint256 desc = K == 0 ? uint256(l[k].hidden) - 1 : (1 << 27) | (K - 1) | (uint256(l[k].data - 1) << 9) | (uint256(l[k].result - 1) << 18);
-            s[0] |= desc << (32 * k);
-            if (K == 0) s[2] |= uint256(th) << (32 * k);
+            uint256 desc = K == 0 ? uint256(l[k].hidden) - 1 : (1 << 48) | (K - 1) | (uint256(l[k].data - 1) << 16) | (uint256(l[k].result - 1) << 32);
+            if (k < 8) s[k / 4] |= desc << (64 * (k % 4));
+            if (K == 0) s[3] |= uint256(th) << (32 * k);
         }
-        s[1] = l.length | (uint256(ticks_) << 8) | (uint256(leak) << 16) | (bits << 24) | (uint256(uint16(rst)) << 32);
+        s[2] = l.length | (uint256(ticks_) << 8) | (uint256(leak) << 16) | (bits << 24) | (uint256(uint16(rst)) << 32);
     }
 
     function _toolList(Layer[] memory l) internal pure returns (address[] memory t) {
@@ -380,7 +399,7 @@ contract ModulesTest {
         NeuromModule m = _lif(bits);
         int32[5] memory want = [int32(-2), -3, -4, -5, -5];
         for (uint256 k; k < 5; k++) {
-            (int256[] memory s, uint8 a,, int32[] memory v) = m.step(S0, _obs(false, false));
+            (int256[] memory s, uint16 a,, int32[] memory v) = m.step(S0, _obs(false, false));
             require(v[0] == want[k] && s[3] == -1 && a == 0, "negative leak path");
         }
         (,,, int32[] memory fwd) = m.forward(_obs(true, false));
@@ -394,7 +413,7 @@ contract ModulesTest {
 
     function _ffHandModel(uint256 bits) internal {
         NeuromModule m = _ff(bits);
-        (int256[] memory s, uint8 a, uint8[] memory c, int32[] memory v) = m.forward(_obs(true, false));
+        (int256[] memory s, uint16 a, uint8[] memory c, int32[] memory v) = m.forward(_obs(true, false));
         require(c.length == 2 && c[0] == 1 && c[1] == 1 && v.length == 0, "both hidden fire");
         require(s[0] == 1 && s[2] == 5 && s[4] == 5 && s[6] == 7 && a == 6, "output sums");
         (s, a, c,) = m.forward(_obs(false, true));
@@ -412,7 +431,7 @@ contract ModulesTest {
         uint8[6] memory actions = [2, 0, 3, 3, 3, 2];
         uint8[8][6] memory counts = [[1, 0, 0, 0, 0, 1, 0, 0], [1, 0, 0, 0, 1, 1, 0, 0], [1, 0, 0, 1, 1, 1, 1, 0], [0, 0, 1, 1, 0, 1, 1, 1], [1, 0, 0, 0, 1, 1, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0]];
         for (uint256 t; t < 6; t++) {
-            (int256[] memory s, uint8 a, uint8[] memory c, int32[] memory v) = m.step(S0, _wideObs(t));
+            (int256[] memory s, uint16 a, uint8[] memory c, int32[] memory v) = m.step(S0, _wideObs(t));
             require(s.length == WO && a == actions[t] && c.length == WH && v.length == 0, "wide FF shape / action");
             for (uint256 k; k < WO; k++) require(s[k] == scores[t][k], "wide FF score");
             for (uint256 j; j < WH; j++) require(c[j] == counts[t][j], "wide FF count");
@@ -434,7 +453,7 @@ contract ModulesTest {
             [int32(-14), -32, -2, 2, -11, -2, -2, -25], [int32(-2), -52, -53, -7, -2, -2, -2, -16], [int32(-2), -68, -24, -19, -30, 5, 0, -20]
         ];
         for (uint256 t; t < 6; t++) {
-            (int256[] memory s, uint8 a, uint8[] memory c, int32[] memory v) = m.step(S0, _wideObs(t));
+            (int256[] memory s, uint16 a, uint8[] memory c, int32[] memory v) = m.step(S0, _wideObs(t));
             require(s.length == WO && a == actions[t] && c.length == WH && v.length == WH, "wide LIF shape / action");
             for (uint256 k; k < WO; k++) require(s[k] == scores[t][k], "wide LIF score");
             for (uint256 j; j < WH; j++) require(c[j] == counts[t][j] && v[j] == volts[t][j], "wide LIF count / voltage");
@@ -465,7 +484,7 @@ contract ModulesTest {
         else require(c.length == 1 && c[0].code.length == 1 + 61_952 + 8_224, "one int8 chunk");
         bytes memory x = new bytes(I);
         x[16 * 9 + 15] = 0x01; x[16 * 3 + 15] = 0x01; x[100] = 0x01;
-        (int256[] memory s, uint8 act, uint8[] memory counts,) = m.forward(x);
+        (int256[] memory s, uint16 act, uint8[] memory counts,) = m.forward(x);
         require(s[9] == 5 - 9 && s[3] == 5 - 3 && s[0] == 0 && s[15] == -15 && act == 3, "decision across the boundary");
         require(counts[100] == 1 && counts[159] == 1 && counts[63] == 1 && counts[240] == 0 && counts[101] == 0, "hidden copies the inputs");
     }
@@ -481,11 +500,11 @@ contract ModulesTest {
         Layer[] memory l = new Layer[](2);
         l[0] = _plain(8); l[1] = _plain(5);
         NeuromModule m = _dense(bits, 0, WI, WO, l, 1, 0, 1, 0, _gen(173), ART, TASK);
-        require(m.stateWidth() == 0 && m.shape()[0] == (7 | (4 << 32)), "multi-layer FF shape");
+        require(m.stateWidth() == 0 && m.shape()[0] == (7 | (4 << 64)), "multi-layer FF shape");
         int256[4][6] memory scores = [[int256(4), -2, 17, -14], [int256(4), -2, 17, -14], [int256(13), 2, 16, -20], [int256(5), -6, 8, -3], [int256(13), 2, 16, -20], [int256(4), -2, 17, -14]];
         uint8[13][6] memory counts = [[uint8(1), 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0], [uint8(1), 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0], [uint8(1), 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 0], [uint8(0), 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0], [uint8(1), 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0], [uint8(1), 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0]];
         for (uint256 t; t < 6; t++) {
-            (int256[] memory s, uint8 a, uint8[] memory c, int32[] memory v) = m.step(S0, _wideObs(t));
+            (int256[] memory s, uint16 a, uint8[] memory c, int32[] memory v) = m.step(S0, _wideObs(t));
             require(s.length == WO && a == 2 && c.length == 13 && v.length == 0, "multi-layer FF shape / action");
             for (uint256 k; k < WO; k++) require(s[k] == scores[t][k], "multi-layer FF score");
             for (uint256 j; j < 13; j++) require(c[j] == counts[t][j], "multi-layer FF count");
@@ -513,7 +532,7 @@ contract ModulesTest {
             [int32(-2), -68, -24, -19, -30, 5, 0, -20, -3, -2, -2, -49, -57]
         ];
         for (uint256 t; t < 6; t++) {
-            (int256[] memory s, uint8 a, uint8[] memory c, int32[] memory v) = m.step(S0, _wideObs(t));
+            (int256[] memory s, uint16 a, uint8[] memory c, int32[] memory v) = m.step(S0, _wideObs(t));
             require(s.length == WO && a == actions[t] && c.length == 13 && v.length == 13, "multi-layer LIF shape / action");
             for (uint256 k; k < WO; k++) require(s[k] == scores[t][k], "multi-layer LIF score");
             for (uint256 j; j < 13; j++) require(c[j] == counts[t][j] && v[j] == volts[t][j], "multi-layer LIF count / voltage");
@@ -534,7 +553,7 @@ contract ModulesTest {
         int256[4][8] memory scores = [[int256(-7), -13, 6, 25], [int256(-3), -14, 0, 14], [int256(1), -5, -11, 8], [int256(1), -10, 4, 18], [int256(-15), -1, 13, 27], [int256(-7), -13, 6, 25], [int256(-7), 7, -4, 10], [int256(-7), -13, 6, 25]];
         uint8[13][8] memory counts = [[uint8(1), 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0], [uint8(1), 0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0], [uint8(0), 0, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0], [uint8(0), 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1], [uint8(0), 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0], [uint8(1), 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0], [uint8(1), 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0], [uint8(1), 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0]];
         for (uint256 t; t < 8; t++) {
-            (int256[] memory s, uint8 act, uint8[] memory c, int32[] memory v) = m.step(S0, _toolObs(t));
+            (int256[] memory s, uint16 act, uint8[] memory c, int32[] memory v) = m.step(S0, _toolObs(t));
             require(s.length == 4 && act == 3 && c.length == 13 && v.length == 0, "FF tool shape / action");
             for (uint256 k; k < 4; k++) require(s[k] == scores[t][k], "FF tool score");
             for (uint256 j; j < 13; j++) require(c[j] == counts[t][j], "FF tool count");
@@ -562,7 +581,7 @@ contract ModulesTest {
             [int32(-2), -72, -90, -49, -8, -6, -30, -37, -2, -56, -2, 4, -49]
         ];
         for (uint256 t; t < 8; t++) {
-            (int256[] memory s, uint8 a, uint8[] memory c, int32[] memory v) = m.step(S0, _toolObs(t));
+            (int256[] memory s, uint16 a, uint8[] memory c, int32[] memory v) = m.step(S0, _toolObs(t));
             require(s.length == 4 && a == actions[t] && c.length == 13 && v.length == 13, "LIF tool shape / action");
             for (uint256 k; k < 4; k++) require(s[k] == scores[t][k], "LIF tool score");
             for (uint256 j; j < 13; j++) require(c[j] == counts[t][j] && v[j] == volts[t][j], "LIF tool count / voltage");
@@ -583,7 +602,7 @@ contract ModulesTest {
         int256[2][8] memory scores = [[int256(-1), -1], [int256(-1), -1], [int256(-1), -1], [int256(-1), 1], [int256(-1), -1], [int256(1), -1], [int256(-1), -1], [int256(-1), -1]];
         uint8[8] memory actions = [0, 0, 0, 1, 0, 0, 0, 0];
         for (uint256 t; t < 8; t++) {
-            (int256[] memory s, uint8 act, uint8[] memory c,) = m.forward(_toolObs(t));
+            (int256[] memory s, uint16 act, uint8[] memory c,) = m.forward(_toolObs(t));
             require(s.length == 2 && s[0] == scores[t][0] && s[1] == scores[t][1] && act == actions[t] && c.length == 0, "trailing tool scores");
         }
         // every account warm (one transaction): t = 0 chooses XOR on data 1 1 1, t = 1 chooses B on data 1 1 0
@@ -695,7 +714,7 @@ contract ModulesTest {
         int256[5] memory score = [int256(-1), -1, 1, 1, -1];
         for (uint256 t; t < 5; t++) {
             int32 before = m.stateOf(address(this), S0)[0];
-            (int256[] memory s, uint8 a, uint8[] memory c, int32[] memory v) = m.step(S0, _bits2(obs[t][0], obs[t][1]));
+            (int256[] memory s, uint16 a, uint8[] memory c, int32[] memory v) = m.step(S0, _bits2(obs[t][0], obs[t][1]));
             require(s.length == 1 && s[0] == score[t] && a == 0 && c.length == 0, "selector scores");
             require(v.length == 1 && v[0] == volt[t] && _same(m.stateOf(address(this), S0), v), "tool potential in the selector's state");
             if (obs[t][0] || !obs[t][1]) {
@@ -882,12 +901,13 @@ contract ModulesTest {
         ModuleFactory.ModuleSpec memory s = _denseSpec(8, 1, IN, OUT, _one(1), 1, 2, 4, 0, _lifWeights(), ART, TASK);
         s.kind = 2; _refused(s, _data(s), "kind"); s.kind = 1;
         s.inputs = 0; _refused(s, _data(s), "inputs");
-        s.inputs = 257; _refused(s, _data(s), "inputs");
+        s.inputs = 65535; _refused(s, _data(s), "weights");                       // a valid width: only the weights do not fit
         s.inputs = 54; _refused(s, _data(s), "weights"); s.inputs = IN;
         s.outputs = 0; _refused(s, _data(s), "outputs");
-        s.outputs = 257; _refused(s, _data(s), "outputs");
+        s.outputs = 65535; _refused(s, _data(s), "weights");
         s.outputs = 17; _refused(s, _data(s), "weights"); s.outputs = OUT;
-        s.shape = _denseShape(_one(257), 8, 1, 2, 4, 0); _refused(s, _data(s), "hidden");
+        s.shape = _denseShape(_one(257), 8, 1, 2, 4, 0); _refused(s, _data(s), "state");   // 257 LIF potentials
+        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[0] = 0xffff; _refused(s, _data(s), "hidden");   // hidden 65536
         s.shape = _denseShape(_one(2), 8, 1, 2, 4, 0); _refused(s, _data(s), "weights");
         s.shape = _denseShape(_one(1), 8, 0, 2, 4, 0); _refused(s, _data(s), "ticks");
         s.shape = _denseShape(_one(1), 8, 65, 2, 4, 0); _refused(s, _data(s), "ticks");
@@ -897,9 +917,11 @@ contract ModulesTest {
         Layer[] memory nine = new Layer[](9);
         for (uint256 k; k < 9; k++) nine[k] = _plain(1);
         s.shape = _denseShape(nine, 8, 1, 2, 4, 0); _refused(s, _data(s), "layers");
-        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[0] |= 1 << 40;          // bits above the last layer
+        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[0] |= 1 << 64;          // bits above the last layer
         _refused(s, _data(s), "shape");
-        s.shape = new uint256[](2); _refused(s, _data(s), "shape");
+        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[1] = 1;                  // layer 4 of a 1-layer network
+        _refused(s, _data(s), "shape");
+        s.shape = new uint256[](3); _refused(s, _data(s), "shape");
         Layer[] memory wide = new Layer[](2); wide[0] = _plain(128); wide[1] = _plain(129);
         s.shape = _denseShape(wide, 8, 1, 2, 4, 0); _refused(s, _data(s), "state");
         s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0);
@@ -912,7 +934,7 @@ contract ModulesTest {
         uint16[] memory one = new uint16[](1); one[0] = 2;
         t.shape = _thresholdShape(one, 8); t.outputs = 2; _refused(t, _data(t), "layers"); t.outputs = 1;
         widths[1] = 0; t.shape = _thresholdShape(widths, 8); _refused(t, _data(t), "layers");
-        widths[1] = 257; t.shape = _thresholdShape(widths, 8); _refused(t, _data(t), "width");
+        widths[1] = 257; t.shape = _thresholdShape(widths, 8); _refused(t, _data(t), "weights");   // a valid width
         widths[1] = 3; t.shape = _thresholdShape(widths, 8); _refused(t, _data(t), "weights");
         t.tools = new address[](1); t.tools[0] = address(_xor(8)); widths[1] = 2; t.shape = _thresholdShape(widths, 8);
         _refused(t, _data(t), "tool");
@@ -929,16 +951,16 @@ contract ModulesTest {
         ModuleFactory.ModuleSpec memory w20 = _denseSpec(8, 0, WI, WO, _one(20), 1, 0, 1, 0, _gen(20 * 13 + 4 * 21), ART, TASK);
         w20.shape = _denseShape(_one(20), 16, 1, 0, 1, 0);                  // 20 rows: one int8 word per column, two int16
         _refused(w20, _data(w20), "weights");                               // int8 chunks under weightBits 16
-        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[1] |= 21 << 48; _refused(s, data, "shift");      // layer 0
-        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[1] |= 1 << 53; _refused(s, data, "shift");       // a data shift on a plain layer
-        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[1] |= 1 << 58; _refused(s, data, "shift");       // above the last layer
-        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[1] |= 21 << 128; _refused(s, data, "shift");     // the output region
-        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[1] |= 1 << 133; _refused(s, data, "shape");
-        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[2] |= 1 << 32; _refused(s, data, "threshold");   // above the last layer
+        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[2] |= 21 << 48; _refused(s, data, "shift");      // layer 0
+        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[2] |= 1 << 53; _refused(s, data, "shift");       // a data shift on a plain layer
+        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[2] |= 1 << 58; _refused(s, data, "shift");       // above the last layer
+        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[2] |= 21 << 128; _refused(s, data, "shift");     // the output region
+        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[2] |= 1 << 133; _refused(s, data, "shape");
+        s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); s.shape[3] |= 1 << 32; _refused(s, data, "threshold");   // above the last layer
         s.shape = _denseShape(_one(1), 8, 1, 2, uint32(1 << 31), 0); _refused(s, data, "threshold");             // LIF > 2^31 − 1
         s.kind = 0;
         s.shape = _denseShape(_one(1), 8, 1, 2, 4, 0); _refused(s, data, "threshold");                         // FF: exactly 1
-        s.shape = _denseShape(_one(1), 8, 1, 2, 1, 0); s.shape[1] |= (20 << 48) | (20 << 128);
+        s.shape = _denseShape(_one(1), 8, 1, 2, 1, 0); s.shape[2] |= (20 << 48) | (20 << 128);
         factory.checkDeploy(s, data);                                                                       // shifts up to 20
         s.kind = 1;
         s.shape = _denseShape(_one(1), 8, 1, 2, uint32((1 << 31) - 1), 0);
@@ -948,10 +970,10 @@ contract ModulesTest {
         l[0] = _toolLayer(address(_xor(8)), address(_toolB(8)), 3, 2);
         ModuleFactory.ModuleSpec memory tl = _denseSpec(8, 0, 12, 2, l, 1, 0, 1, 0, _gen(65), ART, TASK);
         data = _data(tl);
-        tl.shape[2] = 1; _refused(tl, data, "threshold");                                                     // on a tool layer
-        tl.shape[2] = 0; tl.shape[1] |= 1 << 128; _refused(tl, data, "shift");                                // no output region
-        tl.shape[1] ^= 1 << 128; tl.shape[1] |= 21 << 53; _refused(tl, data, "shift");                        // data shift > 20
-        tl.shape[1] ^= 21 << 53; tl.shape[1] |= (20 << 48) | (20 << 53);
+        tl.shape[3] = 1; _refused(tl, data, "threshold");                                                     // on a tool layer
+        tl.shape[3] = 0; tl.shape[2] |= 1 << 128; _refused(tl, data, "shift");                                // no output region
+        tl.shape[2] ^= 1 << 128; tl.shape[2] |= 21 << 53; _refused(tl, data, "shift");                        // data shift > 20
+        tl.shape[2] ^= 21 << 53; tl.shape[2] |= (20 << 48) | (20 << 53);
         factory.checkDeploy(tl, data);
 
         uint16[] memory widths = new uint16[](3); widths[0] = 2; widths[1] = 2; widths[2] = 1;
@@ -1211,7 +1233,7 @@ contract ModulesTest {
         _expectRevert(address(m), abi.encodeCall(m.initialize, (address(this))), "init");
         _expectRevert(address(impl), abi.encodeCall(impl.initialize, (address(this))), "init");
         bytes memory args = abi.encodePacked(uint256(uint160(address(dense))) | (uint256(1) << 160) | (uint256(IN) << 168) | (uint256(OUT) << 184)
-            | (uint256(1) << 200) | (uint256(3) << 216) | (uint256(1) << 224), DENSE, ART, TASK, m.shape(), m.chunks());
+            | (uint256(1) << 200) | (uint256(4) << 216) | (uint256(1) << 224), DENSE, ART, TASK, m.shape(), m.chunks());
         bytes memory init = ModuleClone.initCode(address(impl), abi.encodePacked(args, args.length));
         address forged;
         assembly { forged := create(0, add(init, 0x20), mload(init)) }
@@ -1285,7 +1307,7 @@ contract ModulesTest {
             NeuromModule m = _threshold(bits, widths, w, keccak256("extremes"), TASK);
             bytes memory x = new bytes(4);
             x[0] = 0x01; x[1] = 0x01; x[2] = 0x01; x[3] = 0x01;
-            (int256[] memory s, uint8 a,,) = m.forward(x);
+            (int256[] memory s, uint16 a,,) = m.forward(x);
             require(s[0] == 198 && s[1] == -512 && s[2] == 507 && a == 2, "all ones");
             x[1] = 0x00; x[3] = 0x00;
             (s, a,,) = m.forward(x);
@@ -1335,11 +1357,11 @@ contract ModulesTest {
             _i16(w, 0, 2); _i16(w, 1, -3); _i16(w, 2, 1); _i16(w, 3, -5);
             _i16(w, 4, 3); _i16(w, 5, -128); _i16(w, 6, 7); _i16(w, 7, 100);
             ModuleFactory.ModuleSpec memory spec = _denseSpec(bits, 0, 3, 2, _one(1), 1, 0, 1, 0, w, keccak256("shift"), TASK);
-            spec.shape[1] |= (2 << 48) | (3 << 128);
+            spec.shape[2] |= (2 << 48) | (3 << 128);
             NeuromModule m = NeuromModule(_deploy(spec));
             bytes memory x = new bytes(3);
             x[0] = 0x01;                                                        // Σ = 2: 8 − 5 = 3 fires (k = 0 would not)
-            (int256[] memory s, uint8 a, uint8[] memory c,) = m.forward(x);
+            (int256[] memory s, uint16 a, uint8[] memory c,) = m.forward(x);
             require(c[0] == 1 && s[0] == 31 && s[1] == -924 && a == 0, "shifted: 2*4 - 5 fires; 3*8 + 7, -128*8 + 100");
             x[1] = 0x01;                                                        // Σ = −1: −9
             (s, a, c,) = m.forward(x);
@@ -1350,7 +1372,7 @@ contract ModulesTest {
             x[0] = 0x00;                                                        // Σ = 1: −1
             (s, a, c,) = m.forward(x);
             require(c[0] == 0 && s[0] == 7, "sum 1: 4 - 5 < 1");
-            spec.shape[1] = (spec.shape[1] & ~uint256(31 << 128)) | (20 << 128);
+            spec.shape[2] = (spec.shape[2] & ~uint256(31 << 128)) | (20 << 128);
             m = NeuromModule(_deploy(spec));
             x[0] = 0x01; x[2] = 0x00;
             (s,,,) = m.forward(x);
@@ -1372,7 +1394,7 @@ contract ModulesTest {
         for (uint256 i; i < 2; i++) {
             uint256 bits = _widths()[i];
             ModuleFactory.ModuleSpec memory spec = _denseSpec(bits, 1, 2, 1, l, 1, 10, 1, 0, w, keccak256("thresholds"), TASK);
-            spec.shape[2] = 5 | (7 << 32);
+            spec.shape[3] = 5 | (7 << 32);
             NeuromModule m = NeuromModule(_deploy(spec));
             int32[2][3] memory volts = [[int32(0), 3], [int32(0), 6], [int32(0), 0]];
             for (uint256 t; t < 3; t++) {
@@ -1380,7 +1402,7 @@ contract ModulesTest {
                 require(c[0] == 1 && c[1] == (t == 2 ? 1 : 0) && s[0] == (t == 2 ? int256(1) : int256(0)), "(5, 7): counts / score");
                 require(v[0] == volts[t][0] && v[1] == volts[t][1], "(5, 7): voltages");
             }
-            spec.shape[2] = 7 | (5 << 32);
+            spec.shape[3] = 7 | (5 << 32);
             m = NeuromModule(_deploy(spec));
             int32[2][4] memory swapped = [[int32(5), 0], [int32(0), 3], [int32(5), 3], [int32(0), 0]];
             for (uint256 t; t < 4; t++) {
@@ -1388,6 +1410,237 @@ contract ModulesTest {
                 require(c[0] == t % 2 && c[1] == (t == 3 ? 1 : 0) && s[0] == (t == 3 ? int256(1) : int256(0)), "(7, 5): counts / score");
                 require(v[0] == swapped[t][0] && v[1] == swapped[t][1], "(7, 5): voltages");
             }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------ widths above 256 (ADR 0021)
+
+    /// Weight of map `layer` (0 = the hidden layer, 1 = the output layer) at row r, column i: a base in −4..4. Output
+    /// rows from 256 on lean positive, so the action is above 255. At int16 the base is × 7000, plus a small term.
+    function _bigW(uint256 layer, uint256 r, uint256 i, uint256 bits) internal pure returns (int256 w) {
+        w = layer == 0 ? int256((i * 7 + r * 13 + 5) % 9) - 4 : int256((r * 11 + i * 3 + 1) % 7) - (r >= 256 ? int256(2) : int256(3));
+        if (bits == 16) w = w * 7000 + int256((i + 2 * r) % 5) - 2;
+    }
+
+    /// Bias (dense) or threshold (threshold layers) of map `layer` at row r.
+    function _bigB(uint256 layer, uint256 r, uint256 bits) internal pure returns (int256 b) {
+        b = layer == 0 ? int256(r % 5) - 2 : int256(r % 7) - 3;
+        if (bits == 16) b *= 7000;
+    }
+
+    /// Input bit i set iff (5i + 3) mod 7 < 3.
+    function _bigInput(uint256 n) internal pure returns (bytes memory o) {
+        o = new bytes(n);
+        for (uint256 i; i < n; i++) if ((i * 5 + 3) % 7 < 3) o[i] = 0x01;
+    }
+
+    /// One region of map `layer` (`rows` × `cols` at `bits`), written column-major straight from _bigW and _bigB.
+    function _bigRegion(uint256 layer, uint256 rows, uint256 cols, uint256 bits) internal pure returns (bytes memory out) {
+        uint256 per = 256 / bits;
+        uint256 wpc = (rows + per - 1) / per;
+        uint256 bw = (rows + 15) / 16;
+        out = new bytes((cols * wpc + bw) * 32);
+        uint256 mask = (1 << bits) - 1;
+        for (uint256 i; i < cols; i++) for (uint256 c; c < wpc; c++) {
+            uint256 word;
+            for (uint256 e; e < per && c * per + e < rows; e++) word |= (uint256(_bigW(layer, c * per + e, i, bits)) & mask) << (256 - bits * (e + 1));
+            assembly { mstore(add(add(out, 0x20), shl(5, add(mul(i, wpc), c))), word) }
+        }
+        for (uint256 c; c < bw; c++) {
+            uint256 word;
+            for (uint256 e; e < 16 && c * 16 + e < rows; e++) word |= (uint256(_bigB(layer, c * 16 + e, bits)) & 0xffff) << (240 - 16 * e);
+            assembly { mstore(add(add(out, 0x20), shl(5, add(mul(cols, wpc), c))), word) }
+        }
+    }
+
+    /// The reference of inputs → hidden → outputs over _bigW / _bigB, computed here weight by weight. Dense: a hidden
+    /// neuron fires where Σ + b >= 1, and scores = Σ + b. Threshold layers: it fires where Σ − th >= 0, and
+    /// scores = Σ − th. `best` = the first maximum.
+    function _bigReference(bytes memory x, uint256 hidden, uint256 outputs, uint256 bits, bool layered)
+        internal pure returns (int256[] memory s, uint256 best, uint8[] memory h)
+    {
+        h = new uint8[](hidden);
+        for (uint256 j; j < hidden; j++) {
+            int256 sum = layered ? -_bigB(0, j, bits) : _bigB(0, j, bits);
+            for (uint256 i; i < x.length; i++) if (x[i] != 0) sum += _bigW(0, j, i, bits);
+            if (sum >= (layered ? int256(0) : int256(1))) h[j] = 1;
+        }
+        s = new int256[](outputs);
+        for (uint256 a; a < outputs; a++) {
+            int256 sum = layered ? -_bigB(1, a, bits) : _bigB(1, a, bits);
+            for (uint256 j; j < hidden; j++) if (h[j] != 0) sum += _bigW(1, a, j, bits);
+            s[a] = sum;
+            if (sum > s[best]) best = a;
+        }
+    }
+
+    /// Creates the chunks of `blob` (at most MAX_CHUNK_BYTES each), then a module on them.
+    function _bigDeploy(bytes32 engineId, uint16 inputs, uint16 outputs, uint256[] memory shape, bytes memory blob, bytes32 art) internal returns (NeuromModule) {
+        uint256 max = factory.MAX_CHUNK_BYTES();
+        uint256 n = (blob.length + max - 1) / max;
+        bytes32[] memory ids = new bytes32[](n);
+        for (uint256 k; k < n; k++) {
+            uint256 len = blob.length - k * max < max ? blob.length - k * max : max;
+            bytes memory piece = new bytes(len);
+            assembly { mcopy(add(piece, 0x20), add(add(blob, 0x20), mul(k, max)), len) }
+            ids[k] = keccak256(piece);
+            factory.createChunk(piece);
+        }
+        return NeuromModule(factory.deploy(ModuleFactory.ModuleSpec(engineId, address(0), 0, inputs, outputs, shape, new address[](0), ids, art, TASK), new bytes[](n)));
+    }
+
+    /// Cold gas of one forward and one step of `m` on `x` (every account of the call cooled first), and the forward's result.
+    function _bigGas(NeuromModule m, address engine, bytes memory x) internal returns (uint256 forwardGas, uint256 stepGas, bytes memory ret) {
+        Meter meter = new Meter();
+        address[] memory chunks = m.chunks();
+        _cool(m, engine, chunks);
+        (forwardGas, ret) = meter.once(address(m), abi.encodeCall(INeuromModule.forward, (x)));
+        _cool(m, engine, chunks);
+        (stepGas,) = meter.once(address(m), abi.encodeCall(INeuromModule.step, (S0, x)));
+    }
+
+    function _cool(NeuromModule m, address engine, address[] memory chunks) internal {
+        vm.cool(address(m)); vm.cool(engine);
+        for (uint256 k; k < chunks.length; k++) vm.cool(chunks[k]);
+    }
+
+    /// FF 1020 → 300 → 300 through the Factory: scores, action and counts equal the reference loop, and the action is
+    /// above 255. The input has 437 set bits. `forge test -vv` prints the cold gas of one forward and one step.
+    function testDenseFeedforward1020x300x300Int8() public { _bigDense(8); }
+
+    function testDenseFeedforward1020x300x300Int16() public { _bigDense(16); }
+
+    function _bigDense(uint256 bits) internal {
+        vm.pauseGasMetering();
+        bytes memory blob = bytes.concat(_bigRegion(0, 300, 1020, bits), _bigRegion(1, 300, 300, bits));
+        NeuromModule m = _bigDeploy(DENSE, 1020, 300, _denseShape(_one(300), bits, 1, 0, 1, 0), blob, keccak256(abi.encode("1020-300-300", bits)));
+        bytes memory x = _bigInput(1020);
+        (int256[] memory want, uint256 best, uint8[] memory hidden) = _bigReference(x, 300, 300, bits, false);
+        vm.resumeGasMetering();
+        (uint256 forwardGas, uint256 stepGas, bytes memory ret) = _bigGas(m, dense, x);
+        (int256[] memory s, uint16 a, uint8[] memory c, int32[] memory v) = abi.decode(ret, (int256[], uint16, uint8[], int32[]));
+        require(a == best && a > 255 && s.length == 300 && c.length == 300 && v.length == 0, "1020-300-300: action above 255");
+        for (uint256 k; k < 300; k++) require(s[k] == want[k] && c[k] == hidden[k], "1020-300-300: scores and counts");
+        string memory name = bits == 8 ? "FF 1020-300-300 int8" : "FF 1020-300-300 int16";
+        Console.log(string.concat(name, ": one forward (cold)"), forwardGas);
+        Console.log(string.concat(name, ": one step (cold)"), stepGas);
+    }
+
+    /// Threshold layers 300 → 280 → 270 at both widths: scores, action (above 255) and counts equal the reference loop.
+    function testThresholdLayersWiderThan256() public {
+        for (uint256 q; q < 2; q++) {
+            uint256 bits = _widths()[q];
+            vm.pauseGasMetering();
+            uint16[] memory widths = new uint16[](3); widths[0] = 300; widths[1] = 280; widths[2] = 270;
+            bytes memory blob = bytes.concat(_bigRegion(0, 280, 300, bits), _bigRegion(1, 270, 280, bits));
+            NeuromModule m = _bigDeploy(THRESHOLD, 300, 270, _thresholdShape(widths, bits), blob, keccak256(abi.encode("300-280-270", bits)));
+            bytes memory x = _bigInput(300);
+            (int256[] memory want, uint256 best, uint8[] memory hidden) = _bigReference(x, 280, 270, bits, true);
+            vm.resumeGasMetering();
+            (int256[] memory s, uint16 a, uint8[] memory c,) = m.forward(x);
+            require(a == best && a > 255 && s.length == 270 && c.length == 280, "300-280-270: action above 255");
+            for (uint256 k; k < 270; k++) require(s[k] == want[k], "300-280-270: scores");
+            for (uint256 j; j < 280; j++) require(c[j] == hidden[j], "300-280-270: counts");
+        }
+    }
+
+    /// Σx above 65537 at int16: the lanes would pass 2^32, so the engine adds the sums of batches whose Σx is at most
+    /// 65537 (Σx = 205538 here, five batches). Rows 10, 20 and 40 take each code path. Extreme weights, factor 3 and
+    /// k = 2. A reference loop gives the expectation. int8 takes the same input and Σx = 5,000,000 in one pass. At
+    /// int16 an entry above 65537 reverts "sum".
+    function testInt16SumsAboveTheLaneBoundGoInBatches() public {
+        AffineProbe p = new AffineProbe();
+        uint256[] memory x = new uint256[](7);
+        x[0] = 30000; x[1] = 40000; x[3] = 50000; x[4] = 20000; x[5] = 1; x[6] = 65537;
+        uint256[] memory big = new uint256[](2);
+        big[0] = 2_000_000; big[1] = 3_000_000;
+        uint256[3] memory rowList = [uint256(10), 20, 40];
+        for (uint256 q; q < 2; q++) for (uint256 n; n < 3; n++) {
+            uint256 bits = _widths()[q];
+            uint256 rows = rowList[n];
+            bytes memory rowMajor = new bytes(2 * rows * (x.length + 1));
+            for (uint256 r; r < rows; r++) {
+                for (uint256 i; i < x.length; i++) _i16(rowMajor, r * x.length + i, _probeW(r, i, bits));
+                _i16(rowMajor, rows * x.length + r, int256((r * 997) % 65536) - 32768);
+            }
+            int256[] memory got = p.affine(_plainRegion(rowMajor, 0, rows, x.length, bits), rows, x, 3, bits, 2);
+            for (uint256 r; r < rows; r++) {
+                int256 sum;
+                for (uint256 i; i < x.length; i++) sum += _probeW(r, i, bits) * int256(x[i]);
+                require(got[r] == sum * 4 + 3 * _get(rowMajor, rows * x.length + r), "batched sums");
+            }
+            rowMajor = new bytes(2 * rows * 3);
+            for (uint256 r; r < rows; r++) { _i16(rowMajor, 2 * r, _probeW(r, 0, bits)); _i16(rowMajor, 2 * r + 1, _probeW(r, 1, bits)); }
+            bytes memory region = _plainRegion(rowMajor, 0, rows, 2, bits);
+            if (bits == 16) {
+                _expectRevert(address(p), abi.encodeCall(p.affine, (region, rows, big, 1, bits, 0)), "sum");
+                continue;
+            }
+            got = p.affine(region, rows, big, 1, bits, 0);
+            for (uint256 r; r < rows; r++) require(got[r] == _probeW(r, 0, bits) * 2_000_000 + _probeW(r, 1, bits) * 3_000_000, "int8 in one pass");
+        }
+    }
+
+    /// Weights of the batch test: the extremes of the width and a spread of other values.
+    function _probeW(uint256 r, uint256 i, uint256 bits) internal pure returns (int256) {
+        int256 top = bits == 16 ? int256(32767) : int256(127);
+        uint256 m = (r + i) % 4;
+        if (m == 0) return top;
+        if (m == 1) return -top - 1;
+        return int256((r * 31 + i * 17) % (2 * uint256(top) + 2)) - top - 1;
+    }
+
+    /// The check refuses a width of 65536 (a field of 0xffff), descriptor bits outside the fields, a layer descriptor
+    /// above the last layer and a shape of three words. It accepts the width 65535 and the port 65535.
+    function testChecksRefuseWidthsAbove65535() public {
+        DensePolicyEngine d = DensePolicyEngine(dense);
+        uint256[] memory none = new uint256[](0);
+        uint256[] memory s = _denseShape(_one(65535), 8, 1, 0, 1, 0);
+        (uint256 bytes_,) = d.check(0, 1, 1, s, none);
+        require(bytes_ == d.regionBytes(65535, 1, 8) + d.regionBytes(1, 65535, 8), "hidden 65535");
+        require(factory.MAX_PORT() == 65535 && d.MAX_WIDTH() == 65535 && ThresholdLayersEngine(threshold).MAX_WIDTH() == 65535, "limits");
+        s[0] = 0xffff; _expectRevert(dense, abi.encodeCall(d.check, (0, 1, 1, s, none)), "hidden");               // hidden 65536
+        s[0] = 1 << 16; _expectRevert(dense, abi.encodeCall(d.check, (0, 1, 1, s, none)), "hidden");              // D on a plain layer
+        s[0] = 1 << 49; _expectRevert(dense, abi.encodeCall(d.check, (0, 1, 1, s, none)), "shape");               // above the flag
+        s[3] = 0;                                                                                                  // a tool layer has no threshold
+        s[0] = (1 << 48) | 0xffff; _expectRevert(dense, abi.encodeCall(d.check, (0, 1, 1, s, none)), "tool layer");          // K 65536
+        s[0] = (1 << 48) | (0xffff << 16); _expectRevert(dense, abi.encodeCall(d.check, (0, 1, 1, s, none)), "tool layer");  // D 65536
+        s[0] = (1 << 48) | (0xffff << 32); _expectRevert(dense, abi.encodeCall(d.check, (0, 1, 1, s, none)), "tool layer");  // R 65536
+        Layer[] memory five = new Layer[](5);
+        for (uint256 k; k < 5; k++) five[k] = _plain(1);
+        s = _denseShape(five, 8, 1, 0, 1, 0);
+        d.check(0, 1, 1, s, none);
+        s[1] |= 1 << 64; _expectRevert(dense, abi.encodeCall(d.check, (0, 1, 1, s, none)), "shape");             // layer 5 of 5 layers
+        s = _denseShape(_one(1), 8, 1, 0, 1, 0);
+        s[1] = 1; _expectRevert(dense, abi.encodeCall(d.check, (0, 1, 1, s, none)), "shape");                     // layer 4 of 1 layer
+        uint256[] memory three = new uint256[](3);
+        three[0] = s[0]; three[1] = s[2]; three[2] = s[3];
+        _expectRevert(dense, abi.encodeCall(d.check, (0, 1, 1, three, none)), "shape");                          // the old three words
+
+        uint16[] memory widths = new uint16[](3); widths[0] = 1; widths[1] = 65535; widths[2] = 1;
+        (bytes_,) = ThresholdLayersEngine(threshold).check(0, 1, 1, _thresholdShape(widths, 8), none);
+        require(bytes_ == d.regionBytes(65535, 1, 8) + d.regionBytes(1, 65535, 8), "threshold width 65535");
+    }
+
+    /// FF 2 → 2 → 2 → 2 → 2 → 3 → 2 → 2: layers 4 and 5 come from the second layout word. Each layer copies its
+    /// input (W = identity, b = 0). Layer 4's third neuron fires on both bits (x0 + x1 − 1 >= 1). Scores = x.
+    function testLayersFourToSevenUseTheSecondLayoutWord() public {
+        Layer[] memory l = new Layer[](6);
+        for (uint256 k; k < 6; k++) l[k] = _plain(2);
+        l[4] = _plain(3);
+        bytes memory w = new bytes(2 * 47);
+        for (uint256 k; k < 4; k++) { _i16(w, 6 * k, 1); _i16(w, 6 * k + 3, 1); }
+        _i16(w, 24, 1); _i16(w, 27, 1); _i16(w, 28, 1); _i16(w, 29, 1); _i16(w, 32, -1);   // layer 4: 3 × 2, b = (0, 0, −1)
+        _i16(w, 33, 1); _i16(w, 37, 1);                                                     // layer 5: 2 × 3
+        _i16(w, 41, 1); _i16(w, 44, 1);                                                     // output: 2 × 2
+        for (uint256 q; q < 2; q++) {
+            NeuromModule m = _dense(_widths()[q], 0, 2, 2, l, 1, 0, 1, 0, w, keccak256("six layers"), TASK);
+            require(m.shape()[1] == (2 | (1 << 64)), "layers 4 and 5 in shape[1]");
+            (int256[] memory s, uint16 a, uint8[] memory c,) = m.forward(_bits2(true, true));
+            require(s[0] == 1 && s[1] == 1 && a == 0 && c.length == 13, "both bits");
+            for (uint256 j; j < 13; j++) require(c[j] == 1, "every neuron fires");
+            (s, a, c,) = m.forward(_bits2(false, true));
+            require(s[0] == 0 && s[1] == 1 && a == 1 && c[10] == 0 && c[12] == 1, "one bit");
         }
     }
 

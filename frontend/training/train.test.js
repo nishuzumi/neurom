@@ -8,14 +8,15 @@ import { trainBundle, trainingProblem } from './train.js';
 import { runEpisodes, toolCaller } from '../core/loop.js';
 import { createExecutor } from '../core/sessions/executor.js';
 import { partitionEpisodes } from '../core/kinds/partition.js';
-import { validateGreedy, always, anySet } from './run.js';
+import { validateGreedy, always, anySet, validationEpisodes, selectionOf } from './run.js';
 import { episodesOf } from '../core/sessions/common.js';
 import { QatPolicy, rngOf } from './dense-core.js';
 import { quantizeRegion } from './quantize.js';
 import { ThresholdNet } from './hinge.js';
 import { integerStep, denseStateWidth } from '../runtime/dense-policy.js';
-import { shapedArtifact } from '../core/sessions/fixtures.js';
+import { shapedArtifact, counterModel } from '../core/sessions/fixtures.js';
 import { layersStep } from '../runtime/threshold-layers.js';
+import { wideGraph, WIDE_INPUTS, WIDE_HIDDEN, WIDE_ACTIONS } from '../core/fixtures/wide.js';
 
 /** Wires every task below shares: scene → loop, loop.input → net → readout → loop.action, the trainer on the loop. */
 const LOOP_WIRES = `
@@ -250,11 +251,86 @@ test('method requirements are checked before any training happens', async () => 
   await assert.rejects(trainBundle({ ...dense, format: 'nope' }), /neurom-bundle/);
 });
 
+/** `bundle` started from `model` (the bundle section core/loop.js initModel builds). */
+const fromInit = (bundle, model) => ({ ...bundle, init: { artifactId: `0x${'ab'.repeat(32)}`, model } });
+
+test('a run from init starts at the artifact: the first evaluation (epoch 0) is the metric that validation gives the artifact', async () => {
+  const cases = [
+    ['cross-entropy FF', reachBundle(), anySet],
+    ['cross-entropy LIF', reachBundle({}, LIF), anySet],
+    ['reinforce', counterBundle({ epochs: 10 }), undefined],
+    ['hinge', xorBundle(), always],
+  ];
+  for (const [name, bundle, labelled] of cases) {
+    const first = await trainBundle(bundle);
+    const direct = validateGreedy(bundle, first.model, validationEpisodes(bundle), { selection: selectionOf(bundle), labelled });
+    const progress = [];
+    const { model, evaluation } = await trainBundle(fromInit(bundle, first.model), { onProgress: p => progress.push(p) });
+    assert.deepEqual([evaluation.evaluations[0].epoch, evaluation.evaluations[0].metric], [0, direct.metric], `${name}: epoch 0 is the artifact`);
+    const report = progress.find(p => p.phase === 'eval');
+    assert.deepEqual([report.epoch, report.metric, report.selectedEpoch], [0, direct.metric, 0], `${name}: the first eval report`);
+    assert.ok(evaluation.metric >= direct.metric, `${name}: the selection never goes below the start`);
+    if (evaluation.selectedEpoch === 0) assert.deepEqual(model, first.model, `${name}: an unbeaten start is the selected model, unchanged`);
+  }
+});
+
+test('an unbeaten start is the result as it was: no calibration changes it, and the selected epoch is 0', async () => {
+  const bundle = xorBundle(), first = await trainBundle(bundle);
+  assert.equal(first.evaluation.metric, 1);
+  const again = await trainBundle(fromInit(bundle, first.model));
+  assert.equal(again.evaluation.selectedEpoch, 0);
+  assert.deepEqual(again.model, first.model);
+  const reach = reachBundle(), solved = await trainBundle(reach);
+  assert.equal(solved.evaluation.metric, 1);
+  const resumed = await trainBundle(fromInit(reach, solved.model));
+  assert.equal(resumed.evaluation.selectedEpoch, 0);
+  assert.deepEqual(resumed.model, solved.model, 'cross-entropy: the calibration of the biases is skipped');
+});
+
+test('the trainers restore the exact integers of a start model, also when its scale is not the one the quantiser picks', () => {
+  for (const kind of ['feedforward', 'lif']) {
+    const model = counterModel(1, { kind }), policy = new QatPolicy({ engine: 'dense-policy', kind, inputs: 3, outputs: 2, weightBits: 8, layers: [{ hidden: 8 }], ticks: model.ticks, leak_shift: model.leak_shift, reset: model.reset }, 1);
+    policy.restore(model);
+    assert.deepEqual(policy.export(), model, `${kind}: export after restore`);
+  }
+  const tooled = { engine: 'dense-policy', kind: 'lif', inputs: 3, outputs: 2, weightBits: 8, layers: [{ hidden: 4 }, { tools: 'tools', K: 2, D: 3, R: 2 }, { hidden: 3 }], ticks: 2, leak_shift: 2, reset: 0 };
+  const source = new QatPolicy(tooled, 1);
+  source.init(rngOf(7));
+  const model = source.export(), copy = new QatPolicy(tooled, 1);
+  copy.restore(model);
+  assert.deepEqual(copy.export(), model, 'a tool layer: the choice and data heads too');
+  const threshold = { format: 'threshold-layers', inputs: 2, outputs: 2, weightBits: 8, layers: [{ W: [[1, 0], [0, 1], [1, 1]], th: [1, 1, 2], scale: 1, k: 0 }, { W: [[1, 1, -2], [0, 0, 1]], th: [1, 1], scale: 1, k: 0 }] };
+  const net = new ThresholdNet([2, 3, 2], 1, 8);
+  net.restore(threshold);
+  assert.deepEqual(net.export(2, 2).model, threshold);
+});
+
+test('a start model must fit the trained network', () => {
+  const bundle = counterBundle();
+  assert.match(trainingProblem(fromInit(bundle, counterModel(1, { hidden: 4 }))), /init/);
+  assert.equal(trainingProblem(fromInit(bundle, counterModel(1))), '');
+});
+
 test('bundles whose BPTT tape exceeds the browser budget are refused before training starts', async () => {
   const bundle = counterBundle({ replicas: 64, episodesPerEpoch: 4096 }, { kind: 'lif', layers: [{ hidden: 256 }], ticks: 64, leak_shift: 2, reset: 0 });
   let reported = 0;
   await assert.rejects(trainBundle(bundle, { onProgress: () => { reported++; } }), /超出浏览器预算/);
   assert.equal(reported, 0);
+});
+
+test('a network wider than 256 (1020 inputs, a layer of 300, 300 actions) resolves, trains and evaluates (ADR 0021)', async () => {
+  const { graph, ids } = wideGraph();
+  assert.deepEqual(graph.problems().map(p => p.message), []);
+  const bundle = buildBundle(graph, ids.trainer);
+  assert.equal(trainingProblem(bundle), '');
+  const { model, evaluation } = await trainBundle(bundle);
+  assert.deepEqual([model.inputs, model.layers[0].hidden, model.outputs], [WIDE_INPUTS, WIDE_HIDDEN, WIDE_ACTIONS]);
+  assert.equal(evaluation.metric, 1, 'it learns the actions 297, 296 and 295');
+  const again = validateGreedy(bundle, model, episodesOf(bundle.partitions.validation), { labelled: anySet });
+  assert.equal(again.accuracy, evaluation.metric);
+  assert.equal(again.successRate, 1, 'every greedy episode takes the actions 297, 296 and 295, all above 255');
+  const test = runEpisodes(bundle, { models: { [ids.net]: model }, episodes: partitionEpisodes(graph.node(ids.split).config, 'test') });
+  assert.deepEqual(test.map(e => e.success), [true, true, true, true], 'the test partition too');
 });
 
 test('two-layer dense nets (FF and LIF) train by REINFORCE and cross-entropy; the exported model replays the reported metric', async () => {

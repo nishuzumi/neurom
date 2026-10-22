@@ -8,9 +8,10 @@ import { readFileSync } from 'node:fs';
 import '../../frontend/core/kinds/index.js';
 import { episodesOf } from '../../frontend/core/sessions/common.js';
 import { envTrace, loopTrace, interceptTrace, validation, replay, quantization } from './parity.mjs';
+import { trainBundle } from '../../frontend/training/train.js';
 
 const read = name => JSON.parse(readFileSync(new URL(name, import.meta.url), 'utf8'));
-const FIXTURES = read('./bundle-env.json'), REPLAYS = read('./replays.json');
+const FIXTURES = read('./bundle-env.json'), REPLAYS = read('./replays.json'), BUNDLES = read('./bundles.json');
 const json = value => JSON.parse(JSON.stringify(value));
 
 test('runner: every scripted episode reproduces', () => {
@@ -47,4 +48,14 @@ test('Python-trained models replay in the browser executor with the recorded dec
 test('the per-layer quantiser reproduces every recorded case', () => {
   assert.ok(FIXTURES.quantizations.length >= 48);
   for (const [i, fx] of FIXTURES.quantizations.entries()) assert.deepEqual(json(quantization(fx)), fx.expect, `case ${i} int${fx.bits} ${fx.role}`);
+});
+
+test('a run from init reports the recorded start (the validation of its init model) as its epoch 0 evaluation', async () => {
+  assert.equal(FIXTURES.starts.length, 3);
+  for (const fx of FIXTURES.starts) {
+    const bundle = BUNDLES[fx.name];
+    assert.deepEqual(json(validation({ bundle, model: bundle.init.model, labelled: fx.labelled })), fx.summary, fx.name);
+    const { evaluation } = await trainBundle({ ...bundle, recipe: { ...bundle.recipe, epochs: 1, evalEvery: 1 } });
+    assert.deepEqual([evaluation.evaluations[0].epoch, evaluation.evaluations[0].metric], [0, fx.summary.metric], fx.name);
+  }
 });

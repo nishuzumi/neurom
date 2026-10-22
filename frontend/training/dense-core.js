@@ -148,22 +148,46 @@ export class QatPolicy {
       this.quantize();
     }));
   }
-  /** Quantise every region from its shadows (quantize.js). q holds the accumulator integers W·2^k and b. Each plain
-   *  layer gets its fire threshold (FF 1, LIF 1.0 real), gain and surrogate half-width (FF surrogateWidth·gain, LIF
-   *  surrogateWidth·threshold). Each head gets its sampling scales 1 / (factor·gain) per region. */
+  /** Quantise every region from its shadows (quantize.js), then load the integers (load). */
   quantize() {
     this.unit = {};
-    for (const region of this.regions) {
-      const { key, role } = region, r = quantizeRegion(this.p[key], this.p[key + 1], this.weightBits, role), shift = 2 ** r.k, q = this.q[key];
+    for (const { key, role } of this.regions) this.unit[key] = quantizeRegion(this.p[key], this.p[key + 1], this.weightBits, role);
+    this.load();
+  }
+  /** Load the integers of `unit` into q: the accumulator integers W·2^k and b. Each plain layer gets its fire threshold
+   *  (FF 1, LIF the threshold of the region), gain and surrogate half-width (FF surrogateWidth·gain, LIF
+   *  surrogateWidth·threshold). Each head gets its sampling scales 1 / (factor·gain) per region. */
+  load() {
+    for (const { key } of this.regions) {
+      const r = this.unit[key], shift = 2 ** r.k, q = this.q[key];
       for (let i = 0; i < q.length; i++) q[i] = r.W[i] * shift;
       this.q[key + 1].set(r.b);
-      this.unit[key] = r;
     }
     for (const L of this.plain) {
       const r = this.unit[L.key];
       L.gain = r.gain; L.threshold = r.threshold ?? 1; L.width = this.surrogateWidth * (r.threshold ?? r.gain);
     }
     for (const h of this.heads) { h.invC = 1 / (h.factor * this.unit[h.key].gain); h.invD = 1 / (h.factor * this.unit[h.key + 2].gain); }
+  }
+  /** Start from `model` (a `dense-policy` model of this structure: the start of a run, ADR 0020), not from init and
+   *  calibrateBias. The integers are exactly the integers of the model: its codes, biases, scale, k and LIF threshold.
+   *  The shadows get the real values of the model (codes / scale, biases / (scale·2^k)). The first update quantises
+   *  them again by the rule of quantize.js. */
+  restore(model) {
+    const entries = [];
+    for (const L of model.layers) {
+      if (isTool(L)) entries.push({ W: L.Wc, b: L.bc, scale: L.scale_c, k: L.k_c }, { W: L.Wd, b: L.bd, scale: L.scale_d, k: L.k_d });
+      else entries.push(L);
+    }
+    if (!this.trailing) entries.push(model.output);
+    this.unit = {};
+    this.regions.forEach(({ key }, r) => {
+      const e = entries[r], W = Int32Array.from(e.W.flat()), b = Int32Array.from(e.b), gain = e.scale * 2 ** e.k;
+      for (let i = 0; i < W.length; i++) this.p[key][i] = W[i] / e.scale;
+      for (let j = 0; j < b.length; j++) this.p[key + 1][j] = b[j] / gain;
+      this.unit[key] = { W, b, scale: e.scale, k: e.k, gain, threshold: e.threshold ?? null, clippedWeights: 0, clippedBiases: 0 };
+    });
+    this.load();
   }
   /** The quantisation record of the current integers, one entry per region in blob order (training result
    *  `evaluation.quantization`): `{ region, scale, k, threshold? (LIF), clippedWeights, clippedBiases }`. */

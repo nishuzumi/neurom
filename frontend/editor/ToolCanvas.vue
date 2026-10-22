@@ -2,13 +2,13 @@
 // ToolCanvas.vue — the tool layers of a network card (ADR 0010 §9), inside its body in layer order. Each layer is one
 // foldable sub-canvas 「工具层 · port」 (the fold is node.uiFolded). Inside it, as full cards, are the tools wired only
 // into that port. editor/tool-canvas.js decides which tools, and index.ts projects them (ToolLayerView). A frozen
-// network with its bits readout is one card. Their unwired ports are slots on the host flow node (`${module}/${port}`).
-// Wiring one of them elsewhere takes the tool out of the layer. The tools also wired elsewhere stay on the outer canvas,
-// and here a label jumps to each. 「+ 工具」 adds a code tool or a frozen network that runs a picked artifact (FF or
-// LIF, its own network tools wired in too). It wires the new tool in (one history entry each). The current step of the
-// execution that runs this network highlights the tool it chose, with the data bits it handed over and the result. The
-// other tools dim. Folded, the layer shows one line: that call, or the tools. The card is the host and owns the width
-// (AGENTS.md). The cards fill a grid of the width it gives them.
+// network with its readout (bits or argmax) is one card. Their unwired ports are slots on the host flow node
+// (`${module}/${port}`). Wiring one of them elsewhere takes the tool out of the layer. The tools also wired elsewhere
+// stay on the outer canvas, and here a label jumps to each. 「+ 工具」 adds a code tool or a frozen network that runs a
+// picked artifact (FF or LIF, its own network tools wired in too). It wires the new tool in (one history entry each).
+// The current step of the execution that runs this network highlights the tool it chose, with the data bits it handed
+// over and the result. The other tools dim. Folded, the layer shows one line: that call, or the tools. The card is the
+// host and owns the width (AGENTS.md). The cards fill a grid of the width it gives them.
 import { computed, inject, shallowRef } from 'vue';
 import NodePorts from './NodePorts.vue';
 import HeadIcon from './HeadIcon.vue';
@@ -52,9 +52,9 @@ function summary(L: ToolLayerView): string {
 // ------------------------------------------------------------------ 「+ 工具」
 type Choice = { id: string; name: string | null; builtin: boolean; kind: string; inputs: number; outputs: number; layers?: unknown[]; readout: { mode: string } | null };
 const { snap: pick } = useSession('network', props.nodeId);
-/** the artifacts a tool can run: any network read out as bits (FF or LIF, with tool layers of its own or not) */
-const frozen = computed(() => ((pick.value.choices as Choice[]) ?? []).filter(c => c.readout?.mode === 'bits'));
-const frozenLabel = (c: Choice) => `${c.name ?? shortId(c.id)}${c.builtin ? ` · ${t('内置')}` : ''} · ${c.kind === 'lif' ? 'LIF' : 'FF'}${(c.layers ?? []).some(isToolLayer) ? ` · ${t('带工具')}` : ''} · ${c.inputs} → ${c.outputs}`;
+/** the artifacts a tool can run: any network with a readout, bits or argmax (FF or LIF, with tool layers of its own or not) */
+const frozen = computed(() => ((pick.value.choices as Choice[]) ?? []).filter(c => c.readout?.mode === 'bits' || c.readout?.mode === 'argmax'));
+const frozenLabel = (c: Choice) => `${c.name ?? shortId(c.id)}${c.builtin ? ` · ${t('内置')}` : ''} · ${c.kind === 'lif' ? 'LIF' : 'FF'}${(c.layers ?? []).some(isToolLayer) ? ` · ${t('带工具')}` : ''}${c.readout?.mode === 'argmax' ? ' · argmax' : ''} · ${c.inputs} → ${c.outputs}`;
 const adding = shallowRef<string | null>(null);
 function addCode(port: string) { adding.value = null; rt.addCodeTool(props.nodeId, port); }
 function addNetwork(port: string, e: Event) {
@@ -80,7 +80,7 @@ function toggle(slot: string) { const at = slot.indexOf('/'); rt.togglePort(slot
       <div v-if="!L.folded && adding === L.port" class="tcan-add">
         <button type="button" class="mini" :title="t('新建一个代码模块：(bits) → bits 的函数，接到 {port}', { port: L.port })" @click="addCode(L.port)">{{ t('新建代码工具') }}</button>
         <select :aria-label="t('冻结网络：选择产物')" :disabled="!frozen.length" @change="addNetwork(L.port, $event)">
-          <option value="">{{ frozen.length ? t('冻结网络：选择产物…') : t('没有可当工具的产物（需要位读出的网络）') }}</option>
+          <option value="">{{ frozen.length ? t('冻结网络：选择产物…') : t('没有可当工具的产物（需要带读出的网络）') }}</option>
           <option v-for="c in frozen" :key="c.id" :value="c.id">{{ frozenLabel(c) }}</option>
         </select>
       </div>

@@ -345,6 +345,24 @@ test('problems: threshold tool layer, duplicate ports, undetermined D, non-bits 
   assert.deepEqual(lif.g.resolved().problemsOf(lif.ids.policy), [], 'a LIF network tool is no problem');
 });
 
+test('an argmax readout\'s frozen network is a tool: no problem on the graph, its result is the one-hot of the first maximum', () => {
+  const { g, ids, artifacts } = selectorGraph();
+  g.patchConfig(ids.orR, { mode: 'argmax', map: [0, 1] });
+  assert.deepEqual(g.resolved().problemsOf(ids.policy), []);
+  assert.deepEqual(g.resolved().problemsOf(ids.orR), []);
+  assert.deepEqual(g.resolved().refsOf(ids.policy).tools, { tools: { K: 2, D: 3, R: 2 } });
+  const bundle = buildBundle(g, ids.execution, { artifacts }), tool = bundle.loop.nodes[ids.policy].tools.tools[0];
+  assert.deepEqual(tool.readout, { mode: 'argmax', map: [0, 1], width: 2 });
+  const loop = createLoop(bundle.loop);
+  for (let x = 0; x < 8; x++) {
+    const [a, b, sel] = bitsOf(x, 3), record = loop.step([a, b, sel]).tools[ids.policy].tools;
+    // OR's scores are [(a | b) − 1, 0]: a tie when a | b = 1, and the first maximum wins
+    if (sel) assert.deepEqual([record.choice, record.result], [0, a | b ? [1, 0] : [0, 1]]);
+  }
+  assert.match(deploymentProblem({ engine: 'dense-policy', inputs: 3, outputs: 2, layers: [{ hidden: 3 }, { tools: 'tools', K: 1, D: 3, R: 2 }] }, [tool]),
+    /argmax 读出的网络工具不能部署/, 'on chain a tool layer reads its tool\'s scores as bits');
+});
+
 test('trainer: a tool-layer network trains by REINFORCE only (bits readout when the tool layer is last), on either backend', () => {
   const { g, ids } = selectorGraph();
   const trainer = g.addNode({ kind: 'trainer', config: { backend: 'python' } });

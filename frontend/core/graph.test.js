@@ -134,6 +134,15 @@ test('scenario: an exported function that is neither a role nor wired anywhere i
   assert.equal(graph.problems().filter(p => /inputs/.test(p.message)).length, 0, 'a helper is not reported');
 });
 
+test('scenario: an exported function that only a script module calls is wired, not a misspelt role (ADR 0019)', () => {
+  const g = sceneGraph(scenario({ input: 'export function view(state, side) { return bits(state.count + side, 2); }\nexport function input(state) { return view(state, 0); }' }));
+  const { graph, scene } = g;
+  assert.match(scenarioMessages(graph, g), /场景导出了 view，但运行器不调用它/);
+  const script = graph.addNode({ kind: 'script', config: { functions: ['view'], inputs: [] } });
+  graph.connect(call({ node: scene.id, port: 'view' }, { node: script.id, port: 'view' }));
+  assert.equal(scenarioMessages(graph, g), '');
+});
+
 test('loop: drivers must run it on one episode kind; a network declares the width wired into it', () => {
   const { graph, loop } = sceneGraph();
   const onLoop = () => graph.problems().filter(p => p.node === loop.id && p.port === 'loop').map(p => p.message).join('\n');

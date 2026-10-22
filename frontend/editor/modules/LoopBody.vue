@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // LoopBody.vue — a loop drawn as a card (not inside its box). It shows whether its scenario is complete, the width I
 // of the input bits it hands the body each step, and the body in evaluation order. The body comes from the wires:
-// every module on a path from `input` to `action`. It also shows the drivers that run the loop. The loop's own
-// problems (body kinds, box mismatch, drivers that disagree on the episode kind) follow.
+// every module on a path from `input` to `action`. It also shows the drivers that run the loop. The `roles` form maps
+// a function role to another export of the scenario (ADR 0022). The loop's own problems (body kinds, box mismatch,
+// drivers that disagree on the episode kind) follow.
 import { computed } from 'vue';
 import { t } from '../../i18n.js';
 import { useWorkbench } from '../workbench-context';
 import { useNode } from './common';
+import ConfigForm from './ConfigForm.vue';
 import { loopSummary } from '../graph-view';
 import { loopDrivers } from '../../core/kinds/loop.js';
 import { typeName } from '../../core/types.js';
@@ -37,6 +39,8 @@ const scenarioWired = computed(() => { void wb.version.value; return wb.graph.pr
     <div class="brow bhint"><span>Start</span><span class="mono">{{ refs.Start ? typeName(refs.Start) : t('由驱动它的分区决定') }}</span></div>
     <div class="brow bhint"><span>{{ t('每一步') }}</span><span class="mono">{{ summary }}</span></div>
     <div class="brow bhint"><span>{{ t('驱动') }}</span><span class="mono">{{ drivers.length ? drivers.join(', ') : '—' }}</span></div>
+    <ConfigForm :node-id="nodeId" :fields="['roles']" />
+    <div class="bhint">{{ t('每个角色填场景里的一个导出函数。留空时用和角色同名的导出') }}</div>
     <div v-for="(p, i) in [...scenarioProblems, ...otherProblems]" :key="i" class="bproblem" :class="{ incomplete: p.incomplete }">{{ p.message }}</div>
   </div>
 </template>

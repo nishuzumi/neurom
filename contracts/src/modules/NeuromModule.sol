@@ -120,33 +120,33 @@ contract NeuromModule is INeuromModule {
     // The engine returns a decision exactly as these functions return it: forward / peek pass its result through.
 
     function forward(bytes calldata inputBits)
-        external view returns (int256[] memory, uint8, uint8[] memory, int32[] memory)
+        external view returns (int256[] memory, uint16, uint8[] memory, int32[] memory)
     {
         _return(_decide(inputBits, new uint256[](_stateWords())));
     }
 
     function forwardFrom(uint256[] calldata state, bytes calldata inputBits)
-        external view returns (int256[] memory, uint8, uint8[] memory, int32[] memory)
+        external view returns (int256[] memory, uint16, uint8[] memory, int32[] memory)
     {
         require(state.length == _stateWords(), "state");
         _return(_decide(inputBits, state));
     }
 
     function peek(bytes32 session, bytes calldata inputBits)
-        external view returns (int256[] memory, uint8, uint8[] memory, int32[] memory)
+        external view returns (int256[] memory, uint16, uint8[] memory, int32[] memory)
     {
         _return(_decide(inputBits, _load(_key(msg.sender, session))));
     }
 
     function peekAs(address actor, bytes32 session, bytes calldata inputBits)
-        external view returns (int256[] memory, uint8, uint8[] memory, int32[] memory)
+        external view returns (int256[] memory, uint16, uint8[] memory, int32[] memory)
     {
         _return(_decide(inputBits, _load(_key(actor, session))));
     }
 
     /// @dev Stepped commits keccak256(abi.encode(scores, action, counts, voltages)): the engine's result bytes.
     function step(bytes32 session, bytes calldata inputBits)
-        external returns (int256[] memory, uint8, uint8[] memory, int32[] memory)
+        external returns (int256[] memory, uint16, uint8[] memory, int32[] memory)
     {
         bytes32 key = _key(msg.sender, session);
         uint256[] memory state = _load(key);
@@ -219,7 +219,7 @@ contract NeuromModule is INeuromModule {
 
     /// @dev The result's voltages (stateWidth of them, int32) packed into state words.
     function _pack(bytes memory result) private pure returns (uint256[] memory next) {
-        (,,, int32[] memory v) = abi.decode(result, (int256[], uint8, uint8[], int32[]));
+        (,,, int32[] memory v) = abi.decode(result, (int256[], uint16, uint8[], int32[]));
         uint256 width = stateWidth();
         require(v.length == width, "engine");
         next = new uint256[]((width + 7) >> 3);

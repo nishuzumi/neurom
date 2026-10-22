@@ -21,7 +21,7 @@
 import { createLockstep, toolCaller, trainedOf } from '../core/loop.js';
 import { denseStateWidth } from '../runtime/dense-policy.js';
 import { QatPolicy, rngOf, mixSeed, softmaxInto, assertTapeBudget, meanSpikeRate, safeLog } from './dense-core.js';
-import { Run, epochEpisodes, epochSize, drawEpisodes, selectionOf, validateGreedy, validationEpisodes, finishResult } from './run.js';
+import { Run, epochEpisodes, epochSize, drawEpisodes, selectionOf, validateGreedy, validationEpisodes, finishResult, startEvaluation } from './run.js';
 
 /** Calibration observations: the trained network's input bits over `episodes` driven by uniform random slots (a
  *  trailing tool layer: uniform random result bits). */
@@ -60,9 +60,10 @@ export async function trainReinforce(bundle, { onProgress, isCancelled, tables, 
     const d = rec.decisions[h];
     return [tools, { choice: d.choice[b], data: Array.from(d.data.subarray(b * D, (b + 1) * D)), result: Array.from(d.result.subarray(b * R, (b + 1) * R)) }];
   }));
-  policy.init(rngOf(mixSeed(recipe.seed, 0)));
   const lockstep = createLockstep(bundle, { tables });
-  {
+  if (bundle.init) policy.restore(bundle.init.model);                                 // the start of the run: no random weights, no calibration (ADR 0020)
+  else {
+    policy.init(rngOf(mixSeed(recipe.seed, 0)));
     const rng = rngOf(mixSeed(recipe.seed, 1));
     const { X, N } = calibration(lockstep, drawEpisodes(training, recipe.calibrationEpisodes, rng), rng, I, O, trailing);
     policy.calibrateBias(X, N, recipe.initCurrent, { call: restCall, rng });
@@ -71,7 +72,8 @@ export async function trainReinforce(bundle, { onProgress, isCancelled, tables, 
   const validation = validationEpisodes(bundle);
   const curves = { loss: [], metric: [], trainReturn: [], trainSuccess: [], spikeRate: [], gradNorm: [], entropy: [] }, evaluations = [], baseline = [];
   const p = new Float64Array(O), V = new Float64Array(B * H), succeeded = new Uint8Array(B);
-  let best = null;
+  let best = bundle.init ? startEvaluation({ bundle, run, model: policy.export(), quantization: policy.quantization(), validation, tables, selection, curves, evaluations,
+    fields: s => ({ validationMeanReturn: s.meanReturn, validationSuccessRate: s.successRate }) }) : null;
   for (let epoch = 0; epoch < recipe.epochs; epoch++) {
     const rng = rngOf(mixSeed(recipe.seed, 1000 + epoch));
     const inverseScale = trailing ? 0 : policy.inverseScale;                         // real-unit logits of this epoch's integers (the output layer's scale)

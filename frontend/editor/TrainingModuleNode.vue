@@ -25,6 +25,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue';
 import { Handle, Position, type NodeProps } from '@vue-flow/core';
 import HeadIcon from './HeadIcon.vue';
+import RunUpTo from './RunUpTo.vue';
 import GroupActions from './GroupActions.vue';
 import { BODIES } from './modules/registry';
 import CodeTabs from './modules/CodeTabs.vue';
@@ -202,6 +203,7 @@ function onBodyWheel(e: WheelEvent) {
           <span v-if="s.problems.errors.length" class="mnode-problem bad" :title="problemHint(s.problems)" :aria-label="t('{count} 个问题', { count: s.problems.errors.length })">{{ s.problems.errors.length }}</span>
           <span v-else-if="s.problems.incomplete.length" class="mnode-problem m" :title="problemHint(s.problems)" :aria-label="t('{count} 项未连接', { count: s.problems.incomplete.length })">{{ s.problems.incomplete.length }}</span>
           <component :is="BODIES[s.kind].head" v-if="!s.codeNodes && BODIES[s.kind]?.head" :node-id="s.nodeId" />
+          <RunUpTo v-if="!s.codeNodes" :node-id="s.nodeId" :kind="s.kind" :title="s.title" />
           <button type="button" class="mnode-act mnode-icon nodrag" :aria-expanded="!s.collapsed" :title="s.collapsed ? t('展开模块内容') : t('折叠模块')" :aria-label="s.collapsed ? t('展开模块内容') : t('折叠模块')" @click.stop="rt.toggleCollapse(s.codeNodes ?? s.nodeId)"><HeadIcon :name="s.collapsed ? 'plus' : 'minus'" /></button>
           <button v-if="!s.codeNodes" type="button" class="mnode-del mnode-icon nodrag" :title="t('删除模块（可撤销）')" :aria-label="t('删除模块 {title}', { title: s.title })" @click.stop="rt.removeNode(s.nodeId)"><HeadIcon name="close" /></button>
         </div>

@@ -33,7 +33,7 @@
 .neurom-editor .kind-readout,.neurom-editor .kind-network{--col:var(--mod)}
 .neurom-editor .kind-loop{--col:var(--inh)}
 .neurom-editor .kind-trainer,.neurom-editor .kind-candidates,.neurom-editor .kind-evaluator{--col:var(--train)}
-.neurom-editor .kind-execution,.neurom-editor .kind-view,.neurom-editor .kind-deployment{--col:var(--focus)}
+.neurom-editor .kind-execution,.neurom-editor .kind-view,.neurom-editor .kind-deployment,.neurom-editor .kind-script{--col:var(--focus)}
 
 /* ---------------------------------------------------------------- module host box (ModuleNode.vue): the host owns the width; bodies fill it */
 .mnode{position:relative;width:100%;height:100%;display:flex;flex-direction:column;background:var(--panel);border:2px solid var(--col);border-radius:8px;overflow:visible;font-size:12px;line-height:1.3}
@@ -52,7 +52,10 @@
 .mnode-problem.bad{color:var(--bad);border:1px solid var(--bad)}
 .mnode-problem.m{color:var(--muted);border:1px solid var(--line-strong)}
 .mnode-act,.mnode-del{font:inherit;font-size:11px;padding:1px 6px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--muted);cursor:pointer;line-height:1.4;flex:none}
-.mnode-act:hover{color:var(--ink);background:var(--soft)}
+.mnode-act:hover:not(:disabled){color:var(--ink);background:var(--soft)}
+.mnode-act:disabled{cursor:default;opacity:.45}
+/* 「运行到这里」 (RunUpTo.vue): the button of the module that the chain runs for stays lit while the others wait */
+.mnode-act.mnode-run,.mnode-act.mnode-run:disabled{color:var(--spike);opacity:1}
 /* icon-only header actions (⚙, collapse, delete): a fixed square with a HeadIcon.vue SVG centred in it, so every icon
    has the same size, weight and centre line whatever the font */
 .mnode-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0}
@@ -64,6 +67,8 @@
 /* sized host (explicit height): the body scrolls and does not spill over the frame. `.bfill` inside a body takes the extra height */
 .mnode.sized .mnode-body{overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
 .mnode-body .bfill{flex:1 0 auto}
+/* a sandboxed frame (view script, script module) would take the pointer from a resize gesture that passes over it */
+.mnode.resizing iframe{pointer-events:none}
 /* the host frame is the one size control. Text areas never get their own resize handle. Small form fields grow with their text */
 :where(.mnode-body) textarea{resize:none;field-sizing:content;min-height:calc(3lh + 8px);max-height:16lh}
 /* one accent highlight per module: the ring of the selected node. Text fields inside a module mark focus quietly, as

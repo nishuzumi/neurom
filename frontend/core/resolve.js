@@ -1,6 +1,6 @@
 // core/resolve.js — whole-graph type inference and problems. Types flow along value wires from producers to
 // consumers. The kind of the module a call site calls types that call site (its `callee` hook, core/registry.js — a
-// code module's export, a bits readout's `run`). The kind gets the caller's argument types and the exactness of the
+// code module's export, a readout's `run`). The kind gets the caller's argument types and the exactness of the
 // caller's signature. This file does only the kind-free part: the call's result against the signature, the uses of
 // each callee and the typed calls a bundle reads (res.calls). Kinds only see the `ctx` API below. Iteration to a
 // fixpoint lives here.
@@ -16,6 +16,10 @@
 //   ctx.callWidths(nodeId, port) → [number…]              the bits each callee wired into `port` reads (callees typed
 //                                                         by their arguments alone omitted)
 //   ctx.callUses(nodeId) → [{k, signature, from, caller, port, wire, error}]   call sites of a module's call outputs
+//   ctx.callees(nodeId, port) → [{node, fn, wire, callee}]  every call wire into `port` with its kind's callee hook
+//                                                         answer (null: not callable), untyped. res.callees is the same
+//                                                         after the resolution, for a caller that types its calls at
+//                                                         run time (a script module, core/script-calls.js)
 // A Call is `{ result, error, paramTypes, exact, carries, node, wire, k, fn, caller, port }`: node / fn the callee
 // module and output, paramTypes the program's params (the k arguments, then what the callee binds), carries what a
 // bundle takes from the callee — `{ kind:'program', program, bound }` or `{ kind:'net', network, readout }` (null on
@@ -68,6 +72,21 @@ function fieldType(T, path) {
   return at ?? null;
 }
 
+/**
+ * The nearest training module around `nodeId` (the nearest group carrying a prefab record), or null. `members` are its
+ * member nodes, then the scenario module of each of its loops when that module sits outside it. Such a scenario is an
+ * environment that several training modules share.
+ * @returns {{ id: string, title: string, members: string[] } | null}
+ */
+export function trainingModuleOf(graph, nodeId) {
+  let group = graph.parentOf(nodeId);
+  while (group && !group.prefab) group = graph.parentOf(group.id);
+  if (!group) return null;
+  const members = graph.memberNodes(group.id), inside = new Set(members);
+  const shared = members.filter(id => graph.node(id).kind === 'loop').flatMap(id => graph.producers(id, 'scenario').map(p => p.node)).filter(id => !inside.has(id));
+  return { id: group.id, title: group.title, members: [...members, ...new Set(shared)] };
+}
+
 export function resolve(graph) {
   const res = new Resolution();
   const nodes = [...graph.nodes.values()];
@@ -80,18 +99,17 @@ export function resolve(graph) {
     inType: (nodeId, port) => { const p = graph.producers(nodeId, port)[0]; return p ? res.typeOf(p.node, p.port) : null; },
     portsOf: nodeId => res.portsOf(nodeId),
     boxes: loopId => [...graph.groups.values()].filter(g => g.loop === loopId).map(g => ({ id: g.id, title: g.title, members: graph.memberNodes(g.id) })),
-    /** the nearest training module around `nodeId` (the nearest group carrying a prefab record) with every member node, or null */
-    trainingModuleOf: nodeId => {
-      for (let g = graph.parentOf(nodeId); g; g = graph.parentOf(g.id)) if (g.prefab) return { id: g.id, title: g.title, members: graph.memberNodes(g.id) };
-      return null;
-    },
+    /** the nearest training module around `nodeId` with its member nodes and the environment it shares (trainingModuleOf) */
+    trainingModuleOf: nodeId => trainingModuleOf(graph, nodeId),
     refs: nodeId => res.refsOf(nodeId),
     setRefs: (nodeId, refs) => { res.refs.set(nodeId, { ...refs }); },
     callAll: (nodeId, port, argTypes) => graph.producers(nodeId, port).map(p => callOne(nodeId, port, p, argTypes)),
     call: (nodeId, port, argTypes) => { const p = graph.producers(nodeId, port)[0]; return p ? callOne(nodeId, port, p, argTypes) : null; },
     callWidths: (nodeId, port) => graph.producers(nodeId, port).map(p => calleeOf(p)?.width ?? null).filter(Number.isInteger),
     callUses: nodeId => [...(uses.get(nodeId)?.values() ?? [])],
+    callees: (nodeId, port) => graph.producers(nodeId, port).map(p => ({ node: graph.node(p.node), fn: p.port, wire: p.wire, callee: calleeOf(p) })),
   };
+  res.callees = ctx.callees;
 
   /** The callee behind the call wire from producer `p`: its kind's answer for that output. null when not callable. */
   function calleeOf(p) {
@@ -108,7 +126,7 @@ export function resolve(graph) {
     const settle = error => { info.error = record.error = error; if (!error) res.calls.set(wire.id, info); return info; };
     if (!portDef || portDef.wire !== 'call' || !portDef.signature) return settle(new Error(t('{port} 不是函数调用端口', { port })));
     const callee = calleeOf(producer);
-    if (!callee) return settle(new Error(t('调用端口 {port} 需要接代码模块导出的函数或位读出的 run', { port })));
+    if (!callee) return settle(new Error(t('调用端口 {port} 需要接代码模块导出的函数或读出的 run', { port })));
     const signature = resolveSignature(portDef.signature, res.refsOf(callerId)), exact = signature.exact === true;
     record.signature = { params: argTypes, result: signature.result, exact };
     const r = callee.call(argTypes, { exact, caller: callerId });

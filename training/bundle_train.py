@@ -61,6 +61,7 @@ ENGINES = (DENSE, THRESHOLD)
 INT16_MIN, INT16_MAX, INT32_MAX = -32768, 32767, 2147483647
 CODE_MAX = {8: 127, 16: 32767}                          # Q: weight codes per weightBits lie in [−Q, Q]
 K_MAX = 20                                              # a region's accumulator shift k ∈ 0..K_MAX
+MAX_BITS = 65535                                        # ports, actions and layer widths (ADR 0021, core/types.js MAX_BITS)
 MODEL_KEYS = {DENSE: {'format', 'kind', 'inputs', 'outputs', 'weightBits', 'ticks', 'leak_shift', 'reset', 'layers', 'output'},
               THRESHOLD: {'format', 'inputs', 'outputs', 'weightBits', 'layers'}}
 PROGRESS_POINTS, CURVE_POINTS = 400, 256
@@ -121,16 +122,16 @@ def _bits(v): return not isinstance(v, bool) and isinstance(v, int) and v in COD
 
 
 def _dense_layer(L):
-    """A plain layer {hidden: 1..256} or a tool layer {tools: port, K, D, R: 1..256}."""
+    """A plain layer {hidden: 1..MAX_BITS} or a tool layer {tools: port, K, D, R: 1..MAX_BITS}."""
     if not isinstance(L, dict): return False
-    if 'tools' in L: return isinstance(L['tools'], str) and bool(L['tools']) and all(_int(L.get(k), 1, 256) for k in ('K', 'D', 'R'))
-    return _int(L.get('hidden'), 1, 256)
+    if 'tools' in L: return isinstance(L['tools'], str) and bool(L['tools']) and all(_int(L.get(k), 1, MAX_BITS) for k in ('K', 'D', 'R'))
+    return _int(L.get('hidden'), 1, MAX_BITS)
 
 
 def validate_structure(net, what):
     """A network entry's fields are within the executors' bounds."""
     if net.get('engine') not in ENGINES: raise BundleError(f'{what}.engine must be one of {list(ENGINES)}')
-    for name, lo, hi in (('inputs', 1, 256), ('outputs', 1, 256)):
+    for name, lo, hi in (('inputs', 1, MAX_BITS), ('outputs', 1, MAX_BITS)):
         if not _int(net.get(name), lo, hi): raise BundleError(f'{what}.{name} must be an integer in {lo}..{hi}')
     if not _bits(net.get('weightBits')): raise BundleError(f'{what}.weightBits must be 8 or 16')
     if net['engine'] == DENSE:
@@ -138,11 +139,11 @@ def validate_structure(net, what):
         for name, lo, hi in (('ticks', 1, 64), ('leak_shift', 0, 10), ('reset', INT16_MIN, INT16_MAX)):
             if not _int(net.get(name), lo, hi): raise BundleError(f'{what}.{name} must be an integer in {lo}..{hi}')
         layers = net.get('layers')
-        if not isinstance(layers, list) or not 1 <= len(layers) <= 8 or not all(_dense_layer(L) for L in layers): raise BundleError(f'{what}.layers must be 1..8 plain layers {{hidden: 1..256}} or tool layers {{tools, K, D, R: 1..256}}')
+        if not isinstance(layers, list) or not 1 <= len(layers) <= 8 or not all(_dense_layer(L) for L in layers): raise BundleError(f'{what}.layers must be 1..8 plain layers {{hidden: 1..{MAX_BITS}}} or tool layers {{tools, K, D, R: 1..{MAX_BITS}}}')
         if is_tool(layers[-1]) and net['outputs'] != layers[-1]['R']: raise BundleError(f'{what}.outputs must equal the result width R of its last (tool) layer')
     else:
         layers = net.get('layers')
-        if not isinstance(layers, list) or not 1 <= len(layers) <= 8 or any(not _int(h, 1, 256) for h in layers): raise BundleError(f'{what}.layers must be 1..8 integers in 1..256')
+        if not isinstance(layers, list) or not 1 <= len(layers) <= 8 or any(not _int(h, 1, MAX_BITS) for h in layers): raise BundleError(f'{what}.layers must be 1..8 integers in 1..{MAX_BITS}')
 
 
 def required_readout(method, net):
@@ -200,6 +201,11 @@ def validate_bundle(bundle, tables=None):
             if n.get('model') is None: raise BundleError(f'network {other} has no accepted weights')
             validate_model(n['model'], n['structure'])
         _validate_tools(n, other)
+    init = bundle.get('init')                                            # the start of the run (ADR 0020): the model of an accepted artifact
+    if init is not None:
+        if not isinstance(init, dict) or not isinstance(init.get('model'), dict): raise BundleError('init must be {artifactId, model}')
+        try: validate_model(init['model'], net)
+        except BundleError as e: raise BundleError(f'init does not fit the trained network: {e}') from e
     if net.get('engine') != need['engine']: raise BundleError(f"{recipe['method']} needs the {need['engine']} engine, got {net.get('engine')!r}")
     if net['engine'] == DENSE and recipe['method'] != 'reinforce' and any(is_tool(L) for L in net['layers']): raise BundleError(f"a network with tool layers trains by reinforce only, not {recipe['method']} (ADR 0010 §6)")
     mode = required_readout(recipe['method'], net)
@@ -410,18 +416,38 @@ def build_dense(net, surrogate_width):
             self.H, self.plain, self.heads, self.segments, self.order, self.trailing, self.out_key = state, plain, heads, segments, order, trailing, out_key
             self.roles, self.names = roles, names
             self.P = nn.ParameterList([nn.Parameter(torch.zeros(s, dtype=torch.float64)) for s in shapes])
+            self.start = None                                            # the regions of a start model until the first step (restore)
 
         def quantized(self):
             """Every region quantised from the current shadows, as a dict. t: the accumulator integers (Wq·2^k, bq) as
             tensors in parameter order, with gradient × the gain of the region. regions: the quantize_region results
-            (region r = P[2r], P[2r+1])."""
+            (region r = P[2r], P[2r+1]). Before the first step of a restored model, the regions are its start integers."""
             t, regions = [], []
             for r, role in enumerate(self.roles):
                 W, b = self.P[2 * r], self.P[2 * r + 1]
-                rq = quantize_region(W.detach().numpy(), b.detach().numpy(), self.bits, role)
+                rq = self.start[r] if self.start is not None else quantize_region(W.detach().numpy(), b.detach().numpy(), self.bits, role)
                 t += [_ste(torch, rq['W'] * (1 << rq['k']), W, rq['gain']), _ste(torch, rq['b'], b, rq['gain'])]
                 regions.append(rq)
             return {'t': t, 'regions': regions}
+
+        @torch.no_grad()
+        def restore(self, model):
+            """Start from `model` (a dense-policy model of this structure: the start of a run, ADR 0020), not from
+            init_dense (dense-core.js QatPolicy.restore). The integers are exactly those of the model until the first
+            step (_step): its codes, biases, scale, k and LIF threshold. The shadows get its real values: codes / scale
+            and biases / (scale·2^k)."""
+            entries = []
+            for L in model['layers']:
+                if is_tool(L): entries += [(L['Wc'], L['bc'], L['scale_c'], L['k_c'], None), (L['Wd'], L['bd'], L['scale_d'], L['k_d'], None)]
+                else: entries.append((L['W'], L['b'], L['scale'], L['k'], L.get('threshold')))
+            if not self.trailing: entries.append((model['output']['W'], model['output']['b'], model['output']['scale'], model['output']['k'], None))
+            self.start = []
+            for r, (W, b, scale, k, threshold) in enumerate(entries):
+                W, b, gain = np.asarray(W, dtype=np.int64).reshape(tuple(self.P[2 * r].shape)), np.asarray(b, dtype=np.int64), scale * (1 << k)
+                self.P[2 * r].copy_(torch.from_numpy(W / scale)); self.P[2 * r + 1].copy_(torch.from_numpy(b / gain))
+                rq = {'W': W, 'b': b, 'scale': scale, 'k': k, 'clippedWeights': 0, 'clippedBiases': 0, 'gain': gain}
+                if threshold is not None: rq['threshold'] = threshold
+                self.start.append(rq)
 
         def fire(self, q, P):
             """(fire threshold, surrogate half-width) of plain layer P in its accumulator units: FF 1 and
@@ -601,14 +627,27 @@ def build_threshold(net, surrogate_width):
             self.bits, self.sizes = bits, sizes
             self.W = nn.ParameterList([nn.Parameter(torch.zeros(o, i, dtype=torch.float64)) for i, o in zip(sizes[:-1], sizes[1:])])
             self.b = nn.ParameterList([nn.Parameter(torch.zeros(o, dtype=torch.float64)) for o in sizes[1:]])
+            self.start = None                                            # the regions of a start model until the first step (restore)
 
         def quantized(self):
-            """Per layer (quantize_region result, Wq·2^k tensor, bq tensor), gradients × gain."""
+            """Per layer (quantize_region result, Wq·2^k tensor, bq tensor), gradients × gain. Before the first step of a
+            restored model, the results are its start integers."""
             out = []
-            for W, b in zip(self.W, self.b):
-                rq = quantize_region(W.detach().numpy(), b.detach().numpy(), self.bits, 'threshold')
+            for l, (W, b) in enumerate(zip(self.W, self.b)):
+                rq = self.start[l] if self.start is not None else quantize_region(W.detach().numpy(), b.detach().numpy(), self.bits, 'threshold')
                 out.append((rq, _ste(torch, rq['W'] * (1 << rq['k']), W, rq['gain']), _ste(torch, rq['b'], b, rq['gain'])))
             return out
+
+        @torch.no_grad()
+        def restore(self, model):
+            """Start from `model` (a threshold-layers model of these sizes: the start of a run, ADR 0020), not from
+            init_threshold (hinge.js ThresholdNet.restore). The integers are exactly those of the model until the first
+            step (_step). The shadows get its real values: W = codes / scale and b = (1 − th) / (scale·2^k)."""
+            self.start = []
+            for l, L in enumerate(model['layers']):
+                Wq, bq, gain = np.asarray(L['W'], dtype=np.int64), 1 - np.asarray(L['th'], dtype=np.int64), L['scale'] * (1 << L['k'])
+                self.W[l].copy_(torch.from_numpy(Wq / L['scale'])); self.b[l].copy_(torch.from_numpy(bq / gain))
+                self.start.append({'W': Wq, 'b': bq, 'scale': L['scale'], 'k': L['k'], 'clippedWeights': 0, 'clippedBiases': 0, 'gain': gain})
 
         def forward(self, x):
             """x [N,I] float64 bits → (z, u): the integer pre-activations z of the output layer (fire ⇔ z > 0) and
@@ -762,6 +801,18 @@ def _better(best, epoch, metric, model, summary, quantization):
     return best
 
 
+def _start(s, run, model, evaluations, **validate_kw):
+    """The start of a run from `init` (ADR 0020), before the first epoch (run.js startEvaluation): the start model
+    validated as epoch 0, in the evaluations and one 'eval' progress message. It is the first best, so an epoch must
+    beat it strictly to be selected. None without init."""
+    if s.bundle.get('init') is None: return None
+    mj = model.export()
+    summary = s.validate(mj, **validate_kw)
+    evaluations.append({'epoch': 0, **summary})
+    run.report(phase='eval', epoch=0, loss=None, metric=summary['metric'], metricName=s.metric_name, selectedEpoch=0)
+    return _better(None, -1, summary['metric'], mj, summary, model.quantization())
+
+
 def _random_readout(s, rng, B):
     """A uniform readout result for every lane: a slot (argmax) or random bits."""
     return {'slot': rng.integers(0, s.O, size=B)} if s.argmax else {'bits': rng.integers(0, 2, size=(B, s.O)).astype(np.float64)}
@@ -784,8 +835,10 @@ def _dense_setup(s, run):
     recipe, net = s.recipe, s.net
     torch.manual_seed(recipe['seed'])
     model = build_dense(net, recipe['surrogateWidth'])
-    X = _calibration(s, np.random.default_rng([recipe['seed'], 1]))
-    init_dense(model, recipe['seed'], recipe['initCurrent'], X, call=s.call, sample=torch.Generator().manual_seed(recipe['seed'] + 1))
+    if s.bundle.get('init') is not None: model.restore(s.bundle['init']['model'])   # the start of the run: no random weights, no calibration (ADR 0020)
+    else:
+        X = _calibration(s, np.random.default_rng([recipe['seed'], 1]))
+        init_dense(model, recipe['seed'], recipe['initCurrent'], X, call=s.call, sample=torch.Generator().manual_seed(recipe['seed'] + 1))
     opt = torch.optim.Adam(model.parameters(), lr=recipe['lr'], **ADAM)
     run.tick()
     return torch, model, opt
@@ -822,6 +875,7 @@ def _step(torch, model, opt, loss, grad_clip):
     loss.backward()
     gn = float(torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip if grad_clip > 0 else float('inf')))
     opt.step()
+    model.start = None                                                   # from now on the shadows give the integers
     return gn
 
 
@@ -832,7 +886,8 @@ def train_reinforce(s, run, bundle_hash):
     sampler = torch.Generator().manual_seed(recipe['seed'])
     baseline = []
     curves = {k: [] for k in ('loss', 'metric', 'trainReturn', 'trainSuccess', 'spikeRate', 'gradNorm', 'entropy')}
-    evaluations, best = [], None
+    evaluations = []
+    best = _start(s, run, model, evaluations)
     for epoch in range(recipe['epochs']):
         episodes, _ = s.training_episodes(epoch)
         B = len(episodes)
@@ -919,7 +974,8 @@ def train_cross_entropy(s, run, bundle_hash):
     torch, model, opt = _dense_setup(s, run)
     recipe, O = s.recipe, s.O
     curves = {k: [] for k in ('loss', 'metric', 'agreement', 'labelledSteps', 'spikeRate', 'gradNorm')}
-    evaluations, best = [], None
+    evaluations = []
+    best = _start(s, run, model, evaluations)
     for epoch in range(recipe['epochs']):
         episodes, rng = s.training_episodes(epoch)
         B = len(episodes)
@@ -963,7 +1019,8 @@ def train_hinge(s, run, bundle_hash):
     recipe = s.recipe
     torch.manual_seed(recipe['seed'])
     model = build_threshold(s.net, recipe['surrogateWidth'])
-    init_threshold(model, recipe['seed'])
+    if s.bundle.get('init') is not None: model.restore(s.bundle['init']['model'])   # the start of the run (ADR 0020)
+    else: init_threshold(model, recipe['seed'])
     opt = torch.optim.Adam(model.parameters(), lr=recipe['lr'], **ADAM)
     run.tick()
     episodes = episodes_of(s.bundle['partitions']['training'], s.rows)  # every episode once: the same rows every epoch
@@ -978,7 +1035,8 @@ def train_hinge(s, run, bundle_hash):
     if not xs: raise BundleError('the trained network made no decision')
     X, Y = torch.from_numpy(np.concatenate(xs, 0)), torch.from_numpy(np.concatenate(ys, 0))
     curves = {k: [] for k in ('loss', 'metric', 'accuracy', 'samples', 'gradNorm')}
-    evaluations, best, epochs_run = [], None, 0
+    evaluations, epochs_run = [], 0
+    best = _start(s, run, model, evaluations, labelled_any=False)
     for epoch in range(recipe['epochs']):
         z, u = model(X)
         z = z * u                                                         # real units: u = 1/gain of the output layer

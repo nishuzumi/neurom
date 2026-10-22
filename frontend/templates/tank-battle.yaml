@@ -1,0 +1,1659 @@
+# tank-battle — a Battle City level on a 9×9 map. In training, the network drives our tank. The patrol bots of the
+# scene drive the enemy tanks. The networks are 中 (2 layers of 32 neurons) and 大 (3 layers of 128).
+#
+# The training is in stages (ADR 0020). Each stage has one training module (a nested group with slots, its own prefab)
+# for each of 中 and 大. A training module trains one network: it holds one trainer and one loop box, with their
+# candidates, evaluator, execution and replay view. After the training, the script module 坦克对战 plays 中 against 大
+# (ADR 0019).
+#
+# Stage 1 · 模仿 (imitation): the trainers learn the teacher `teacher(state)` of the scene by cross-entropy. The
+# trainers keep the model with the highest greedy accuracy on the validation seeds. The evaluators report 过关率 (the
+# share of episodes where our tank destroys all enemies), 平均击毁数 (the mean number of destroyed enemies),
+# 基地保住的比例 (the share of episodes where the base stays) and 和教师一致的比例 (the share of steps where our tank
+# took an action that the teacher marks).
+#
+# Stage 2 · 对战训练 (the battle map against a bot): the trainers continue from the stage 1 weights by REINFORCE on
+# `duelReward(transition)` of the scene. The network is side 0 of the battle, and the bot `bot(state, 1)` of the scene
+# is side 1. The loops name the battle exports of the scene as their roles (`roles`, ADR 0022). A trainer starts only
+# when the stage 1 report of its structure has 和教师一致的比例 ≥ 0.9. The parameters of stage 2 are in their own params
+# module `duel`, so the environment of stage 1 does not change.
+#
+# The modules outside the training modules are shared: `params`, `duel`, `rng`, the seed partition, the scene and the
+# eight metrics. The training modules show them through their slots.
+#
+# The map is 9×9 and not 13×13. On 13×13 (1020 input bits), 中 stayed at about 0.7 agreement with the teacher. 大
+# needed more than 5 minutes for 0.86. The user guide gives the numbers.
+#
+# The scene writes the rules one time. The level and the battle use the same movement, bullet, brick, steel and hit
+# code. The level:
+#   init(start)     the level: the fixed map, our tank next to the base, and the first enemy at the first spawn cell.
+#   input(state)    492 bits, all of the map: bricks ‖ steel ‖ base ‖ enemy tanks ‖ enemy bullets ‖ our tank, each
+#                   81 bits (one bit for each cell, row by row). Then the facing of our tank (4, one-hot), our bullet
+#                   in flight (1) and the bias (1).
+#   step(state, a)  our tank acts, then each enemy acts, then each bullet flies 2 cells. Then a new enemy can appear.
+#                   It also counts in State.agree the steps where the teacher marks the action of our tank.
+#   teacher(state)  the 6 target bits of our tank: the actions that the rule of the teacher finds equally good.
+# The battle (two sides, a base at each end, no bots). The script module and the battle exports of stage 2 call them:
+#   battle(start)   the battle map, and each tank on a free cell of the two bottom rows of its own side.
+#   view(state, k)  the 492 bits that side k sees, in the order of input. Side 1 sees the map turned 180°, so each
+#                   side has its base at the bottom, as in the level. The base of the other side is a target in the
+#                   channel of the enemy tanks.
+#   play(state, a, b)  both sides act at the same time, each action as its side sees the map. Then the bullets fly.
+#
+# Actions: 0 up, 1 right, 2 down, 3 left, 4 fire, 5 wait.
+# State.end of the level: -1 running, 0 won (all enemies destroyed), 1 our tank hit, 2 base hit, 3 out of steps.
+# State.end of the battle: -1 running, 0 side 0 won, 1 side 1 won, 2 draw (both sides lost in one step, or out of
+# steps).
+# State.trails (level and battle): the trail of each bullet in the last step, one for each slot of State.shots: the
+# start cell, the direction, the cells flown (one in each sub-step), the last cell and the reason for the stop. The
+# shared code (fly, strike) writes it. The replay views and the battlefield animate each step along these trails.
+format: neurom-template
+id: tank-battle
+revision: 9
+name: 坦克大战
+kind: composite
+description: Battle City 式的关卡和对战。9×9 的地图有砖墙、钢墙和基地。网络有“中”和“大”两种结构。阶段 1 在关卡里用交叉熵模仿场景里的教师。阶段 2 从阶段 1 的权重开始，在两端各有一个基地的对战地图上用强化学习和机器人对战，打掉对方的基地才算赢。最后脚本模块让“中”和“大”在对战地图上对战。所有回路和对战共用一份场景、参数和随机数
+preset: { label: 坦克大战 }
+modules:
+  params:
+    kind: params
+    title: 参数
+    config:
+      fields:
+        steps: { type: int, label: 回合步数, min: 1, max: 400, default: 200 }
+        foes: { type: int, label: 敌人总数, min: 1, max: 20, default: 6 }
+        maxFoes: { type: int, label: 同时在场的敌人最多, min: 1, max: 3, default: 3 }
+        spawnGap: { type: int, label: 敌人出现的间隔步数, min: 1, max: 64, default: 8 }
+        turnProb: { type: number, label: 机器人转向概率, min: 0, max: 1, default: 0.1 }
+        turnDown: { type: number, label: 转向时朝下的概率, min: 0, max: 0.9, default: 0.5 }
+        fireProb: { type: number, label: 机器人开火概率, min: 0, max: 1, default: 0.3 }
+  # 阶段 2 · 对战训练的参数。它们在单独的参数模块里，所以阶段 1 的训练快照不变，它的产物仍然兼容。
+  duel:
+    kind: params
+    title: 对战训练参数
+    config:
+      fields:
+        botRandom: { type: number, label: 对战机器人的随机动作概率, min: 0, max: 1, default: 0.2 }
+        winReward: { type: number, label: 打掉对方基地的奖励, min: -10, max: 10, default: 1 }
+        killReward: { type: number, label: 击毁对方坦克的奖励, min: -10, max: 10, default: 0.3 }
+        loseReward: { type: number, label: 输的奖励, min: -10, max: 10, default: -1 }
+        stepCost: { type: number, label: 每步的代价, min: 0, max: 1, default: 0.002 }
+  # 每一步每个敌人用 3 次随机数，所以 draws 是回合步数上限的 9 倍。
+  rng: { kind: random, title: 随机数, config: { multiplier: 1664525, increment: 1013904223, draws: 3600 } }
+  seeds:
+    kind: partition
+    title: 种子分区
+    config:
+      kind: seed
+      seed:
+        training: { seed: 1, count: 256 }
+        validation: { seed: 200000000, count: 64 }
+        test: { seed: 300000000, count: 256 }
+  scene:
+    kind: code
+    title: 场景
+    config:
+      inputs: [params, rng, duel]
+      source: |-
+        export const budget = params.steps;
+
+        export const actions = ['up', 'right', 'down', 'left', 'fire', 'wait'];
+
+        /**
+         * 第 1 关的地图，按原版的布局缩到 9 × 9 格，按行从上到下。第 y * 9 + x 格：0 空地、1 砖墙、2 钢墙、3 基地。
+         * IR 的 range 只收字面量，所以下面的 range(81)、range(9)、range(8) 和数字 9、8、511 都是这张地图的尺寸。
+         */
+        const MAP = [
+          0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 1, 0, 1, 0, 1, 0, 1, 0,
+          0, 1, 0, 1, 2, 1, 0, 1, 0,
+          0, 1, 0, 0, 0, 0, 0, 1, 0,
+          2, 0, 0, 1, 0, 1, 0, 0, 2,
+          0, 1, 0, 1, 0, 1, 0, 1, 0,
+          0, 1, 0, 0, 0, 0, 0, 1, 0,
+          0, 0, 0, 1, 1, 1, 0, 0, 0,
+          0, 0, 0, 1, 3, 1, 0, 0, 0,
+        ];
+        /**
+         * 对战的地图：两端各有一个基地。第 4 到 8 行（第 36 到 80 格）和关卡的地图相同。第 0 到 3 行是第 5 到 8 行转 180°。
+         * 所以地图转 180° 以后不变。第 1 方转过来看到的地图和第 0 方看到的相同。
+         */
+        const ARENA = range(81).map((c) => (c >= 36 ? MAP[c] : MAP[80 - c]));
+        /** 基地的格。 */
+        const BASE = { x: 4, y: 8 };
+        /** 对战时两个基地的格：第 0 方的在底部，第 1 方的在顶部。关卡只有第 0 个。 */
+        const HOMES = array(BASE, { x: 4, y: 0 });
+        /** 对战时第 0 方坦克的出发格：底部两行里基地两侧的 12 个空格。第 1 方的出发格是它们转 180° 以后的格（80 − c）。 */
+        const START = [63, 64, 65, 69, 70, 71, 72, 73, 74, 78, 79, 80];
+        /** 敌人的 3 个出生格的 x。出生格都在第 0 行，敌人按这个顺序轮流出现。 */
+        const SPAWN_X = [0, 4, 8];
+        /** 方向 0 上、1 右、2 下、3 左的 x 和 y 增量。 */
+        const DX = [0, 1, 0, -1];
+        const DY = [-1, 0, 1, 0];
+        /** 机器人换方向但不朝下时，在这 3 个方向里选：上、右、左。 */
+        const OTHER = [0, 1, 3];
+        /** 第 x 格在一行的位掩码里的位：2 的 x 次方。 */
+        const BIT = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+        /** 输入里的空通道：81 个 0。 */
+        const ZERO = range(81).map(() => 0);
+        /** 输入的钢墙通道和基地通道。钢墙和基地不会变。 */
+        const STEEL = range(81).map((c) => (MAP[c] === 2 ? 1 : 0));
+        const HOME = range(81).map((c) => (MAP[c] === 3 ? 1 : 0));
+        /**
+         * REACH[c][d]：从第 c 格朝方向 d 看，碰到钢墙、基地或地图边以前有几格。砖墙和坦克不挡视线，因为子弹能打掉砖墙。
+         * 教师用它判断能不能对准一个敌人，也用它判断敌人是不是正对着基地。
+         */
+        const REACH = range(81).map((c) => range(4).map((d) => range(8).reduce((n, k) => {
+          const x = (c % 9) + (k + 1) * DX[d];
+          const y = Math.floor(c / 9) + (k + 1) * DY[d];
+          return n === k && inside(x, y) && MAP[y * 9 + x] < 2 ? k + 1 : n;
+        }, 0)));
+
+        /** 从回合种子 seed 出发的第 k 次抽取，在 [0, 1) 里。第 t 步的第 i 个敌人用第 9t + 3i、9t + 3i + 1 和 9t + 3i + 2 次。 */
+        function draw(seed, k) {
+          return add32(imul32(rng.mul[k], u32(seed)), rng.add[k]) / 4294967296;
+        }
+        /** (x, y) 在地图里。 */
+        function inside(x, y) {
+          return x >= 0 && y >= 0 && x < 9 && y < 9;
+        }
+        /** 坦克和子弹都进不去 (x, y)：地图外、砖墙、钢墙或基地。cells 是现在的地图。 */
+        function solid(cells, x, y) {
+          return !inside(x, y) || cells[y * 9 + x] !== 0;
+        }
+        /** 两个记录在同一格。 */
+        function same(a, b) {
+          return a.x === b.x && a.y === b.y;
+        }
+        /** 有一个在场的敌人在 (x, y)。 */
+        function foeAt(foes, x, y) {
+          return foes.some((f) => f.on && f.x === x && f.y === y);
+        }
+        /** 坦克 me 执行动作 a。移动动作总是改变朝向。目标格是地图外、墙、基地或 foes 里的一辆坦克时，坦克只转向。 */
+        function drive(cells, me, foes, a) {
+          const x = me.x + DX[a % 4];
+          const y = me.y + DY[a % 4];
+          const go = a < 4 && !solid(cells, x, y) && !foeAt(foes, x, y);
+          return { x: go ? x : me.x, y: go ? y : me.y, d: a < 4 ? a : me.d };
+        }
+        /** 坦克 me 执行动作 a 以后它的子弹 b：开火并且 b 不在飞时，新的子弹从 me 的格朝 me 的方向出发。 */
+        function shoot(b, me, a) {
+          return a === 4 && !b.on ? { on: true, x: me.x, y: me.y, d: me.d } : b;
+        }
+        /**
+         * 第 i 个敌人巡逻一步。前面的格走不进去，或者按 turnProb 的概率，它换方向，这一步不走。否则它向前走一格。
+         * 新方向按 turnDown 的概率朝下，否则在上、右、左里随机选。foes 里排在它前面的敌人已经走过了。
+         */
+        function patrol(s, foes, me, i) {
+          const f = foes[i];
+          const x = f.x + DX[f.d];
+          const y = f.y + DY[f.d];
+          const k = 9 * s.t + 3 * i;
+          const turn = solid(s.cells, x, y) || (me.x === x && me.y === y) || foeAt(foes, x, y) || draw(s.seed, k) < params.turnProb;
+          const u = draw(s.seed, k + 1);
+          const d = u < params.turnDown ? 2 : OTHER[Math.min(2, Math.floor(((u - params.turnDown) / (1 - params.turnDown)) * 3))];
+          return { on: true, x: turn ? f.x : x, y: turn ? f.y : y, d: turn ? d : f.d };
+        }
+        /**
+         * 子弹 b 这一步的轨迹在开始飞之前的样子：从 b 的格出发，还没有飞，也没有停。b 不在飞时，on 是 false。
+         * 轨迹的 x、y 是出发格，d 是方向，n 是飞过的格数（每个分步 1 格），ex、ey 是最后到的格，why 是停下的原因：
+         * 0 还在飞，1 砖墙（这格砖墙被打掉），2 钢墙或地图边，3 基地，4 坦克，5 和另一颗子弹到同一格，6 和另一颗子弹互相穿过。
+         * 第 k 个分步飞进出发格朝 d 的第 k 格，所以第 n 格就是 ex、ey。打到墙、基地或地图边时，ex、ey 是这一格（可能在地图外）。
+         * 互相穿过时，ex、ey 是另一颗子弹在这个分步的出发格。
+         */
+        function trail(b) {
+          return { on: b.on, x: b.x, y: b.y, d: b.d, n: 0, ex: b.x, ey: b.y, why: 0 };
+        }
+        /** 子弹飞进走不进去的格 b 时停下的原因（见 trail）：地图外 2，砖墙 1，基地 3，钢墙 2。cells 是飞之前的地图。 */
+        function wall(cells, b) {
+          return !inside(b.x, b.y) ? 2 : cells[b.y * 9 + b.x] === 1 ? 1 : cells[b.y * 9 + b.x] === 3 ? 3 : 2;
+        }
+        /**
+         * 子弹打中坦克：我方子弹在一个敌人的格上时，这个敌人被击毁。敌人的子弹在我方坦克的格上时，我方坦克被击中。
+         * 敌人的子弹穿过敌人，不伤它们。打中坦克的子弹消失，它的轨迹停在这一格。w 是这一步正在算的世界。
+         * 对战时，我方是第 0 方，唯一的敌人是第 1 方。
+         */
+        function strike(w) {
+          const mine = w.shots[0];
+          const kill = w.foes.map((f) => f.on && mine.on && same(f, mine));
+          const hurt = w.shots.map((b, j) => j > 0 && b.on && same(b, w.me));
+          const hit = w.shots.map((b, j) => (j === 0 ? any(kill) : hurt[j]));
+          return {
+            ...w,
+            alive: w.alive && !any(hurt),
+            foes: w.foes.map((f, i) => ({ ...f, on: f.on && !kill[i] })),
+            shots: w.shots.map((b, j) => ({ ...b, on: b.on && !hit[j] })),
+            trails: w.trails.map((r, j) => ({ ...r, why: hit[j] ? 4 : r.why })),
+            kills: w.kills + count(kill),
+          };
+        }
+        /**
+         * 每颗在飞的子弹飞 1 格（一个分步）。飞出地图、打到墙或基地时，子弹消失。打到砖墙时，这格砖墙也消失。打到一个基地时，
+         * 这个基地被毁（w.bases 的第 h 个是 HOMES 的第 h 个基地）。我方子弹和一颗敌人子弹到同一格或者互相穿过时，两颗一起消失。
+         * 在飞的子弹的轨迹多 1 格，停下时记下原因（见 trail）。然后看子弹有没有打中坦克。
+         */
+        function fly(w) {
+          const next = w.shots.map((b) => ({ ...b, x: b.x + DX[b.d], y: b.y + DY[b.d] }));
+          const stop = next.map((b) => b.on && solid(w.cells, b.x, b.y));
+          const live = next.map((b, j) => b.on && !stop[j]);
+          const meet = next.map((b, j) => j > 0 && live[0] && live[j] && same(next[0], b));
+          const cross = next.map((b, j) => j > 0 && live[0] && live[j] && same(next[0], w.shots[j]) && same(b, w.shots[0]));
+          const clash = next.map((b, j) => (j === 0 ? any(meet) || any(cross) : meet[j] || cross[j]));
+          const met = next.map((b, j) => (j === 0 ? any(meet) : meet[j]));
+          const cells = next.reduce((m, b, j) => (stop[j] && inside(b.x, b.y) && m[b.y * 9 + b.x] === 1 ? update(m, b.y * 9 + b.x, 0) : m), w.cells);
+          return strike({
+            ...w,
+            cells,
+            bases: w.bases.map((on, h) => on && !next.some((b, j) => stop[j] && same(b, HOMES[h]))),
+            shots: next.map((b, j) => ({ ...b, on: live[j] && !clash[j] })),
+            trails: w.trails.map((r, j) => (next[j].on
+              ? { ...r, n: r.n + 1, ex: next[j].x, ey: next[j].y, why: stop[j] ? wall(w.cells, next[j]) : met[j] ? 5 : clash[j] ? 6 : 0 }
+              : r)),
+          });
+        }
+
+        /** 子弹 b 飞 1 格以后的样子。飞出地图、打到墙或基地时，它不再在飞。 */
+        function flown(cells, b) {
+          const x = b.x + DX[b.d];
+          const y = b.y + DY[b.d];
+          return { on: b.on && !solid(cells, x, y), x, y, d: b.d };
+        }
+        /**
+         * 敌人的子弹 b 下一步会打到 (x, y)：它现在就在这一格，或者它下一步飞过的 2 格里有这一格。
+         * 我方的子弹先和它相遇时，两颗一起消失，所以它打不到。
+         */
+        function reaches(s, b, x, y) {
+          const mine = s.shots[0];
+          const b1 = flown(s.cells, b);
+          const m1 = flown(s.cells, mine);
+          const b2 = flown(s.cells, b1);
+          const m2 = flown(s.cells, m1);
+          const meet1 = b1.on && m1.on && (same(b1, m1) || (same(b1, mine) && same(m1, b)));
+          const meet2 = b2.on && m2.on && (same(b2, m2) || (same(b2, m1) && same(m2, b1)));
+          return b.on && ((b.x === x && b.y === y) || (!meet1 && ((b1.on && b1.x === x && b1.y === y) || (!meet2 && b2.on && b2.x === x && b2.y === y))));
+        }
+        /** 有一颗敌人的子弹下一步会打到 (x, y)。 */
+        function danger(s, x, y) {
+          return range(3).some((j) => reaches(s, s.shots[j + 1], x, y));
+        }
+        /** 敌人 f 在 me 朝方向 d 的视线上：同一行或同一列，在方向 d 那一侧，中间只有空地、砖墙或坦克。 */
+        function sees(me, d, f) {
+          const far = Math.abs(f.x - me.x) + Math.abs(f.y - me.y);
+          return f.on && far <= REACH[me.y * 9 + me.x][d]
+            && (d % 2 === 0 ? f.x === me.x && (f.y < me.y) === (d === 0) : f.y === me.y && (f.x > me.x) === (d === 1));
+        }
+        /** 敌人 f 正对着基地：沿它的朝向，第一个钢墙、基地或地图边是基地。 */
+        function aimsBase(f) {
+          const n = REACH[f.y * 9 + f.x][f.d] + 1;
+          return f.on && f.x + n * DX[f.d] === BASE.x && f.y + n * DY[f.d] === BASE.y;
+        }
+        /** 第 y 行里能对准敌人 f 的格（位掩码）：f 那一行在视线里的格，或者 f 那一列在视线里的格。 */
+        function sightRow(f, y) {
+          const reach = REACH[f.y * 9 + f.x];
+          return y === f.y ? BIT[f.x + reach[1]] * 2 - BIT[f.x - reach[3]] - BIT[f.x]
+            : y >= f.y - reach[0] && y <= f.y + reach[2] ? BIT[f.x] : 0;
+        }
+        /** me 朝方向 d 的邻格在 rows（每行一个位掩码）里。 */
+        function reached(rows, me, d) {
+          const x = me.x + DX[d];
+          const y = me.y + DY[d];
+          return inside(x, y) && and32(rows[y], BIT[x]) > 0;
+        }
+        /**
+         * 我方坦克向 4 个方向各走一格以后，到最近的目标格还要走几步（走不到是 99）。目标格是能对准 aim 标出的敌人的空格。
+         * 坦克只走空格（不走砖墙和敌人的格）。每行是一个 9 位的位掩码。从目标格向外一圈一圈地扩展 20 次。
+         * 这张地图上两个空格之间的最短路最多 20 步（不算敌人挡路），所以 20 次够用。更远的目标格算作走不到。
+         */
+        function route(s, aim) {
+          const open = range(9).map((y) => range(9).reduce((m, x) => m + (s.cells[y * 9 + x] === 0 ? BIT[x] : 0), 0));
+          const free = range(9).map((y) => s.foes.reduce((m, f) => (f.on && f.y === y ? and32(m, 511 - BIT[f.x]) : m), open[y]));
+          const goal = range(9).map((y) => and32(free[y], s.foes.reduce((m, f, i) => or32(m, aim[i] ? sightRow(f, y) : 0), 0)));
+          return range(20).reduce((acc, k) => {
+            const rows = range(9).map((y) => and32(free[y], or32(or32(acc.rows[y], or32(shl32(acc.rows[y], 1), shr32(acc.rows[y], 1))),
+              or32(y > 0 ? acc.rows[y - 1] : 0, y < 8 ? acc.rows[y + 1] : 0))));
+            return { rows, near: range(4).map((d) => (acc.near[d] < 99 ? acc.near[d] : reached(rows, s.me, d) ? k + 1 : 99)) };
+          }, { rows: goal, near: range(4).map((d) => (reached(goal, s.me, d) ? 0 : 99)) }).near;
+        }
+        /**
+         * 教师：我方坦克在这一步同样好的动作。按这个顺序看，用第一条给出动作的规则：
+         * 1. 下一步会有敌人的子弹打中自己时，躲开它：向子弹的侧面走。正对着这颗子弹并且自己的子弹不在飞时，开火也一样好，
+         *    因为两颗子弹会一起消失。
+         * 2. 有敌人同行或同列，中间只有空地或砖墙时，转向这个敌人。已经朝向它时开火，自己的子弹还在飞时等待。
+         * 3. 有敌人正对着基地时，沿最短路走向最近的、能对准这样一个敌人的格。
+         * 4. 否则沿最短路走向最近的、能对准任何一个敌人的格。
+         * 5. 都不行时等待。
+         * 移动动作不走进下一步会被敌人的子弹打到的格。视线在钢墙和基地停下，所以朝前开火会先打到自己的基地时，规则 2 不开火。
+         * 几个动作一样好时，它们都是 1。
+         * @param state 本步之前的状态
+         * @returns 6 个动作槽的目标位
+         */
+        export function teacher(state) {
+          const me = state.me;
+          const threat = range(3).map((j) => reaches(state, state.shots[j + 1], me.x, me.y));
+          /** 向方向 d 走：能走进去并且那一格下一步安全时是 1。走不进去时坦克只转向，留在原来的格，也算安全。 */
+          const safe = range(4).map((d) => {
+            const x = me.x + DX[d];
+            const y = me.y + DY[d];
+            return solid(state.cells, x, y) || foeAt(state.foes, x, y) || !danger(state, x, y);
+          });
+          const sideways = range(4).map((d) => !solid(state.cells, me.x + DX[d], me.y + DY[d]) && !foeAt(state.foes, me.x + DX[d], me.y + DY[d])
+            && safe[d] && !range(3).some((j) => threat[j] && state.shots[j + 1].d % 2 === d % 2));
+          const counter = !state.shots[0].on && range(3).some((j) => threat[j] && state.shots[j + 1].d === (me.d + 2) % 4);
+          const lined = range(4).map((d) => state.foes.some((f) => sees(me, d, f)));
+          const guard = state.foes.map((f) => aimsBase(f));
+          const near = route(state, any(guard) ? guard : state.foes.map((f) => f.on));
+          const best = minOf(near);
+          const shoot = state.shots[0].on ? 5 : 4;
+          const dodge = range(6).map((a) => any(threat) && ((a < 4 && sideways[a % 4]) || (a === 4 && counter)));
+          const aim = range(6).map((a) => (lined[me.d] ? a === shoot : a < 4 && lined[a % 4] && safe[a % 4]));
+          const walk = range(6).map((a) => a < 4 && best < 99 && near[a % 4] === best && safe[a % 4]);
+          const good = any(dodge) ? dodge : any(aim) ? aim : any(walk) ? walk : range(6).map((a) => a === 5);
+          return [good[0] ? 1 : 0, good[1] ? 1 : 0, good[2] ? 1 : 0, good[3] ? 1 : 0, good[4] ? 1 : 0, good[5] ? 1 : 0];
+        }
+        /**
+         * 关卡的开始。地图来自 MAP。我方坦克在基地左边隔一格，朝上。第一个敌人在第一个出生格，朝下。
+         * @param start 回合记录 { seed }
+         * @returns 初始状态 State
+         */
+        export function init(start) {
+          const idle = { on: false, x: 0, y: 0, d: 0 };
+          return {
+            /** 回合种子（机器人的随机数用它） */
+            seed: start.seed,
+            /** 已走的步数 */
+            t: 0,
+            /** 现在的地图，第 y * 9 + x 格：0 空地、1 砖墙、2 钢墙、3 基地 */
+            cells: range(81).map((c) => MAP[c]),
+            /** 我方坦克：格 x、y 和朝向 d（0 上、1 右、2 下、3 左） */
+            me: { x: 2, y: 8, d: 0 },
+            /** 3 个敌人的位置：on 是否在场，格 x、y，朝向 d */
+            foes: array({ on: true, x: SPAWN_X[0], y: 0, d: 2 }, idle, idle),
+            /** 4 颗子弹：第 0 颗是我方的，第 1 + i 颗是第 i 个敌人的。on 是否在飞，格 x、y，方向 d */
+            shots: array(idle, idle, idle, idle),
+            /** 4 颗子弹在本步的轨迹，和 shots 一一对应（见 trail）。第 0 步之前都不在飞 */
+            trails: array(trail(idle), trail(idle), trail(idle), trail(idle)),
+            /** 已经出现的敌人数 */
+            spawned: 1,
+            /** 已经击毁的敌人数 */
+            kills: 0,
+            /** 本步击毁的敌人数 */
+            killed: 0,
+            /** 本步我方的动作（第 0 步之前是 5 等待） */
+            act: 5,
+            /** 结果：-1 进行中，0 过关，1 我方坦克被击中，2 基地被毁（同一步我方坦克也被击中时也是 2），3 步数用完 */
+            end: -1,
+            /** 我方的动作在教师的目标位里的步数 */
+            agree: 0,
+          };
+        }
+        /**
+         * 一方看到的 492 位，关卡和对战用同一个顺序：砖墙、钢墙、我方基地、敌方坦克、敌方子弹、我方坦克各 81 位，
+         * 再加朝向 d 的 4 位、我方子弹在飞 1 位、偏置 1 位。
+         */
+        function channels(bricks, steel, home, tanks, shots, me, d, flying) {
+          return concat(bricks, steel, home, tanks, shots, me, oneHot(d, 4), [flying ? 1 : 0], [1]);
+        }
+        /** 我方看到的 492 位（见 channels）。 */
+        export function input(state) {
+          const tanks = state.foes.reduce((m, f) => (f.on ? update(m, f.y * 9 + f.x, 1) : m), ZERO);
+          const shots = range(3).reduce((m, j) => (state.shots[j + 1].on ? update(m, state.shots[j + 1].y * 9 + state.shots[j + 1].x, 1) : m), ZERO);
+          return channels(state.cells.map((v) => (v === 1 ? 1 : 0)), STEEL, HOME, tanks, shots, oneHot(state.me.y * 9 + state.me.x, 81),
+            state.me.d, state.shots[0].on);
+        }
+        /**
+         * 一步：我方坦克先移动或开火。然后每个敌人巡逻，没有子弹在飞时按 fireProb 的概率朝前开火。然后每颗子弹飞 2 格。
+         * 每颗子弹在这一步的轨迹记在 trails 里，回放用它画子弹的飞行。
+         * 最后，每 spawnGap 步，如果在场的敌人少于 maxFoes 并且出生格是空的，下一个敌人出现。
+         * 我方坦克被击中或者基地被毁时输。击毁 foes 个敌人时过关。走满 steps 步也结束，不算过关。
+         */
+        export function step(state, action) {
+          const me = drive(state.cells, state.me, state.foes, action);
+          const mine = shoot(state.shots[0], me, action);
+          const moved = range(3).reduce((acc, i) => {
+            const f = acc.foes[i];
+            const n = f.on ? patrol(state, acc.foes, me, i) : f;
+            const b = acc.shots[i + 1];
+            const fire = f.on && !b.on && draw(state.seed, 9 * state.t + 3 * i + 2) < params.fireProb;
+            return { foes: update(acc.foes, i, n), shots: update(acc.shots, i + 1, fire ? { on: true, x: n.x, y: n.y, d: n.d } : b) };
+          }, { foes: state.foes, shots: update(state.shots, 0, mine) });
+          const w = fly(fly(strike({ cells: state.cells, me, alive: true, bases: [true], foes: moved.foes, shots: moved.shots,
+            trails: moved.shots.map((b) => trail(b)), kills: state.kills })));
+          const t = state.t + 1;
+          const x = SPAWN_X[state.spawned % 3];
+          const spawn = w.alive && w.bases[0] && state.spawned < params.foes && t % params.spawnGap === 0
+            && count(w.foes.map((f) => f.on)) < params.maxFoes && !foeAt(w.foes, x, 0) && !(w.me.x === x && w.me.y === 0);
+          const foes = spawn ? update(w.foes, argminFirst(w.foes.map((f) => (f.on ? 1 : 0))), { on: true, x, y: 0, d: 2 }) : w.foes;
+          const end = !w.bases[0] ? 2 : !w.alive ? 1 : w.kills >= params.foes ? 0 : t >= params.steps ? 3 : -1;
+          return {
+            state: {
+              ...state,
+              t,
+              cells: w.cells,
+              me: w.me,
+              foes,
+              shots: w.shots,
+              trails: w.trails,
+              spawned: state.spawned + (spawn ? 1 : 0),
+              kills: w.kills,
+              killed: w.kills - state.kills,
+              act: action,
+              end,
+              agree: state.agree + teacher(state)[action],
+            },
+            done: end >= 0,
+            success: end === 0,
+          };
+        }
+
+        /** 一张地图（81 格）转 180°：turn 时第 c 格是原来的第 80 − c 格，否则不变。 */
+        function turned(m, turn) {
+          return range(81).map((c) => m[turn ? 80 - c : c]);
+        }
+        /**
+         * 对战的开始：对战的地图，两个基地，没有机器人。每方的坦克从自己一边底部两行的一个空格出发，朝向对方。
+         * 出发格由种子决定。相邻种子的第 0 次抽取几乎相同（第 0 次抽取是种子的线性函数），所以这里用 IR 的散列 rand(seed, k)：
+         * 第 k 方用 rand(seed, k)。
+         * @param start 回合记录 { seed }
+         * @returns 对战的状态
+         */
+        export function battle(start) {
+          const idle = { on: false, x: 0, y: 0, d: 0 };
+          const c0 = START[Math.floor(rand(u32(start.seed), 0) * 12)];
+          const c1 = 80 - START[Math.floor(rand(u32(start.seed), 1) * 12)];
+          return {
+            /** 已走的步数 */
+            t: 0,
+            /** 现在的地图，第 y * 9 + x 格：0 空地、1 砖墙、2 钢墙、3 基地 */
+            cells: range(81).map((c) => ARENA[c]),
+            /** 两辆坦克：第 k 个是第 k 方的。on 是否还在，格 x、y，朝向 d（世界的方向：0 上、1 右、2 下、3 左） */
+            tanks: array({ on: true, x: c0 % 9, y: Math.floor(c0 / 9), d: 0 }, { on: true, x: c1 % 9, y: Math.floor(c1 / 9), d: 2 }),
+            /** 两颗子弹：第 k 颗是第 k 方的。on 是否在飞，格 x、y，方向 d */
+            shots: array(idle, idle),
+            /** 两颗子弹在本步的轨迹，和 shots 一一对应（见 trail）。第 0 步之前都不在飞 */
+            trails: array(trail(idle), trail(idle)),
+            /** 两个基地是否还在：第 k 个是第 k 方的（HOMES） */
+            bases: [true, true],
+            /** 本步双方的动作，按世界的方向（第 0 步之前是 5 等待） */
+            acts: array(5, 5),
+            /** 结果：-1 进行中，0 第 0 方赢，1 第 1 方赢，2 平局（同一步双方都输，或者步数用完） */
+            end: -1,
+          };
+        }
+        /**
+         * 第 side 方看到的 492 位，顺序和 input 相同（见 channels）。第 1 方看到的地图和方向都转 180°。
+         * 所以每一方的基地都在下方，和关卡里一样。对方的基地是要打的目标，所以它和对方的坦克一起在敌方坦克的通道里。
+         * @param state 对战的状态
+         * @param side 0 或 1
+         * @returns 492 位
+         */
+        export function view(state, side) {
+          const own = state.tanks[side];
+          const other = state.tanks[1 - side];
+          const shot = state.shots[1 - side];
+          const home = HOMES[side];
+          const goal = HOMES[1 - side];
+          const turn = side === 1;
+          const tanks = range(81).map((c) => ((other.on && c === other.y * 9 + other.x) || (state.bases[1 - side] && c === goal.y * 9 + goal.x) ? 1 : 0));
+          const shots = range(81).map((c) => (shot.on && c === shot.y * 9 + shot.x ? 1 : 0));
+          return channels(turned(state.cells.map((v) => (v === 1 ? 1 : 0)), turn), turned(state.cells.map((v) => (v === 2 ? 1 : 0)), turn),
+            turned(oneHot(home.y * 9 + home.x, 81), turn), turned(tanks, turn), turned(shots, turn), turned(oneHot(own.y * 9 + own.x, 81), turn),
+            turn ? (own.d + 2) % 4 : own.d, state.shots[side].on);
+        }
+        /**
+         * 对战的一步：双方同时移动或开火，然后每颗子弹飞 2 格。规则和关卡相同：第 0 方是我方，第 1 方是唯一的敌人，没有机器人。
+         * 每颗子弹在这一步的轨迹记在 trails 里，和关卡相同。
+         * 两辆坦克都要走进同一格时，两辆都只转向。坦克被击中或者自己的基地被毁的一方输。
+         * 不在场上的坦克（on 是 false）不行动，不挡路，也不开火。对战里一方被击中就结束，所以只有阶段 2 用到它（见 duelStep）。
+         * @param state 对战的状态
+         * @param a 第 0 方的动作
+         * @param b 第 1 方的动作，按第 1 方看到的地图（转 180°）
+         * @returns 下一步的状态
+         */
+        export function play(state, a, b) {
+          const acts = array(a, b < 4 ? (b + 2) % 4 : b);
+          const t0 = state.tanks[0];
+          const t1 = state.tanks[1];
+          const m0 = t0.on ? drive(state.cells, t0, array(t1), acts[0]) : { x: t0.x, y: t0.y, d: t0.d };
+          const m1 = t1.on ? drive(state.cells, t1, array(t0), acts[1]) : { x: t1.x, y: t1.y, d: t1.d };
+          const meet = t0.on && t1.on && same(m0, m1);
+          const me = meet ? { x: t0.x, y: t0.y, d: m0.d } : m0;
+          const foe = meet ? { on: true, x: t1.x, y: t1.y, d: m1.d } : { on: t1.on, x: m1.x, y: m1.y, d: m1.d };
+          const shots = array(shoot(state.shots[0], me, t0.on ? acts[0] : 5), shoot(state.shots[1], foe, t1.on ? acts[1] : 5));
+          const w = fly(fly(strike({ cells: state.cells, me, alive: t0.on, bases: state.bases, foes: array(foe), shots,
+            trails: shots.map((s) => trail(s)), kills: 0 })));
+          const lost0 = !w.alive || !w.bases[0];
+          const lost1 = !w.foes[0].on || !w.bases[1];
+          const t = state.t + 1;
+          return {
+            ...state,
+            t,
+            cells: w.cells,
+            tanks: array({ on: w.alive, x: w.me.x, y: w.me.y, d: w.me.d }, w.foes[0]),
+            shots: w.shots,
+            trails: w.trails,
+            bases: w.bases,
+            acts,
+            end: lost0 && lost1 ? 2 : lost1 ? 0 : lost0 ? 1 : t >= params.steps ? 2 : -1,
+          };
+        }
+
+        /**
+         * 对战地图上，从第 c 格朝方向 d 看，碰到钢墙或地图边以前有几格。砖墙、基地和坦克不挡视线，因为子弹能打掉它们。
+         * 两个基地都在地图边上，所以视线不会越过一个基地。阶段 2 的机器人用它。
+         */
+        const SIGHT = range(81).map((c) => range(4).map((d) => range(8).reduce((n, k) => {
+          const x = (c % 9) + (k + 1) * DX[d];
+          const y = Math.floor(c / 9) + (k + 1) * DY[d];
+          return n === k && inside(x, y) && ARENA[y * 9 + x] !== 2 ? k + 1 : n;
+        }, 0)));
+        /** (x, y) 在坦克 me 朝方向 d 的视线上（见 SIGHT），并且不是 me 的格。 */
+        function inLine(me, d, x, y) {
+          const far = Math.abs(x - me.x) + Math.abs(y - me.y);
+          return far > 0 && far <= SIGHT[me.y * 9 + me.x][d]
+            && (d % 2 === 0 ? x === me.x && (y < me.y) === (d === 0) : y === me.y && (x > me.x) === (d === 1));
+        }
+        /** 第 y 行里能看到 (tx, ty) 的格（位掩码），视线见 SIGHT。 */
+        function lineRow(tx, ty, y) {
+          const reach = SIGHT[ty * 9 + tx];
+          return y === ty ? BIT[tx + reach[1]] * 2 - BIT[tx - reach[3]] - BIT[tx]
+            : y >= ty - reach[0] && y <= ty + reach[2] ? BIT[tx] : 0;
+        }
+        /**
+         * 第 k 方的坦克向 4 个方向各走一格以后，到最近的瞄准格还要走几步（走不到是 99）。
+         * 瞄准格是能看到对方坦克或对方基地的空格。算法和关卡的 route 相同：每行一个位掩码，扩展 20 次。
+         */
+        function chase(state, k) {
+          const me = state.tanks[k];
+          const foe = state.tanks[1 - k];
+          const goal = HOMES[1 - k];
+          const open = range(9).map((y) => range(9).reduce((m, x) => m + (state.cells[y * 9 + x] === 0 && !(foe.on && foe.x === x && foe.y === y) ? BIT[x] : 0), 0));
+          const aim = range(9).map((y) => and32(open[y], or32(foe.on ? lineRow(foe.x, foe.y, y) : 0, state.bases[1 - k] ? lineRow(goal.x, goal.y, y) : 0)));
+          return range(20).reduce((acc, n) => {
+            const rows = range(9).map((y) => and32(open[y], or32(or32(acc.rows[y], or32(shl32(acc.rows[y], 1), shr32(acc.rows[y], 1))),
+              or32(y > 0 ? acc.rows[y - 1] : 0, y < 8 ? acc.rows[y + 1] : 0))));
+            return { rows, near: range(4).map((d) => (acc.near[d] < 99 ? acc.near[d] : reached(rows, me, d) ? n + 1 : 99)) };
+          }, { rows: aim, near: range(4).map((d) => (reached(aim, me, d) ? 0 : 99)) }).near;
+        }
+        /**
+         * 阶段 2 的机器人：第 k 方在对战里的动作，按世界的方向。它按这个顺序看，用第一条给出动作的规则：
+         * 1. 下一步对方的子弹会打中自己时，躲到侧面。正对着这颗子弹并且自己的子弹不在飞时，开火也一样好。
+         * 2. 对方的坦克或对方的基地在视线上时，转向它。已经朝向它时开火，自己的子弹还在飞时等待。
+         * 3. 否则沿最短路走向最近的瞄准格（见 chase）。
+         * 4. 都不行时等待。
+         * 它不朝自己的基地开火，也不走进下一步会被打到的格。几个动作一样好时，它随机选一个。
+         * 然后按 duel.botRandom 的概率，它改做一个随机动作。随机数用回合种子和步数。
+         */
+        function bot(state, k) {
+          const me = state.tanks[k];
+          const foe = state.tanks[1 - k];
+          const mine = state.shots[k];
+          const theirs = state.shots[1 - k];
+          const home = HOMES[k];
+          const goal = HOMES[1 - k];
+          // reaches 只读 shots[0]（这一方的子弹）和 cells
+          const seen = { cells: state.cells, shots: array(mine) };
+          const blocked = range(4).map((d) => solid(state.cells, me.x + DX[d], me.y + DY[d]) || (foe.on && foe.x === me.x + DX[d] && foe.y === me.y + DY[d]));
+          const safe = range(4).map((d) => blocked[d] || !reaches(seen, theirs, me.x + DX[d], me.y + DY[d]));
+          const threat = reaches(seen, theirs, me.x, me.y);
+          const counter = !mine.on && theirs.d === (me.d + 2) % 4;
+          const target = range(4).map((d) => !inLine(me, d, home.x, home.y)
+            && ((foe.on && inLine(me, d, foe.x, foe.y)) || (state.bases[1 - k] && inLine(me, d, goal.x, goal.y))));
+          const near = chase(state, k);
+          const best = minOf(near);
+          const shot = mine.on ? 5 : 4;
+          const dodge = range(6).map((a) => threat && ((a < 4 && !blocked[a % 4] && safe[a % 4] && theirs.d % 2 !== a % 2) || (a === 4 && counter)));
+          const aim = range(6).map((a) => (target[me.d] ? a === shot : a < 4 && target[a % 4] && safe[a % 4]));
+          const walk = range(6).map((a) => a < 4 && best < 99 && near[a % 4] === best && safe[a % 4]);
+          const good = any(dodge) ? dodge : any(aim) ? aim : any(walk) ? walk : range(6).map((a) => a === 5);
+          const seed = u32(state.seed);
+          const base = 8 * state.t + 2;
+          const pick = argmaxFirst(range(6).map((a) => (good[a] ? 1 + rand(seed, base + a) : 0)));
+          return rand(seed, base + 6) < duel.botRandom ? Math.floor(rand(seed, base + 7) * 6) : pick;
+        }
+        /**
+         * 阶段 2 的开始：和 battle 相同，再记下回合种子，机器人的随机数用它。网络是第 0 方，机器人是第 1 方。
+         * @param start 回合记录 { seed }
+         * @returns 对战的状态
+         */
+        export function duelInit(start) {
+          // 记录的展开不能加字段，所以逐个写出 battle 的字段，再加上 seed
+          const b = battle(start);
+          return { seed: start.seed, t: b.t, cells: b.cells, tanks: b.tanks, shots: b.shots, trails: b.trails, bases: b.bases, acts: b.acts, end: b.end };
+        }
+        /**
+         * 阶段 2 里网络看到的 492 位：第 0 方看到的（见 view）。
+         * @param state 对战的状态
+         * @returns 492 位
+         */
+        export function duelInput(state) {
+          return view(state, 0);
+        }
+        /**
+         * 阶段 2 的一步：网络是第 0 方，机器人（见 bot）是第 1 方，双方用 play 同时行动。规则和对战不同：
+         * - 打掉机器人的基地才算赢。
+         * - 网络的坦克被击中，或者网络的基地被毁，就输。
+         * - 机器人的坦克被击中时，它从场上消失，回合继续。
+         * - 走满回合步数还没有赢，也算输。所以没有平局。
+         * State.end：-1 进行中，0 赢，1 输。
+         * @param state 对战的状态
+         * @param action 网络的动作
+         * @returns 下一步的状态
+         */
+        export function duelStep(state, action) {
+          const b = state.tanks[1].on ? bot(state, 1) : 5;
+          const next = play(state, action, b < 4 ? (b + 2) % 4 : b);
+          const lost = !next.tanks[0].on || !next.bases[0];
+          const end = lost ? 1 : !next.bases[1] ? 0 : next.t >= params.steps ? 1 : -1;
+          return { state: { ...next, end }, done: end >= 0, success: end === 0 };
+        }
+        /**
+         * 阶段 2 的奖励：打掉机器人的基地得 duel.winReward，输得 duel.loseReward。机器人的坦克被击中得 duel.killReward。
+         * 每一步还减 duel.stepCost，所以赢得越快越好。击毁坦克只是手段，所以 killReward 比 winReward 小。
+         * @param transition 这一步的转移
+         * @returns 这一步的奖励
+         */
+        export function duelReward(transition) {
+          const end = transition.next.end;
+          const killed = transition.prev.tanks[1].on && !transition.next.tanks[1].on ? duel.killReward : 0;
+          return (end === 0 ? duel.winReward : end === 1 ? duel.loseReward : 0) + killed - duel.stepCost;
+        }
+  clearRate:
+    kind: code
+    title: 过关率
+    config:
+      source: |-
+        /**
+         * 击毁全部敌人为 1，否则为 0。
+         * @param episode 回合摘要
+         * @returns 0 或 1
+         */
+        export function clearRate(episode) {
+          return episode.final.end === 0 ? 1 : 0;
+        }
+  killCount:
+    kind: code
+    title: 平均击毁数
+    config:
+      source: |-
+        /**
+         * 这一局击毁的敌人数。评估器对各局取平均。
+         * @param episode 回合摘要
+         * @returns 击毁数
+         */
+        export function killCount(episode) {
+          return episode.final.kills;
+        }
+  baseKept:
+    kind: code
+    title: 基地保住的比例
+    config:
+      source: |-
+        /**
+         * 基地没有被毁为 1，否则为 0。
+         * @param episode 回合摘要
+         * @returns 0 或 1
+         */
+        export function baseKept(episode) {
+          return episode.final.end === 2 ? 0 : 1;
+        }
+  agreeRate:
+    kind: code
+    title: 和教师一致的比例
+    config:
+      source: |-
+        /**
+         * 我方的动作在教师的目标位里的步数，除以回合的步数。阶段 2 的 gate 读它。
+         * @param episode 回合摘要
+         * @returns 0 到 1
+         */
+        export function agreeRate(episode) {
+          return episode.final.t > 0 ? episode.final.agree / episode.final.t : 0;
+        }
+  winRate:
+    kind: code
+    title: 胜率
+    config:
+      source: |-
+        /**
+         * 阶段 2：网络打掉了机器人的基地为 1，否则为 0。
+         * @param episode 回合摘要
+         * @returns 0 或 1
+         */
+        export function winRate(episode) {
+          return episode.final.end === 0 ? 1 : 0;
+        }
+  killRate:
+    kind: code
+    title: 击毁对方坦克的比例
+    config:
+      source: |-
+        /**
+         * 阶段 2：机器人的坦克在这一局被击中为 1，否则为 0。
+         * @param episode 回合摘要
+         * @returns 0 或 1
+         */
+        export function killRate(episode) {
+          return episode.final.tanks[1].on ? 0 : 1;
+        }
+  hitRate:
+    kind: code
+    title: 我方坦克被击中的比例
+    config:
+      source: |-
+        /**
+         * 阶段 2：网络的坦克被击中为 1，否则为 0。
+         * @param episode 回合摘要
+         * @returns 0 或 1
+         */
+        export function hitRate(episode) {
+          return episode.final.tanks[0].on ? 0 : 1;
+        }
+  timeoutRate:
+    kind: code
+    title: 超时的比例
+    config:
+      source: |-
+        /**
+         * 阶段 2：走满回合步数，网络的坦克和基地都还在，但是没有打掉机器人的基地，为 1，否则为 0。这也算输。
+         * @param episode 回合摘要
+         * @returns 0 或 1
+         */
+        export function timeoutRate(episode) {
+          const s = episode.final;
+          return s.end === 1 && s.tanks[0].on && s.bases[0] ? 1 : 0;
+        }
+  # 阶段 1 · 模仿：训练器用交叉熵学教师 teacher 的目标位。“中”和“大”各有一个训练模块，里面是一个训练器和它的回路。
+  # 每个结构有自己的候选、评估器、执行实例和回放。读出、报告和回放的配置相同，所以用 YAML 锚点（&）共用。
+  # 两个训练器的配置是按实测选的：“中”要更多轮和更大的学习率才能达到和教师一致的比例 0.9。exploration 0.1 比 0.25 好。
+  # 模板按本地 id 的字母顺序保存。所以“中”的本地 id 用前缀 s1_a_，“大”用 s1_b_。
+  s1_a_loop: { kind: loop, title: 回路（中） }
+  s1_a_net:
+    kind: network
+    title: 中
+    config: &mid { engine: dense-policy, kind: feedforward, inputs: 492, weightBits: 16, layers: [{ hidden: 32 }, { hidden: 32 }], ticks: 1, leak_shift: 0, reset: 0 }
+  s1_a_readout: { kind: readout, title: 读出（中）, config: &readout { mode: argmax, map: [0, 1, 2, 3, 4, 5] } }
+  s1_a_trainer:
+    kind: trainer
+    title: 训练器（中）
+    config: { method: cross-entropy, epochs: 5000, lr: 0.005, replicas: 1, episodesPerEpoch: 16, calibrationEpisodes: 32, exploration: 0.1, evalEvery: 20, seed: 1, backend: browser }
+  s1_a_cands: { kind: candidates, title: 候选（中） }
+  s1_a_evaluator: { kind: evaluator, title: 评估器（中） }
+  s1_a_report:
+    kind: view
+    title: 评估报告（中）
+    config: &report { renderer: kv, path: report.metrics }
+  s1_a_execution: { kind: execution, title: 执行实例（中） }
+  s1_a_replay:
+    kind: view
+    title: 回放（中）
+    config: &replay
+      renderer: script
+      script: |-
+        // 回放：画地图（砖墙、钢墙、基地）、我方坦克、敌方坦克和飞行中的子弹。坦克是方块，三角形指向朝向。
+        // 地图来自场景的状态 cells（第 y * 边长 + x 格：0 空地、1 砖墙、2 钢墙、3 基地），所以打掉的砖墙不再画出。
+        // 阶段 2 的状态是对战的状态（有 tanks 和 bases）：我方是第 0 方，敌人是机器人（第 1 方），两个基地各画一个。
+        // 图下面是图例、步数、我方的动作、击毁数和结果。
+        // 执行实例走一步时，回放从上一步播到这一步（见下面的动画）。拖动回看滑条时，回放直接跳到选中的那一步，不播动画。
+        /** 一格的边长（SVG 单位）。 */
+        const CELL = 20;
+        const ME = 'var(--inh, #5e8fe8)';
+        const FOE = 'var(--bad, #f0684d)';
+        const BRICK = 'var(--brick, #b4643c)';
+        const DIR = ['上', '右', '下', '左'];
+        const ACT = [...DIR, '开火', '等待'];
+        const END = { 0: '过关', 1: '我方坦克被击中', 2: '基地被毁', 3: '步数用完' };
+        const DUEL_END = { 0: '我方赢（打掉对方基地）', 1: '我方输' };
+
+        // 动画（对战脚本的战场有同样的一段）：新的一步到达时，从上一帧播到这一帧。场景的 trails 给出每颗子弹的轨迹：
+        // 出发格、方向、飞过的格数、最后到的格和停下的原因。子弹每步匀速飞 2 格。坦克按规则先行动，所以在前半步滑一格并转向。
+        // 砖墙在子弹打到它时才消失。子弹停下的地方有一个短的效果：砖墙碎掉、钢墙上的火花、坦克或基地爆炸、两颗子弹相撞的闪光。
+        // 一步的时长是最近几步到达间隔的平均，限制在 MIN 到 MAX 毫秒。间隔大于 MAX（例如单步）时，时长是 SINGLE。
+        // 上一步还没有播完时新的一步到达，上一步在 FAST 毫秒内播完，然后播新的一步。所以显示会落后，但不跳过子弹。
+        const MIN = 80;
+        const MAX = 600;
+        const SINGLE = 200;
+        const FAST = 40;
+        /** 时长取最近几个到达间隔的平均。 */
+        const AVERAGE = 4;
+        /** 一个效果持续的毫秒数。 */
+        const LIFE = 300;
+        const DX = [0, 1, 0, -1];
+        const DY = [-1, 0, 1, 0];
+        /** 停下的原因（轨迹的 why）的效果：1 砖墙碎掉，2 钢墙或地图边的火花，3 基地和 4 坦克爆炸，5 和 6 两颗子弹相撞的闪光。 */
+        const EFFECT = [null, 'brick', 'spark', 'boom', 'boom', 'flash', 'flash'];
+
+        /** 轨迹 r 的子弹停下时离出发格中心几格：打到墙、基地或互相穿过时停在两格的交界，打到坦克或在同一格相撞时停在格的中心。 */
+        function reach(r) {
+          return r.why === 1 || r.why === 2 || r.why === 3 || r.why === 6 ? r.n - 0.5 : r.n;
+        }
+        /** 轨迹 r 在一步里停下的时刻（0 到 1）。没有飞就被击中（n 是 0）时，是坦克开到子弹上，所以是坦克走完的半步。 */
+        function when(r) {
+          return r.why === 4 && r.n === 0 ? 0.5 : reach(r) / 2;
+        }
+        /** 轨迹 r 的子弹飞了 dist 格时的位置（格的坐标）。 */
+        function along(r, dist) {
+          return { x: r.x + DX[r.d] * dist, y: r.y + DY[r.d] * dist };
+        }
+        /** trails 里因为原因 why 停在 (x, y) 的最早时刻。没有这样的轨迹时是 Infinity。 */
+        function hitAt(trails, why, x, y) {
+          return Math.min(Infinity, ...trails.filter((r) => r.on && r.why === why && r.ex === x && r.ey === y).map(when));
+        }
+        /** 坦克在时刻 p 的位置和角度：前半步从 a 滑到 b，并朝近的一边转到 b 的朝向。 */
+        function slide(a, b, p) {
+          const q = Math.min(1, p * 2);
+          const turn = ((b.d - a.d + 6) % 4) - 2;
+          return { x: a.x + (b.x - a.x) * q, y: a.y + (b.y - a.y) * q, angle: (a.d + turn * q) * 90 };
+        }
+        /** 一个效果的 SVG 属性：age 从 0 到 1 时，它变大并淡出。 */
+        function effect(e) {
+          return { key: e.key, kind: e.kind, opacity: 1 - e.age, transform: `translate(${(e.x + 0.5) * CELL} ${(e.y + 0.5) * CELL}) scale(${0.6 + e.age})` };
+        }
+        /**
+         * 播放器。play(steps) 排上新到达的几步（每步是 { from, to } 两个状态），jump(s) 不播动画，直接显示状态 s。
+         * draw(from, to, p, effects) 是视图的画法，它画出时刻 p 的样子。播放器把结果放在 frame 里。
+         */
+        function player(draw) {
+          const frame = Vue.shallowRef(null);
+          const gaps = [];
+          let last = -Infinity;
+          let queue = [];
+          let cur = null;
+          let shown = null;
+          let effects = [];
+          let raf = 0;
+          let serial = 0;
+          /** 上一步播完的时刻。一步从它到达的时刻或者上一步播完的时刻开始（取晚的），所以画面的延迟不会累积。 */
+          let free = -Infinity;
+          /** count 步在时刻 now 一起到达时，每步的时长。 */
+          function measure(now, count) {
+            const gap = (now - last) / count;
+            last = now;
+            if (gap > MAX) {
+              gaps.length = 0;
+              return SINGLE;
+            }
+            gaps.push(gap);
+            if (gaps.length > AVERAGE) gaps.shift();
+            return Math.min(MAX, Math.max(MIN, gaps.reduce((a, b) => a + b, 0) / gaps.length));
+          }
+          /** 后面有步在等时，一步最多播几毫秒。等的步很多时，一步只播一帧。 */
+          const hurry = () => (queue.length > 8 ? 16 : FAST);
+          const progress = (now) => Math.min(1, cur.p0 + (1 - cur.p0) * Math.max(0, (now - cur.t0) / cur.span));
+          const aged = (now) => effects.map((e) => effect({ ...e, age: (now - e.born) / LIFE }));
+          function tick() {
+            raf = 0;
+            const now = performance.now();
+            if (!cur && queue.length) {
+              const next = queue.shift();
+              cur = { ...next, p0: 0, t0: Math.max(next.at, free), span: queue.length ? hurry() : next.span, ended: [] };
+            }
+            effects = effects.filter((e) => now - e.born < LIFE);
+            if (cur) {
+              const step = cur;
+              const p = progress(now);
+              (step.to.trails ?? []).forEach((r, j) => {
+                if (r.on && r.why > 0 && !step.ended[j] && when(r) <= p) {
+                  step.ended[j] = true;
+                  effects.push({ key: serial++, kind: EFFECT[r.why], ...along(r, reach(r)), born: now });
+                }
+              });
+              if (p >= 1) {
+                shown = step.to;
+                free = step.t0 + step.span;
+                cur = null;
+              }
+              frame.value = draw(step.from, step.to, p, aged(now));
+            } else if (shown) frame.value = draw(shown, shown, 1, aged(now));
+            if (cur || queue.length || effects.length) raf = requestAnimationFrame(tick);
+          }
+          function play(steps) {
+            const now = performance.now();
+            const span = measure(now, steps.length);
+            queue.push(...steps.map((s) => ({ ...s, span, at: now })));
+            if (cur && cur.t0 + cur.span - now > hurry()) Object.assign(cur, { p0: progress(now), t0: now, span: hurry() });
+            if (!raf) raf = requestAnimationFrame(tick);
+          }
+          function jump(s) {
+            queue = [];
+            cur = null;
+            effects = [];
+            shown = s;
+            frame.value = s ? draw(s, s, 1, []) : null;
+          }
+          return { frame, play, jump, stop: () => cancelAnimationFrame(raf) };
+        }
+
+        /** 关卡或对战在时刻 p 的样子：从状态 from 播到状态 to。对战的状态有 tanks：第 0 辆是我方，第 1 辆是唯一的敌人。 */
+        function draw(from, to, p, effects) {
+          const N = Math.round(Math.sqrt(to.cells.length));
+          const trails = to.trails ?? [];
+          const duel = !!to.tanks;
+          const meOf = (s) => (duel ? s.tanks[0] : s.me);
+          const foesOf = (s) => (duel ? [s.tanks[1]] : s.foes);
+          // 被子弹打掉的砖墙画到子弹打到它的时刻
+          const cells = to.cells.flatMap((v, c) => {
+            const x = c % N;
+            const y = Math.floor(c / N);
+            const kind = from.cells[c] === 1 && v !== 1 && p < hitAt(trails, 1, x, y) ? 1 : v;
+            return kind ? [{ key: c, v: kind, cx: x, cy: y, x: x * CELL, y: y * CELL }] : [];
+          });
+          // 关卡有一个基地。对战有两个：第 0 方的在下半张，第 1 方的在上半张。基地在子弹打到它时被毁。
+          const bases = cells.filter((c) => c.v === 3).map((b) => {
+            const k = duel && b.cy * 2 < N ? 1 : 0;
+            const gone = duel ? !to.bases[k] && (!from.bases[k] || p >= hitAt(trails, 3, b.cx, b.cy)) : to.end === 2 && p >= hitAt(trails, 3, b.cx, b.cy);
+            return { ...b, color: duel ? (k ? FOE : ME) : 'var(--ok, #4fbf7e)', lost: gone, label: `${duel ? (k ? '敌方' : '我方') : ''}基地${gone ? '（已被毁）' : ''}` };
+          });
+          const tank = (a, b, color, name, key) => {
+            const at = slide(a, b, p);
+            const hit = p >= hitAt(trails, 4, b.x, b.y);
+            return { key, color, hit, transform: `translate(${(at.x + 0.5) * CELL} ${(at.y + 0.5) * CELL}) rotate(${at.angle})`,
+              label: `${name} (${b.x}, ${b.y}) 朝${DIR[b.d]}${hit ? '，被击中' : ''}` };
+          };
+          // 敌人：被击毁的画到被打中的时刻。不是相邻格的两个位置是新出现的敌人，它不滑动。
+          const foes = foesOf(to).flatMap((f, i) => {
+            const was = foesOf(from)[i];
+            const near = was.on && Math.abs(was.x - f.x) + Math.abs(was.y - f.y) <= 1;
+            if (f.on) return [tank(near ? was : f, f, FOE, `敌人 ${i + 1}`, `foe${i}`)];
+            return was.on && p < hitAt(trails, 4, f.x, f.y) ? [{ ...tank(was, f, FOE, `敌人 ${i + 1}`, `foe${i}`), hit: false }] : [];
+          });
+          const shots = trails.flatMap((r, i) => {
+            if (!r.on || (r.why > 0 && p >= when(r))) return [];
+            const at = along(r, Math.min(p * 2, reach(r)));
+            return [{ key: i, color: i ? FOE : ME, cx: (at.x + 0.5) * CELL, cy: (at.y + 0.5) * CELL,
+              label: `${i ? `敌人 ${i} 的` : '我方'}子弹，从 (${r.x}, ${r.y}) 向${DIR[r.d]}` }];
+          });
+          return {
+            state: to,
+            N,
+            bricks: cells.filter((c) => c.v === 1),
+            steel: cells.filter((c) => c.v === 2),
+            bases,
+            tanks: [tank(meOf(from), meOf(to), ME, '我方坦克', 'me'), ...foes],
+            shots,
+            effects,
+          };
+        }
+
+        const component = {
+          props: ['ctx'],
+          setup(props) {
+            const s = Vue.computed(() => props.ctx.state);
+            const play = player(draw);
+            /** 上一个 ctx 的状态，以及它是不是跟着执行实例（不是回看） */
+            let latest = null;
+            let live = false;
+            // 跟着执行实例时，比上一个状态多 1 步就播这一步。多几步时（几步一起到达），从 history 里取出中间的状态，一步一步播。
+            // 回看、重置、新的回合或者多出 64 步以上时，直接跳过去。
+            Vue.watch(() => props.ctx, (ctx) => {
+              const st = ctx?.state?.cells ? ctx.state : null;
+              const gap = st && latest && live && ctx.live ? st.t - latest.t : -1;
+              // 步数相同的 ctx 多半只是别的输出变了。状态也变了时（例如重置到另一个种子），直接跳过去。
+              if (gap === 0 && JSON.stringify(st) === JSON.stringify(latest)) return;
+              const steps = gap === 1 ? [st] : gap > 1 && gap <= 64 ? (ctx.history ?? []).map((h) => h.next).filter((n) => n && n.t > latest.t && n.t <= st.t) : [];
+              if (gap >= 1 && steps.length === gap) play.play(steps.map((n, i) => ({ from: i ? steps[i - 1] : latest, to: n })));
+              else play.jump(st);
+              latest = st;
+              live = !!ctx?.live;
+            }, { immediate: true });
+            Vue.onUnmounted(play.stop);
+            const f = play.frame;
+            const line = Vue.computed(() => {
+              const st = f.value?.state;
+              if (!st) return '';
+              if (st.tanks) return [`第 ${st.t} 步`, `动作 ${ACT[st.acts[0]] ?? st.acts[0]}`, `机器人 ${ACT[st.acts[1]] ?? st.acts[1]}`, DUEL_END[st.end] ?? ''].filter(Boolean).join(' · ');
+              return [`第 ${st.t} 步`, `动作 ${ACT[st.act] ?? st.act}`, `击毁 ${st.kills}`, st.killed ? `本步击毁 ${st.killed}` : '', END[st.end] ?? ''].filter(Boolean).join(' · ');
+            });
+            return { CELL, s, f, line, ME, FOE, BRICK };
+          },
+          template: `
+            <div v-if="!s">还没有状态</div>
+            <div v-else-if="!f">状态里没有地图 cells</div>
+            <div v-else>
+              <svg :viewBox="'-1 -1 ' + (f.N * CELL + 2) + ' ' + (f.N * CELL + 2)" width="100%" style="display: block" role="group"
+                :aria-label="f.N + '×' + f.N + ' 地图，' + f.bricks.length + ' 格砖墙，' + f.steel.length + ' 格钢墙'">
+                <rect :width="f.N * CELL" :height="f.N * CELL" fill="var(--bg)" stroke="var(--line-strong)" stroke-width="1" />
+                <g v-for="b in f.bricks" :key="b.key">
+                  <rect :x="b.x + 0.5" :y="b.y + 0.5" :width="CELL - 1" :height="CELL - 1" :fill="BRICK" />
+                  <path :d="'M' + b.x + ' ' + (b.y + CELL / 2) + 'h' + CELL + 'M' + (b.x + CELL / 2) + ' ' + b.y + 'v' + (CELL / 2) + 'M' + (b.x + CELL / 4) + ' ' + (b.y + CELL / 2) + 'v' + (CELL / 2)"
+                    stroke="var(--bg)" stroke-width="1" />
+                </g>
+                <g v-for="b in f.steel" :key="b.key">
+                  <rect :x="b.x + 0.5" :y="b.y + 0.5" :width="CELL - 1" :height="CELL - 1" fill="var(--muted)" />
+                  <rect :x="b.x + 5" :y="b.y + 5" :width="CELL - 10" :height="CELL - 10" fill="var(--ink)" opacity="0.5" />
+                </g>
+                <g v-for="b in f.bases" :key="b.key" role="img" :aria-label="b.label" :transform="'translate(' + (b.x + CELL / 2) + ' ' + (b.y + CELL / 2) + ')'">
+                  <polygon points="0,-8 2.4,-2.5 8,-2.5 3.5,1.2 5.2,7 0,3.6 -5.2,7 -3.5,1.2 -8,-2.5 -2.4,-2.5" :fill="b.lost ? 'var(--muted)' : b.color" />
+                  <path v-if="b.lost" d="M-8 -8L8 8M8 -8L-8 8" stroke="var(--bad)" stroke-width="2" />
+                </g>
+                <g v-for="t in f.tanks" :key="t.key" :transform="t.transform" role="img" :aria-label="t.label" :opacity="t.hit ? 0.4 : 1">
+                  <rect x="-7" y="-7" width="14" height="14" rx="2" :fill="t.color" />
+                  <polygon points="0,-10 -4,-3 4,-3" fill="var(--ink)" />
+                  <path v-if="t.hit" d="M-8 -8L8 8M8 -8L-8 8" stroke="var(--ink)" stroke-width="2" />
+                </g>
+                <circle v-for="b in f.shots" :key="b.key" :cx="b.cx" :cy="b.cy" r="3" :fill="b.color" stroke="var(--ink)" role="img" :aria-label="b.label" />
+                <g v-for="e in f.effects" :key="e.key" :transform="e.transform" :opacity="e.opacity" aria-hidden="true">
+                  <g v-if="e.kind === 'brick'" :fill="BRICK"><rect x="-7" y="-7" width="5" height="5" /><rect x="2" y="-6" width="5" height="4" /><rect x="-6" y="2" width="4" height="5" /><rect x="3" y="3" width="4" height="4" /></g>
+                  <path v-else-if="e.kind === 'spark'" d="M-6 0H6M0 -6V6M-4 -4L4 4M4 -4L-4 4" stroke="var(--spike, #f2bc4a)" stroke-width="1.5" />
+                  <g v-else-if="e.kind === 'boom'"><circle r="9" fill="var(--bad, #f0684d)" /><circle r="5" fill="var(--spike, #f2bc4a)" /></g>
+                  <circle v-else r="5" fill="var(--ink)" />
+                </g>
+              </svg>
+              <div style="margin-top: 4px; font-size: 12px; overflow-wrap: anywhere">
+                <span :style="{ color: ME, marginRight: '8px' }">■ 我方</span><span :style="{ color: FOE, marginRight: '8px' }">■ 敌人</span>{{ line }}
+              </div>
+            </div>`,
+        };
+  s1_b_loop: { kind: loop, title: 回路（大） }
+  s1_b_net:
+    kind: network
+    title: 大
+    config: &big { engine: dense-policy, kind: feedforward, inputs: 492, weightBits: 16, layers: [{ hidden: 128 }, { hidden: 128 }, { hidden: 128 }], ticks: 1, leak_shift: 0, reset: 0 }
+  s1_b_readout: { kind: readout, title: 读出（大）, config: *readout }
+  s1_b_trainer:
+    kind: trainer
+    title: 训练器（大）
+    config: { method: cross-entropy, epochs: 1500, lr: 0.003, replicas: 1, episodesPerEpoch: 8, calibrationEpisodes: 32, exploration: 0.1, evalEvery: 20, seed: 1, backend: browser }
+  s1_b_cands: { kind: candidates, title: 候选（大） }
+  s1_b_evaluator: { kind: evaluator, title: 评估器（大） }
+  s1_b_report: { kind: view, title: 评估报告（大）, config: *report }
+  s1_b_execution: { kind: execution, title: 执行实例（大） }
+  s1_b_replay: { kind: view, title: 回放（大）, config: *replay }
+  # 阶段 2 · 对战训练：训练器用 REINFORCE 在对战地图上和机器人（场景的 bot）对战。网络是第 0 方，机器人是第 1 方。
+  # 回路的 roles 让它调用场景的 duelInit、duelInput 和 duelStep，而不是关卡的 init、input 和 step（ADR 0022）。
+  # 规则（duelStep）：打掉机器人的基地才算赢。我方坦克被击中、我方基地被毁或者走满步数都算输，没有平局。机器人的坦克被击中时
+  # 从场上消失，回合继续。奖励是场景的 duelReward：赢 1，输 −1，击毁坦克 0.3，每步减一点。参数在“对战训练参数”里。
+  # 每个训练器的 init 接阶段 1 同一结构的候选 weights。gate 接阶段 1 同一结构的评估器报告：和教师一致的比例至少是 0.9 时才能开始。
+  # 以前这里还有一个“闯关”阶段（强化学习打关卡），这个阶段从它的权重开始。实测里那样反而更差（“中”0.66，“大”0.47），所以删掉了。
+  # 配置是按实测选的（训练器种子 1，200 个测试种子）：2400 轮，从阶段 1 开始时，对机器人的胜率“中”0.72，“大”0.65。
+  # 本地 id 用前缀 s2_。
+  s2_a_loop: { kind: loop, title: 回路（中，阶段 2）, config: &duelLoop { roles: { init: duelInit, input: duelInput, step: duelStep } } }
+  s2_a_net: { kind: network, title: 中（阶段 2）, config: *mid }
+  s2_a_readout: { kind: readout, title: 读出（中，阶段 2）, config: *readout }
+  s2_a_trainer:
+    kind: trainer
+    title: 训练器（中，阶段 2）
+    config: &duelTrainer
+      { method: reinforce, epochs: 2400, lr: 0.002, entropy: 0.01, gamma: 1, replicas: 1, episodesPerEpoch: 32, evalEvery: 10, seed: 1, backend: browser,
+        gate: { metric: 和教师一致的比例, min: 0.9 } }
+  s2_a_cands: { kind: candidates, title: 候选（中，阶段 2） }
+  s2_a_evaluator: { kind: evaluator, title: 评估器（中，阶段 2） }
+  s2_a_report: { kind: view, title: 评估报告（中，阶段 2）, config: *report }
+  s2_a_execution: { kind: execution, title: 执行实例（中，阶段 2） }
+  s2_a_replay: { kind: view, title: 回放（中，阶段 2）, config: *replay }
+  s2_b_loop: { kind: loop, title: 回路（大，阶段 2）, config: *duelLoop }
+  s2_b_net: { kind: network, title: 大（阶段 2）, config: *big }
+  s2_b_readout: { kind: readout, title: 读出（大，阶段 2）, config: *readout }
+  s2_b_trainer: { kind: trainer, title: 训练器（大，阶段 2）, config: *duelTrainer }
+  s2_b_cands: { kind: candidates, title: 候选（大，阶段 2） }
+  s2_b_evaluator: { kind: evaluator, title: 评估器（大，阶段 2） }
+  s2_b_report: { kind: view, title: 评估报告（大，阶段 2）, config: *report }
+  s2_b_execution: { kind: execution, title: 执行实例（大，阶段 2） }
+  s2_b_replay: { kind: view, title: 回放（大，阶段 2）, config: *replay }
+  # 对战：两个冻结的网络，结构和“中”“大”相同，权重是阶段 2 的候选里接受的产物。训练器正在训练的网络不能被调用，所以对战用
+  # 单独的网络模块。脚本模块“坦克对战”通过函数输入调用它们的读出 run，以及场景的 battle、view 和 play。脚本里没有规则。
+  # 本地 id 用前缀 vs_，所以它们排在阶段 2 后面。
+  vs_battle:
+    kind: script
+    title: 坦克对战
+    config:
+      functions: [红方, 蓝方, battle, view, play]
+      inputs: []
+      files:
+        - name: main.js
+          source: |-
+            // 坦克对战：两个网络在「场景」的对战地图上打一局。红方是第 0 方（基地在底部），蓝方是第 1 方（基地在顶部）。
+            // 一局的流程在 game.js 里，3 个视图在 views.js 里。每次“重置”开始新的一局，种子就是局号，所以结果可以重复。
+            // 随机动作概率是 game.js 里的 RANDOM。交换红方和蓝方的连线，两个网络就交换位置。
+            import { fight, RANDOM } from './game.js';
+            import { Board, Side, Log } from './views.js';
+
+            /** 第几局。 */
+            let game = 0;
+
+            export default {
+              // 战场在左上，侧栏在右上，日志占满下面一行。侧栏最宽 200px，窄时最多占 45%。
+              layout: {
+                columns: 'minmax(0, 1fr) minmax(0, min(200px, 45%))',
+                rows: 'minmax(0, 1fr) minmax(0, 30%)',
+                areas: ['board side', 'log log'],
+              },
+              views: { board: Board, side: Side, log: Log },
+              async main(ctx) {
+                game += 1;
+                const s = ctx.state;
+                Object.assign(s, { game, seed: game, random: RANDOM, now: null, log: [] });
+                await fight(ctx.call, {
+                  seed: game,
+                  random: RANDOM,
+                  frame: ctx.frame,
+                  show: (now, entry) => {
+                    s.now = now;
+                    if (entry) s.log.push(entry);
+                  },
+                });
+              },
+            };
+        - name: game.js
+          source: |-
+            // 一局对战的流程。它只调用函数输入：场景的 battle、view 和 play，以及红方和蓝方的网络。规则都在场景里。
+            // 每一步：先用 view 算出每一方看到的位，再调用这一方的网络，把 one-hot 位换成动作（读出的 map 是 0 到 5）。
+            // 然后按随机动作概率，这一方可能改做一个随机动作。最后用 play 让双方同时行动。
+            // 每一方的动作按它自己看到的地图（第 1 方看到的转 180°），play 把它换成世界的方向。
+
+            /** 随机动作概率：每一步，每一方按这个概率改做一个随机动作。 */
+            export const RANDOM = 0.1;
+            /** 函数输入的名字：第 0 方是红方，第 1 方是蓝方。 */
+            export const SIDES = ['红方', '蓝方'];
+
+            /** 从 seed 开始的随机数序列（mulberry32），每个数在 [0, 1) 里。同一个 seed 给出同一个序列。 */
+            export function stream(seed) {
+              let a = seed >>> 0;
+              return () => {
+                a = (a + 0x6d2b79f5) >>> 0;
+                let t = Math.imul(a ^ (a >>> 15), a | 1);
+                t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+              };
+            }
+
+            /**
+             * 打一局，返回 { state, log }：最后的状态和每一步的记录。
+             * call 是函数输入（ctx.call）。seed 决定出发格和随机动作。random 是随机动作概率。
+             * 每一轮开头等 frame()。开始时和每一步以后调用 show(state, entry)，开始时 entry 是 null。
+             * entry：t 步数，moves 每一方按自己的地图做的动作，wild 每一方的动作是不是随机的，acts 世界方向的动作，end 结果。
+             */
+            export async function fight(call, { seed, random = RANDOM, frame = async () => {}, show = () => {} }) {
+              const draw = stream(seed);
+              const log = [];
+              let state = await call.battle({ seed });
+              show(state, null);
+              while (state.end < 0) {
+                await frame();
+                const moves = [];
+                const wild = [];
+                for (const [side, name] of SIDES.entries()) {
+                  const chosen = (await call[name](await call.view(state, side))).indexOf(1);
+                  const u = draw();
+                  const v = draw();
+                  wild.push(u < random);
+                  moves.push(u < random ? Math.floor(v * 6) : chosen);
+                }
+                state = await call.play(state, moves[0], moves[1]);
+                const entry = { t: state.t, moves, wild, acts: state.acts, end: state.end };
+                log.push(entry);
+                show(state, entry);
+              }
+              return { state, log };
+            }
+        - name: views.js
+          source: |-
+            // 坦克对战的 3 个视图。它们只画 main 写的 state，不改它。侧栏还把 run 交给 Controls。state 包括：
+            //   game、seed  第几局和它的种子
+            //   random      随机动作概率
+            //   now         场景的对战状态：t、cells、tanks、shots、trails、bases、acts、end
+            //   log         每一步的记录（见 game.js 的 fight）
+            // 战场的画法和训练模块的回放视图相同：砖墙、钢墙、基地，坦克是方块加指向朝向的三角形，子弹是圆点。
+            // 战场也和回放一样播每一步的动画（见下面的动画）。侧栏和日志直接显示最新的一步，所以战场落后时它们走在前面。
+            import { Controls } from '@ui';
+            import { SIDES } from './game.js';
+
+            /** 一格的边长（SVG 单位）。 */
+            const CELL = 20;
+            const COLOR = ['var(--bad, #f0684d)', 'var(--inh, #5e8fe8)'];
+            const BRICK = 'var(--brick, #b4643c)';
+            const DIR = ['上', '右', '下', '左'];
+            const ACT = [...DIR, '开火', '等待'];
+            const MUTED = 'color: var(--muted); font-size: 11px';
+            const CARD = 'border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; min-width: 0; line-height: 1.6';
+            const ROW = 'display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: 6px; min-width: 0';
+            /** 日志的表头：滚动时留在顶上 */
+            const TH = 'position: sticky; top: 0; background: var(--bg); box-shadow: inset 0 -1px var(--line-strong); font-weight: 500; text-align: left; padding-bottom: 2px';
+
+            /** 结果的文字和颜色。now 是对战状态。 */
+            function outcome(now) {
+              if (!now || now.end < 0) return { text: '进行中', color: 'var(--ink)' };
+              const why = SIDES.flatMap((name, k) => [...(now.tanks[k].on ? [] : [`${name}坦克被击中`]), ...(now.bases[k] ? [] : [`${name}基地被毁`])]);
+              const text = now.end === 2 ? '平局' : `${SIDES[now.end]}赢`;
+              return { text, why: why.length ? why.join('，') : '步数用完', color: COLOR[now.end] ?? 'var(--ink)' };
+            }
+
+            // 动画（训练模块的回放视图有同样的一段）：新的一步到达时，从上一帧播到这一帧。场景的 trails 给出每颗子弹的轨迹：
+            // 出发格、方向、飞过的格数、最后到的格和停下的原因。子弹每步匀速飞 2 格。坦克按规则先行动，所以在前半步滑一格并转向。
+            // 砖墙在子弹打到它时才消失。子弹停下的地方有一个短的效果：砖墙碎掉、钢墙上的火花、坦克或基地爆炸、两颗子弹相撞的闪光。
+            // 一步的时长是最近几步到达间隔的平均，限制在 MIN 到 MAX 毫秒。间隔大于 MAX（例如单步）时，时长是 SINGLE。
+            // 上一步还没有播完时新的一步到达，上一步在 FAST 毫秒内播完，然后播新的一步。所以显示会落后，但不跳过子弹。
+            const MIN = 80;
+            const MAX = 600;
+            const SINGLE = 200;
+            const FAST = 40;
+            /** 时长取最近几个到达间隔的平均。 */
+            const AVERAGE = 4;
+            /** 一个效果持续的毫秒数。 */
+            const LIFE = 300;
+            const DX = [0, 1, 0, -1];
+            const DY = [-1, 0, 1, 0];
+            /** 停下的原因（轨迹的 why）的效果：1 砖墙碎掉，2 钢墙或地图边的火花，3 基地和 4 坦克爆炸，5 和 6 两颗子弹相撞的闪光。 */
+            const EFFECT = [null, 'brick', 'spark', 'boom', 'boom', 'flash', 'flash'];
+
+            /** 轨迹 r 的子弹停下时离出发格中心几格：打到墙、基地或互相穿过时停在两格的交界，打到坦克或在同一格相撞时停在格的中心。 */
+            function reach(r) {
+              return r.why === 1 || r.why === 2 || r.why === 3 || r.why === 6 ? r.n - 0.5 : r.n;
+            }
+            /** 轨迹 r 在一步里停下的时刻（0 到 1）。没有飞就被击中（n 是 0）时，是坦克开到子弹上，所以是坦克走完的半步。 */
+            function when(r) {
+              return r.why === 4 && r.n === 0 ? 0.5 : reach(r) / 2;
+            }
+            /** 轨迹 r 的子弹飞了 dist 格时的位置（格的坐标）。 */
+            function along(r, dist) {
+              return { x: r.x + DX[r.d] * dist, y: r.y + DY[r.d] * dist };
+            }
+            /** trails 里因为原因 why 停在 (x, y) 的最早时刻。没有这样的轨迹时是 Infinity。 */
+            function hitAt(trails, why, x, y) {
+              return Math.min(Infinity, ...trails.filter((r) => r.on && r.why === why && r.ex === x && r.ey === y).map(when));
+            }
+            /** 坦克在时刻 p 的位置和角度：前半步从 a 滑到 b，并朝近的一边转到 b 的朝向。 */
+            function slide(a, b, p) {
+              const q = Math.min(1, p * 2);
+              const turn = ((b.d - a.d + 6) % 4) - 2;
+              return { x: a.x + (b.x - a.x) * q, y: a.y + (b.y - a.y) * q, angle: (a.d + turn * q) * 90 };
+            }
+            /** 一个效果的 SVG 属性：age 从 0 到 1 时，它变大并淡出。 */
+            function effect(e) {
+              return { key: e.key, kind: e.kind, opacity: 1 - e.age, transform: `translate(${(e.x + 0.5) * CELL} ${(e.y + 0.5) * CELL}) scale(${0.6 + e.age})` };
+            }
+            /**
+             * 播放器。play(steps) 排上新到达的几步（每步是 { from, to } 两个状态），jump(s) 不播动画，直接显示状态 s。
+             * draw(from, to, p, effects) 是视图的画法，它画出时刻 p 的样子。播放器把结果放在 frame 里。
+             */
+            function player(draw) {
+              const frame = Vue.shallowRef(null);
+              const gaps = [];
+              let last = -Infinity;
+              let queue = [];
+              let cur = null;
+              let shown = null;
+              let effects = [];
+              let raf = 0;
+              let serial = 0;
+              /** 上一步播完的时刻。一步从它到达的时刻或者上一步播完的时刻开始（取晚的），所以画面的延迟不会累积。 */
+              let free = -Infinity;
+              /** count 步在时刻 now 一起到达时，每步的时长。 */
+              function measure(now, count) {
+                const gap = (now - last) / count;
+                last = now;
+                if (gap > MAX) {
+                  gaps.length = 0;
+                  return SINGLE;
+                }
+                gaps.push(gap);
+                if (gaps.length > AVERAGE) gaps.shift();
+                return Math.min(MAX, Math.max(MIN, gaps.reduce((a, b) => a + b, 0) / gaps.length));
+              }
+              /** 后面有步在等时，一步最多播几毫秒。等的步很多时，一步只播一帧。 */
+              const hurry = () => (queue.length > 8 ? 16 : FAST);
+              const progress = (now) => Math.min(1, cur.p0 + (1 - cur.p0) * Math.max(0, (now - cur.t0) / cur.span));
+              const aged = (now) => effects.map((e) => effect({ ...e, age: (now - e.born) / LIFE }));
+              function tick() {
+                raf = 0;
+                const now = performance.now();
+                if (!cur && queue.length) {
+                  const next = queue.shift();
+                  cur = { ...next, p0: 0, t0: Math.max(next.at, free), span: queue.length ? hurry() : next.span, ended: [] };
+                }
+                effects = effects.filter((e) => now - e.born < LIFE);
+                if (cur) {
+                  const step = cur;
+                  const p = progress(now);
+                  (step.to.trails ?? []).forEach((r, j) => {
+                    if (r.on && r.why > 0 && !step.ended[j] && when(r) <= p) {
+                      step.ended[j] = true;
+                      effects.push({ key: serial++, kind: EFFECT[r.why], ...along(r, reach(r)), born: now });
+                    }
+                  });
+                  if (p >= 1) {
+                    shown = step.to;
+                    free = step.t0 + step.span;
+                    cur = null;
+                  }
+                  frame.value = draw(step.from, step.to, p, aged(now));
+                } else if (shown) frame.value = draw(shown, shown, 1, aged(now));
+                if (cur || queue.length || effects.length) raf = requestAnimationFrame(tick);
+              }
+              function play(steps) {
+                const now = performance.now();
+                const span = measure(now, steps.length);
+                queue.push(...steps.map((s) => ({ ...s, span, at: now })));
+                if (cur && cur.t0 + cur.span - now > hurry()) Object.assign(cur, { p0: progress(now), t0: now, span: hurry() });
+                if (!raf) raf = requestAnimationFrame(tick);
+              }
+              function jump(s) {
+                queue = [];
+                cur = null;
+                effects = [];
+                shown = s;
+                frame.value = s ? draw(s, s, 1, []) : null;
+              }
+              return { frame, play, jump, stop: () => cancelAnimationFrame(raf) };
+            }
+
+            /** 对战在时刻 p 的样子：从状态 from 播到状态 to。 */
+            function draw(from, to, p, effects) {
+              const N = Math.round(Math.sqrt(to.cells.length));
+              const trails = to.trails ?? [];
+              // 被子弹打掉的砖墙画到子弹打到它的时刻
+              const cells = to.cells.flatMap((v, c) => {
+                const x = c % N;
+                const y = Math.floor(c / N);
+                const kind = from.cells[c] === 1 && v !== 1 && p < hitAt(trails, 1, x, y) ? 1 : v;
+                return kind ? [{ key: c, v: kind, cx: x, cy: y, x: x * CELL, y: y * CELL }] : [];
+              });
+              // 第 0 方的基地在下半张，第 1 方的在上半张。基地在子弹打到它时被毁。
+              const bases = cells.filter((c) => c.v === 3).map((b) => {
+                const k = b.cy * 2 < N ? 1 : 0;
+                const lost = !to.bases[k] && (!from.bases[k] || p >= hitAt(trails, 3, b.cx, b.cy));
+                return { ...b, color: COLOR[k], lost, label: `${SIDES[k]}基地${lost ? '（已被毁）' : ''}` };
+              });
+              // 坦克在子弹打到它时被击中
+              const tanks = to.tanks.map((t, k) => {
+                const at = slide(from.tanks[k], t, p);
+                const hit = !t.on && (!from.tanks[k].on || p >= hitAt(trails, 4, t.x, t.y));
+                return { key: k, color: COLOR[k], hit, transform: `translate(${(at.x + 0.5) * CELL} ${(at.y + 0.5) * CELL}) rotate(${at.angle})`,
+                  label: `${SIDES[k]}坦克 (${t.x}, ${t.y}) 朝${DIR[t.d]}${hit ? '，被击中' : ''}` };
+              });
+              const shots = trails.flatMap((r, k) => {
+                if (!r.on || (r.why > 0 && p >= when(r))) return [];
+                const at = along(r, Math.min(p * 2, reach(r)));
+                return [{ key: k, color: COLOR[k], cx: (at.x + 0.5) * CELL, cy: (at.y + 0.5) * CELL, label: `${SIDES[k]}子弹，从 (${r.x}, ${r.y}) 向${DIR[r.d]}` }];
+              });
+              return { N, bricks: cells.filter((c) => c.v === 1), steel: cells.filter((c) => c.v === 2), bases, tanks, shots, effects };
+            }
+
+            /** 战场：地图、两个基地、两辆坦克和飞行中的子弹。地图按视图的大小缩放，保持正方形。 */
+            export const Board = {
+              props: ['state'],
+              setup(props) {
+                const play = player(draw);
+                // 同一局多 1 步时播这一步。新的一局（main 先把 now 设为 null）或者其他变化时，直接跳过去。
+                // flush 'sync'：每一次赋值都看到，所以两步在同一个时刻到达时也不跳过。
+                Vue.watch(() => props.state.now, (now, old) => {
+                  const s = now ? Vue.toRaw(now) : null;
+                  const was = old ? Vue.toRaw(old) : null;
+                  if (s && was && s.t === was.t + 1) play.play([{ from: was, to: s }]);
+                  else play.jump(s);
+                }, { immediate: true, flush: 'sync' });
+                Vue.onUnmounted(play.stop);
+                return { CELL, BRICK, MUTED, f: play.frame };
+              },
+              template: `
+                <svg v-if="f" :viewBox="'-1 -1 ' + (f.N * CELL + 2) + ' ' + (f.N * CELL + 2)" style="display: block; width: 100%; height: 100%"
+                  role="group" :aria-label="f.N + '×' + f.N + ' 地图，' + f.bricks.length + ' 格砖墙，' + f.steel.length + ' 格钢墙'">
+                  <rect :width="f.N * CELL" :height="f.N * CELL" fill="var(--bg)" stroke="var(--line-strong)" stroke-width="1" />
+                  <g v-for="b in f.bricks" :key="b.key">
+                    <rect :x="b.x + 0.5" :y="b.y + 0.5" :width="CELL - 1" :height="CELL - 1" :fill="BRICK" />
+                    <path :d="'M' + b.x + ' ' + (b.y + CELL / 2) + 'h' + CELL + 'M' + (b.x + CELL / 2) + ' ' + b.y + 'v' + (CELL / 2) + 'M' + (b.x + CELL / 4) + ' ' + (b.y + CELL / 2) + 'v' + (CELL / 2)"
+                      stroke="var(--bg)" stroke-width="1" />
+                  </g>
+                  <g v-for="b in f.steel" :key="b.key">
+                    <rect :x="b.x + 0.5" :y="b.y + 0.5" :width="CELL - 1" :height="CELL - 1" fill="var(--muted)" />
+                    <rect :x="b.x + 5" :y="b.y + 5" :width="CELL - 10" :height="CELL - 10" fill="var(--ink)" opacity="0.5" />
+                  </g>
+                  <g v-for="b in f.bases" :key="b.key" role="img" :aria-label="b.label" :transform="'translate(' + (b.x + CELL / 2) + ' ' + (b.y + CELL / 2) + ')'">
+                    <polygon points="0,-8 2.4,-2.5 8,-2.5 3.5,1.2 5.2,7 0,3.6 -5.2,7 -3.5,1.2 -8,-2.5 -2.4,-2.5" :fill="b.lost ? 'var(--muted)' : b.color" />
+                    <path v-if="b.lost" d="M-8 -8L8 8M8 -8L-8 8" stroke="var(--ink)" stroke-width="2" />
+                  </g>
+                  <g v-for="t in f.tanks" :key="t.key" :transform="t.transform" role="img" :aria-label="t.label" :opacity="t.hit ? 0.4 : 1">
+                    <rect x="-7" y="-7" width="14" height="14" rx="2" :fill="t.color" />
+                    <polygon points="0,-10 -4,-3 4,-3" fill="var(--ink)" />
+                    <path v-if="t.hit" d="M-8 -8L8 8M8 -8L-8 8" stroke="var(--ink)" stroke-width="2" />
+                  </g>
+                  <circle v-for="b in f.shots" :key="b.key" :cx="b.cx" :cy="b.cy" r="3" :fill="b.color" stroke="var(--ink)" role="img" :aria-label="b.label" />
+                  <g v-for="e in f.effects" :key="e.key" :transform="e.transform" :opacity="e.opacity" aria-hidden="true">
+                    <g v-if="e.kind === 'brick'" :fill="BRICK"><rect x="-7" y="-7" width="5" height="5" /><rect x="2" y="-6" width="5" height="4" /><rect x="-6" y="2" width="4" height="5" /><rect x="3" y="3" width="4" height="4" /></g>
+                    <path v-else-if="e.kind === 'spark'" d="M-6 0H6M0 -6V6M-4 -4L4 4M4 -4L-4 4" stroke="var(--spike, #f2bc4a)" stroke-width="1.5" />
+                    <g v-else-if="e.kind === 'boom'"><circle r="9" fill="var(--bad, #f0684d)" /><circle r="5" fill="var(--spike, #f2bc4a)" /></g>
+                    <circle v-else r="5" fill="var(--ink)" />
+                  </g>
+                </svg>
+                <div v-else :style="MUTED">正在调用「场景」的 battle…</div>`,
+            };
+
+            /** 侧栏：运行按钮，局号、种子和随机动作概率，结果，以及双方的坦克、子弹和基地。 */
+            export const Side = {
+              props: ['state', 'run'],
+              components: { Controls },
+              setup(props) {
+                const players = Vue.computed(() => SIDES.map((name, k) => {
+                  const now = props.state.now;
+                  const t = now?.tanks[k];
+                  const b = now?.shots[k];
+                  return { name, key: k, color: COLOR[k],
+                    base: `${k ? '顶部' : '底部'}的基地${!now ? '' : now.bases[k] ? '还在' : '被毁'}`,
+                    tank: !t ? '–' : t.on ? `(${t.x}, ${t.y}) 朝${DIR[t.d]}` : '被击中',
+                    shot: b?.on ? `(${b.x}, ${b.y}) 向${DIR[b.d]}` : '没有在飞' };
+                }));
+                const result = Vue.computed(() => outcome(props.state.now));
+                const percent = Vue.computed(() => (props.state.random === undefined ? '–' : `${Math.round(props.state.random * 100)}%`));
+                return { CARD, MUTED, ROW, players, result, percent };
+              },
+              template: `
+                <div style="display: flex; flex-direction: column; gap: 8px; min-width: 0">
+                  <Controls :run="run" />
+                  <div :style="MUTED">第 {{ state.game ?? '–' }} 局 · 种子 {{ state.seed ?? '–' }} · 随机动作 {{ percent }}</div>
+                  <div :style="CARD">
+                    <div :style="ROW"><span style="color: var(--muted)">结果</span><strong :style="{ color: result.color }">{{ result.text }}</strong></div>
+                    <div v-if="result.why" style="font-size: 11px; overflow-wrap: anywhere">{{ result.why }}</div>
+                  </div>
+                  <div v-for="p in players" :key="p.key" :style="CARD + '; border-left: 3px solid ' + p.color">
+                    <div :style="ROW">
+                      <span :style="{ color: p.color, fontWeight: 600 }">{{ p.name }}</span>
+                      <span :style="MUTED">{{ p.base }}</span>
+                    </div>
+                    <div :style="ROW + '; font-size: 11px'"><span style="color: var(--muted)">坦克</span><span>{{ p.tank }}</span></div>
+                    <div :style="ROW + '; font-size: 11px'"><span style="color: var(--muted)">子弹</span><span>{{ p.shot }}</span></div>
+                  </div>
+                </div>`,
+            };
+
+            /** 日志：每一步双方的动作（世界的方向，和战场一致，* 是随机动作），最后一行是结果。新的一步出现时滚到底部。 */
+            export const Log = {
+              props: ['state'],
+              setup(props) {
+                const box = Vue.ref(null);
+                const rows = Vue.computed(() => (props.state.log ?? []).map((e) => ({ t: e.t, acts: e.acts.map((a, k) => `${ACT[a] ?? a}${e.wild[k] ? ' *' : ''}`) })));
+                const result = Vue.computed(() => (props.state.now?.end >= 0 ? outcome(props.state.now) : null));
+                Vue.watch(() => rows.value.length, () => Vue.nextTick(() => { if (box.value) box.value.scrollTop = box.value.scrollHeight; }));
+                return { box, rows, result, SIDES, COLOR, MUTED, TH };
+              },
+              template: `
+                <div ref="box" style="height: 100%; overflow: auto; scrollbar-width: thin; font-size: 11px">
+                  <table v-if="rows.length" style="width: 100%; border-collapse: collapse; table-layout: fixed">
+                    <thead>
+                      <tr>
+                        <th :style="TH + '; width: 4em; color: var(--muted)'">步</th>
+                        <th v-for="(name, k) in SIDES" :key="name" :style="TH + '; color: ' + COLOR[k]">{{ name }}</th>
+                      </tr>
+                    </thead>
+                    <tbody style="font-family: var(--mono)">
+                      <tr v-for="r in rows" :key="r.t" style="border-top: 1px solid var(--line)">
+                        <td>{{ r.t }}</td><td v-for="(a, k) in r.acts" :key="k">{{ a }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div v-else :style="MUTED">点“单步”或“运行”开始对战。* 是随机动作。</div>
+                  <div v-if="result" style="margin-top: 6px; font-weight: 600; overflow-wrap: anywhere">
+                    结果：<span :style="{ color: result.color }">{{ result.text }}</span><span style="font-weight: 400">（{{ result.why }}）</span>
+                  </div>
+                </div>`,
+            };
+  vs_mid_net: { kind: network, title: 中（对战）, config: *mid }
+  vs_mid_readout: { kind: readout, title: 读出（中，对战）, config: *readout }
+  vs_big_net: { kind: network, title: 大（对战）, config: *big }
+  vs_big_readout: { kind: readout, title: 读出（大，对战）, config: *readout }
+wires:
+  value:
+    - params.params→scene.params
+    - rng.rng→scene.rng
+    - scene.actions→s1_a_readout.actions
+    - scene.actions→s1_b_readout.actions
+    - seeds.training→s1_a_trainer.training
+    - seeds.training→s1_b_trainer.training
+    - seeds.validation→s1_a_trainer.validation
+    - seeds.validation→s1_b_trainer.validation
+    - seeds.test→s1_a_evaluator.partition
+    - seeds.test→s1_b_evaluator.partition
+    - seeds.test→s1_a_execution.partition
+    - seeds.test→s1_b_execution.partition
+    - s1_a_loop.loop→s1_a_trainer.loop
+    - s1_a_loop.loop→s1_a_evaluator.loop
+    - s1_a_loop.loop→s1_a_execution.loop
+    - s1_a_loop.input→s1_a_net.in
+    - s1_a_net.scores→s1_a_readout.scores
+    - s1_a_readout.action→s1_a_loop.action
+    - s1_a_net.structure→s1_a_trainer.structure
+    - s1_a_trainer.run→s1_a_cands.run
+    - s1_a_cands.weights→s1_a_net.weights
+    - s1_a_evaluator.report→s1_a_report.report
+    - s1_a_execution.execution→s1_a_replay.execution
+    - s1_b_loop.loop→s1_b_trainer.loop
+    - s1_b_loop.loop→s1_b_evaluator.loop
+    - s1_b_loop.loop→s1_b_execution.loop
+    - s1_b_loop.input→s1_b_net.in
+    - s1_b_net.scores→s1_b_readout.scores
+    - s1_b_readout.action→s1_b_loop.action
+    - s1_b_net.structure→s1_b_trainer.structure
+    - s1_b_trainer.run→s1_b_cands.run
+    - s1_b_cands.weights→s1_b_net.weights
+    - s1_b_evaluator.report→s1_b_report.report
+    - s1_b_execution.execution→s1_b_replay.execution
+    - scene.actions→vs_mid_readout.actions
+    - scene.actions→vs_big_readout.actions
+    - vs_mid_net.scores→vs_mid_readout.scores
+    - vs_big_net.scores→vs_big_readout.scores
+    - scene.actions→s2_a_readout.actions
+    - scene.actions→s2_b_readout.actions
+    - seeds.training→s2_a_trainer.training
+    - seeds.training→s2_b_trainer.training
+    - seeds.validation→s2_a_trainer.validation
+    - seeds.validation→s2_b_trainer.validation
+    - seeds.test→s2_a_evaluator.partition
+    - seeds.test→s2_b_evaluator.partition
+    - seeds.test→s2_a_execution.partition
+    - seeds.test→s2_b_execution.partition
+    - s2_a_loop.loop→s2_a_trainer.loop
+    - s2_a_loop.loop→s2_a_evaluator.loop
+    - s2_a_loop.loop→s2_a_execution.loop
+    - s2_a_loop.input→s2_a_net.in
+    - s2_a_net.scores→s2_a_readout.scores
+    - s2_a_readout.action→s2_a_loop.action
+    - s2_a_net.structure→s2_a_trainer.structure
+    - s2_a_trainer.run→s2_a_cands.run
+    - s2_a_cands.weights→s2_a_net.weights
+    - s2_a_evaluator.report→s2_a_report.report
+    - s2_a_execution.execution→s2_a_replay.execution
+    - s2_b_loop.loop→s2_b_trainer.loop
+    - s2_b_loop.loop→s2_b_evaluator.loop
+    - s2_b_loop.loop→s2_b_execution.loop
+    - s2_b_loop.input→s2_b_net.in
+    - s2_b_net.scores→s2_b_readout.scores
+    - s2_b_readout.action→s2_b_loop.action
+    - s2_b_net.structure→s2_b_trainer.structure
+    - s2_b_trainer.run→s2_b_cands.run
+    - s2_b_cands.weights→s2_b_net.weights
+    - s2_b_evaluator.report→s2_b_report.report
+    - s2_b_execution.execution→s2_b_replay.execution
+    - s2_a_cands.weights→vs_mid_net.weights
+    - s2_b_cands.weights→vs_big_net.weights
+    - duel.params→scene.duel
+    - s1_a_cands.weights→s2_a_trainer.init
+    - s1_b_cands.weights→s2_b_trainer.init
+    - s1_a_evaluator.report→s2_a_trainer.gate
+    - s1_b_evaluator.report→s2_b_trainer.gate
+  call:
+    - scene.module→s1_a_loop.scenario
+    - scene.module→s1_b_loop.scenario
+    - scene.teacher→s1_a_trainer.objective
+    - scene.teacher→s1_b_trainer.objective
+    - agreeRate→s1_a_evaluator.metrics
+    - clearRate→s1_a_evaluator.metrics
+    - killCount→s1_a_evaluator.metrics
+    - baseKept→s1_a_evaluator.metrics
+    - agreeRate→s1_b_evaluator.metrics
+    - clearRate→s1_b_evaluator.metrics
+    - killCount→s1_b_evaluator.metrics
+    - baseKept→s1_b_evaluator.metrics
+    - scene.module→s2_a_loop.scenario
+    - scene.module→s2_b_loop.scenario
+    - scene.duelReward→s2_a_trainer.objective
+    - scene.duelReward→s2_b_trainer.objective
+    - scene.duelReward→s2_a_evaluator.objective
+    - scene.duelReward→s2_b_evaluator.objective
+    - winRate→s2_a_evaluator.metrics
+    - killRate→s2_a_evaluator.metrics
+    - hitRate→s2_a_evaluator.metrics
+    - timeoutRate→s2_a_evaluator.metrics
+    - winRate→s2_b_evaluator.metrics
+    - killRate→s2_b_evaluator.metrics
+    - hitRate→s2_b_evaluator.metrics
+    - timeoutRate→s2_b_evaluator.metrics
+    - vs_mid_readout.run→vs_battle.红方
+    - vs_big_readout.run→vs_battle.蓝方
+    - scene.battle→vs_battle.battle
+    - scene.view→vs_battle.view
+    - scene.play→vs_battle.play
+# 每个训练模块训练一个网络：阶段 1 和阶段 2 各有“中”和“大”两个带槽位的组合，每个组合有一个训练器和一个回路框。
+# 它们外面的模块是共用的：参数、对战训练参数、随机数、种子分区、场景和 8 个指标。
+# 阶段 2 的 init 和 gate 连线从阶段 1 同一个结构的候选和评估器来，它们是预期的连线，不是槽位。
+groups:
+  s1_a_box: { title: 回路（中）, loop: s1_a_loop, members: [s1_a_loop, s1_a_net, s1_a_readout] }
+  s1_b_box: { title: 回路（大）, loop: s1_b_loop, members: [s1_b_loop, s1_b_net, s1_b_readout] }
+  s1_a:
+    title: 阶段 1 · 模仿（中）
+    members: [s1_a_box, s1_a_trainer, s1_a_cands, s1_a_evaluator, s1_a_report, s1_a_execution, s1_a_replay]
+    expose: [s1_a_cands.artifact]
+    slots:
+      - { id: scenario, title: 场景, port: s1_a_loop.scenario, create: [{ kind: code, title: 场景, ports: { module: scenario } }] }
+      - id: training
+        title: 训练集
+        port: s1_a_trainer.training
+        create: [{ kind: partition, title: 分区, ports: { training: training, validation: validation } }]
+      - { id: validation, title: 验证集, port: s1_a_trainer.validation }
+      - { id: objective, title: 目标, port: s1_a_trainer.objective, create: [{ kind: code, title: 目标位 }] }
+  s1_b:
+    title: 阶段 1 · 模仿（大）
+    members: [s1_b_box, s1_b_trainer, s1_b_cands, s1_b_evaluator, s1_b_report, s1_b_execution, s1_b_replay]
+    expose: [s1_b_cands.artifact]
+    slots:
+      - { id: scenario, title: 场景, port: s1_b_loop.scenario, create: [{ kind: code, title: 场景, ports: { module: scenario } }] }
+      - id: training
+        title: 训练集
+        port: s1_b_trainer.training
+        create: [{ kind: partition, title: 分区, ports: { training: training, validation: validation } }]
+      - { id: validation, title: 验证集, port: s1_b_trainer.validation }
+      - { id: objective, title: 目标, port: s1_b_trainer.objective, create: [{ kind: code, title: 目标位 }] }
+  s2_a_box: { title: 回路（中，阶段 2）, loop: s2_a_loop, members: [s2_a_loop, s2_a_net, s2_a_readout] }
+  s2_b_box: { title: 回路（大，阶段 2）, loop: s2_b_loop, members: [s2_b_loop, s2_b_net, s2_b_readout] }
+  s2_a:
+    title: 阶段 2 · 对战训练（中）
+    members: [s2_a_box, s2_a_trainer, s2_a_cands, s2_a_evaluator, s2_a_report, s2_a_execution, s2_a_replay]
+    expose: [s2_a_cands.artifact]
+    slots:
+      - { id: scenario, title: 场景, port: s2_a_loop.scenario, create: [{ kind: code, title: 场景, ports: { module: scenario } }] }
+      - id: training
+        title: 训练集
+        port: s2_a_trainer.training
+        create: [{ kind: partition, title: 分区, ports: { training: training, validation: validation } }]
+      - { id: validation, title: 验证集, port: s2_a_trainer.validation }
+      - { id: objective, title: 奖励, port: s2_a_trainer.objective, create: [{ kind: code, title: 奖励 }] }
+  s2_b:
+    title: 阶段 2 · 对战训练（大）
+    members: [s2_b_box, s2_b_trainer, s2_b_cands, s2_b_evaluator, s2_b_report, s2_b_execution, s2_b_replay]
+    expose: [s2_b_cands.artifact]
+    slots:
+      - { id: scenario, title: 场景, port: s2_b_loop.scenario, create: [{ kind: code, title: 场景, ports: { module: scenario } }] }
+      - id: training
+        title: 训练集
+        port: s2_b_trainer.training
+        create: [{ kind: partition, title: 分区, ports: { training: training, validation: validation } }]
+      - { id: validation, title: 验证集, port: s2_b_trainer.validation }
+      - { id: objective, title: 奖励, port: s2_b_trainer.objective, create: [{ kind: code, title: 奖励 }] }
+expose: [s2_a_cands.artifact, s2_b_cands.artifact]

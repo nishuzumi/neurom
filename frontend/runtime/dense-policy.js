@@ -1,6 +1,6 @@
 // runtime/dense-policy.js — the dense FF / LIF integer engine (`dense-policy` models, engine `dense-policy`).
 // It does the exact arithmetic that contracts/src/modules/DensePolicyEngine.sol does (ADR 0010, ADR 0014). Sessions,
-// trainers and export share it. It is UI-independent and scenario-free. Inputs and outputs are any binary width 1..256
+// trainers and export share it. It is UI-independent and scenario-free. Inputs and outputs are any binary width 1..65535
 // (the loop around the network and its readout decide). The code that knows the task checks whether the widths of a
 // model match the task (core/sessions/executor.js modelProblem against the structure of the loop network).
 // Model: `{ format, kind, inputs, outputs, weightBits, ticks, leak_shift, reset, layers, output? }` (ADR 0015).
@@ -26,11 +26,12 @@
 //   - A tool layer with no plain layer before it in its segment reads the input bits of that segment and gives them
 //     on. Its biases are not scaled.
 import { t } from '../i18n.js';
+import { MAX_BITS } from '../core/types.js';
 
 export const DENSE_FORMAT = 'dense-policy';
 /** Model kinds. index = the on-chain kind code (ModuleKinds). */
 export const DENSE_KINDS = Object.freeze(['feedforward', 'lif']);
-const MIN_PORT = 1, MAX_PORT = 256, MAX_LAYERS = 8, MAX_SHIFT = 20, INT32_MAX = 2147483647;
+const MIN_PORT = 1, MAX_PORT = MAX_BITS, MAX_LAYERS = 8, MAX_SHIFT = 20, INT32_MAX = 2147483647;
 /** The weight widths a model may use (ADR 0015). */
 export const WEIGHT_BITS = Object.freeze([8, 16]);
 
@@ -75,7 +76,7 @@ export function validateDenseModel(model) {
   model.layers.forEach((layer, l) => {
     if (layer && typeof layer === 'object' && Object.hasOwn(layer, 'tools')) {
       if (typeof layer.tools !== 'string' || !layer.tools) throw new Error(t('第 {index} 层的 tools 必须是端口名', { index: l + 1 }));
-      for (const name of ['K', 'D', 'R']) boundedInteger(layer[name], 1, 256, `layers[${l}].${name}`);
+      for (const name of ['K', 'D', 'R']) boundedInteger(layer[name], 1, MAX_BITS, `layers[${l}].${name}`);
       matrix(layer.Wc, layer.K, width, `layers[${l}].Wc`);
       vector(layer.bc, layer.K, `layers[${l}].bc`);
       checkUnit(layer.scale_c, layer.k_c, `layers[${l}].Wc`);
@@ -86,7 +87,7 @@ export function validateDenseModel(model) {
       return;
     }
     if (!layer || typeof layer !== 'object' || !Object.hasOwn(layer, 'hidden')) throw new Error(t('第 {index} 层必须是带 hidden 宽度的普通层', { index: l + 1 }));
-    boundedInteger(layer.hidden, 1, 256, `layers[${l}].hidden`);
+    boundedInteger(layer.hidden, 1, MAX_BITS, `layers[${l}].hidden`);
     matrix(layer.W, layer.hidden, width, `layers[${l}].W`);
     vector(layer.b, layer.hidden, `layers[${l}].b`);
     checkUnit(layer.scale, layer.k, `layers[${l}]`);
@@ -113,7 +114,8 @@ export const isTool = layer => Object.hasOwn(layer, 'tools');
 /** Length of a dense model's temporal state (and of its counts): the widths of all its plain layers, one after another. */
 export const denseStateWidth = model => model.layers.reduce((sum, layer) => sum + (isTool(layer) ? 0 : layer.hidden), 0);
 
-/** (Σ_i row[i]·x[i])·2^k + factor·bias — one neuron of a region (exact: |Σ·2^k| stays far below 2^53). */
+/** (Σ_i row[i]·x[i])·2^k + factor·bias — one neuron of a region. Σ is exact. The result is exact while |Σ·2^k| < 2^53:
+ *  scores beyond that lose their low bits (the engine computes them in int256). */
 const affine = (row, x, k, bias, factor) => { let s = 0; for (let i = 0; i < row.length; i++) s += row[i] * x[i]; return s * 2 ** k + factor * bias; };
 
 /** A tool layer's greedy decision on `prev` (biases × `factor`), then the chosen tool's result zero-extended to R. */

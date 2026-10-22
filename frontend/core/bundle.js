@@ -18,7 +18,7 @@ import { loopAnalysis, driversStart, loopOf, graphView } from './kinds/loop.js';
 import { analyseModule } from './kinds/code.js';
 import { randomTables } from './kinds/random.js';
 import { ROLES } from './kinds/partition.js';
-import { loopSection } from './loop.js';
+import { loopSection, initModel } from './loop.js';
 import { t } from '../i18n.js';
 
 const BUNDLE_FORMAT = 'neurom-bundle';
@@ -106,8 +106,8 @@ function fileValues(graph, res, codeId, node = graph.node(codeId)) {
   return out;
 }
 /** Bundle entry for the exported function `fn` of code module `codeId`, typed by `boundTypes`: its program and the
- *  static values of the file-level names it reads. */
-function functionEntry(graph, res, codeId, fn, boundTypes, exact) {
+ *  static values of the file-level names it reads. A script module (core/script-calls.js) runs the same entry. */
+export function functionEntry(graph, res, codeId, fn, boundTypes, exact) {
   const values = fileValues(graph, res, codeId), f = values.module.functions[fn];
   return { program: f.program, bound: Object.fromEntries(f.bound.map(n => [n, values.value(n)])), boundTypes: { ...boundTypes }, exact };
 }
@@ -125,7 +125,8 @@ export function programEntry(graph, res, nodeId, port, wire = null) {
 /**
  * The `env` section of loop `loopId`: every role its scenario module exports, as the runner calls it, and its
  * `budget` / `actions`. The partitions the loop's drivers run it on type them. Their episode kind is what init
- * receives, and the dataset wired into them is the table the steps read.
+ * receives, and the dataset wired into them is the table the steps read. `programs` is keyed by role: the loop's
+ * `roles` config names the export that fills each one (roleExports), and the runner never sees that name.
  */
 export function envBundle(graph, loopId, res = graph.resolved()) {
   const loop = graph.node(loopId), sceneWire = producerOf(graph, loopId, 'scenario');
@@ -134,10 +135,10 @@ export function envBundle(graph, loopId, res = graph.resolved()) {
   if (errors.length) throw new BundleError(t('{title} 的场景尚有问题：{message}', { title: loop.title, message: errors[0].message }), errors);
   const view = graphView(graph, res), start = driversStart(view, loopId), { tag } = start;
   if (!tag) throw new BundleError(t('回路 {title} 还没有驱动它的分区', { title: loop.title }));
-  const { refs, calls } = loopAnalysis(loop, view);
+  const { refs, calls, exports } = loopAnalysis(loop, view);
   const scene = graph.node(sceneWire.node), values = fileValues(graph, res, scene.id), mod = values.module;
   const programs = {};
-  for (const name of SCENARIO_CALLS) if (mod.functions[name]) programs[name] = functionEntry(graph, res, scene.id, name, calls[name].bound, true);
+  for (const role of SCENARIO_CALLS) if (mod.functions[exports[role]]) programs[role] = functionEntry(graph, res, scene.id, exports[role], calls[role].bound, true);
   const out = {
     programs,
     budget: values.value(BUDGET),
@@ -175,8 +176,8 @@ export function partitionEntry(graph, nodeId, port) {
 }
 
 /** Build the bundle a consumer node (trainer / evaluator / execution) needs. `artifacts(id) → artifact | null` finds
- *  the accepted weights of the loop's networks (not of the trained one). Throws BundleError with the blocking
- *  problems when the graph is not ready. Pure JSON, canonical key order. */
+ *  the accepted weights of the loop's networks (not of the trained one) and the start of a trainer's run (`init`,
+ *  ADR 0020). Throws BundleError with the blocking problems when the graph is not ready. Pure JSON, canonical key order. */
 export function buildBundle(graph, consumerId, { res = graph.resolved(), artifacts = null } = {}) {
   const consumer = graph.node(consumerId);
   if (!CONSUMERS.has(consumer.kind)) throw new BundleError(t('{title} 不是训练器 / 评估器 / 执行实例', { title: consumer.title }));
@@ -192,13 +193,15 @@ export function buildBundle(graph, consumerId, { res = graph.resolved(), artifac
   const partition = port => { const entry = partitionEntry(graph, consumerId, port); if (!entry) throw new BundleError(t('必需输入 {port} 尚未连接', { port })); return entry; };
   const program = (port, wire = null) => { const e = programEntry(graph, res, consumerId, port, wire); return { program: e.program, bound: e.bound, boundTypes: e.boundTypes, exact: false }; };
   if (consumer.kind === 'trainer') {
-    const { method, ...recipe } = consumer.config;
+    const { method, gate, ...recipe } = consumer.config;                // the gate is checked before a run (sessions/trainer.js), not by the run
     bundle.objective = { kind: METHODS[method].objective, ...program('objective') };
     bundle.selection = producerOf(graph, consumerId, 'metric') ? program('metric') : null;
     bundle.partitions = { training: partition('training') };
     const validation = partitionEntry(graph, consumerId, 'validation');
     if (validation) bundle.partitions.validation = validation;
     bundle.recipe = { method, ...recipe };
+    const init = initModel(graph, res, consumer, graph.node(trained), artifacts);
+    if (init) bundle.init = init;
   }
   if (consumer.kind === 'evaluator') {
     bundle.partitions = { test: partition('partition') };

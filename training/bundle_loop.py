@@ -21,7 +21,8 @@ Each result can also have `'tools'` (the records of its tool layers, in the shap
 the results as loop.js checks them. The executor can call fn more than once per step, on disjoint lanes. Values of
 lanes a node did not run on are neutral zeros, and so are their tool records.
 A network with tool layers carries `tools: {port: [Tool…]}` (wire order). Each Tool is one of these entries:
-    {kind: 'net', structure, model, readout, tools?}    a frozen network of any kind, read through its bits readout.
+    {kind: 'net', structure, model, readout, tools?}    a frozen network of any kind, read through its readout (bits:
+                                                        score ≥ 0; argmax: one-hot of the first maximum).
                                                         It reads the first `inputs` data bits. It has `tools` iff its
                                                         structure has tool layers (the same shape).
     {kind: 'program', program, bound, boundTypes, exact}    typed at bits[D]
@@ -208,7 +209,7 @@ class _CodeTool:
 
 class _NetTool:
     """A frozen network tool (twin of loop.js toolRunner): its model on the first `inputs` data bits from its state
-    (own potentials ‖ its own tools' states, through its nested ToolCaller), read through its bits readout."""
+    (own potentials ‖ its own tools' states, through its nested ToolCaller), read through its readout (bits or argmax)."""
 
     def __init__(self, tool, name):
         m, st = tool.get('model'), tool.get('structure') or {}

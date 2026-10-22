@@ -44,8 +44,13 @@ export function useBuffered(stored: () => string, commit: (text: string) => bool
  *  when the patch is refused (nothing applied). Otherwise returns the message that names wires that could not be
  *  carried, or null. */
 export function carryInputWires(wb: Workbench, nodeId: string, old: string[], next: string[], label: string, patch: Record<string, unknown>): string | null {
+  return carryInputLists(wb, nodeId, [[old, next]], label, patch);
+}
+/** carryInputWires for a module with several name lists (a script module's function and value inputs): each
+ *  `[old, next]` pair follows the rule on its own. */
+export function carryInputLists(wb: Workbench, nodeId: string, lists: [string[], string[]][], label: string, patch: Record<string, unknown>): string | null {
   const moves: { wire: Wire; to: string | null }[] = [];
-  old.forEach((name, i) => {
+  for (const [old, next] of lists) old.forEach((name, i) => {
     const to = next.length === old.length ? next[i] : next.includes(name) ? name : null;
     if (to === name) return;
     for (const p of wb.graph.producers(nodeId, name)) moves.push({ wire: p.wire, to });

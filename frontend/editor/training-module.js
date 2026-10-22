@@ -155,7 +155,8 @@ export function moveSection(columns, key, to) {
  * @property {Rect | null} content the union of the frame's canvas members, null when it has none
  * @property {{ x: number, y: number }} corner the group's stored corner: the well's place when it holds nothing
  * @property {number | undefined} height the frame's measured height, after the browser draws it
- * @property {() => Rect[]} neighbours the other units at the frame's level (asked only when the frame splits itself)
+ * @property {() => Rect[]} neighbours the other units at the frame's level (asked only when the frame splits itself). It
+ *   returns no units while Arrange lays out that level, because Arrange then places them around the frame.
  */
 /**
  * @typedef {object} SectionColumns one editor's memory of how its frames split their sections into columns

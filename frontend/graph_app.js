@@ -2,13 +2,15 @@
 // (frontend/editor) renders. Everything on the canvas is a module of a registered kind. Composites are template
 // instances, stored as groups. This file owns:
 //   - bootstrap
-//   - persistence: localStorage and `neurom-workbench` files (a local save that it cannot read opens the conflict panel)
+//   - persistence: localStorage (artifacts in IndexedDB, core/local-save.js) and `neurom-workbench` files (a local save
+//     that it cannot read opens the conflict panel)
 //   - the per-node sessions hub that the module bodies use
 //   - the palette (kinds, templates, presets) and the template library drawer
 //   - the Python Workspace connection.
 import { shallowRef } from 'vue';
 import './core/kinds/index.js';
 import { Workspace } from './core/store.js';
+import { createArtifactStore, localText, openLocal, savedIds } from './core/local-save.js';
 import { kinds } from './core/registry.js';
 import { instantiateInto } from './core/template.js';
 import { structureOf } from './core/loop.js';
@@ -33,6 +35,8 @@ let editor = null, library = null, unsubscribeStore = null, saveTimer = null, wa
 /** the header notes (save state, Python connection): set at boot, they follow the language */
 let saveNote = null, pythonNote = null;
 const datasets = createDatasetStore();
+/** the artifacts of the local save (core/local-save.js): localStorage names them, IndexedDB holds them */
+const artifactStore = createArtifactStore();
 const python = { client: new WorkspaceClient(''), connected: shallowRef(false) };
 
 // ------------------------------------------------------------------ sessions hub: one controller per (kind, node), disposed when the node leaves the graph
@@ -40,7 +44,7 @@ const python = { client: new WorkspaceClient(''), connected: shallowRef(false) }
 // The workbench does not save what a session keeps for itself (a report, the history of an execution).
 const sessions = new Map();
 const FACTORIES = {
-  trainer: nodeId => createTrainerSession({ workspace: store, nodeId, client: python.client, datasets }),
+  trainer: nodeId => createTrainerSession({ workspace: store, nodeId, client: python.client, datasets, evaluators: id => session('evaluator', id) }),
   candidates: nodeId => createCandidatesSession({ workspace: store, nodeId }),
   network: nodeId => createNetworkSession({ workspace: store, nodeId, builtins: builtinArtifacts }),
   evaluator: nodeId => createEvaluatorSession({ workspace: store, nodeId, datasets }),
@@ -81,25 +85,46 @@ let dirty = false;
 let foreign = null;
 /** the local save this tab could not restore, while the conflict panel is open: `{ text, error }` (its raw text, why) */
 let conflict = null;
-function saveWorkspace() {
+/** the artifact ids that the store is known to have (a save names only these, core/local-save.js). Nothing deletes
+ *  from the store, so an id never leaves this set */
+const stored = new Set();
+/** the artifacts being written to the store now, or null. A failed write leaves the artifacts in the text from then on */
+let storing = null, storeFailed = false;
+/** Write the save now (synchronously, also on pagehide). An artifact that the store does not have yet stays in the
+ *  text. Unless `final`, such artifacts first go to the store, and the save follows when they are there. */
+function saveWorkspace(final = false) {
   clearTimeout(saveTimer); saveTimer = null;
   if (!dirty || conflict) return;
   if (foreign) { showForeign(); return; }
+  if (editor) store.settings.canvas = editor.snapshot();
+  const json = store.toJSON();
+  const missing = artifactStore && !storeFailed ? json.artifacts.filter(a => !stored.has(a.id)) : [];
+  if (missing.length && !final) { storeArtifacts(missing); return; }
   try {
-    if (editor) store.settings.canvas = editor.snapshot();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store.toJSON()));
+    localStorage.setItem(STORAGE_KEY, localText(json, stored));
     dirty = false;
     saveNote.show('已自动保存 {time}', { time: new Date().toLocaleTimeString() });
   } catch (e) { saveNote.show('保存失败：{error}', { error: e.message }); }
 }
+function storeArtifacts(list) {
+  storing ??= (async () => { for (const a of list) { await artifactStore.put(a); stored.add(a.id); } })()
+    .catch(e => { storeFailed = true; saveNote.show('保存失败：{error}', { error: e.message }); })
+    .finally(() => { storing = null; if (dirty) persist(); });
+}
 function persist() { dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(saveWorkspace, 300); }
-/** a workspace's content without the canvas view: a save that only moved the other tab's view is the same work */
-const work = json => { const o = JSON.parse(typeof json === 'string' ? json : JSON.stringify(json)); if (o.settings) delete o.settings.canvas; return JSON.stringify(o); };
+/** a save's content without the canvas view, its artifacts as a sorted id list (in the text or named): a save that only
+ *  moved the other tab's view, or stored other artifacts, is the same work */
+const work = text => {
+  const o = JSON.parse(text); if (o.settings) delete o.settings.canvas;
+  o.artifacts = [...(o.artifactIds ?? []), ...o.artifacts.map(a => a.id)].sort(); delete o.artifactIds;
+  return JSON.stringify(o);
+};
 /** a training run in flight here: taking another save would dispose the sessions driving it */
 const training = ws => [...ws.runs.values()].some(r => r.status === 'queued' || r.status === 'running');
 function followOtherTab(event) {
   if (conflict || event.storageArea !== localStorage || event.key !== STORAGE_KEY || !event.newValue) return;
-  let same = false; try { same = work(event.newValue) === work(store.toJSON()); } catch { same = false; }
+  for (const id of savedIds(event.newValue)) stored.add(id);           // the other tab stored them
+  let same = false; try { same = work(event.newValue) === work(JSON.stringify(store.toJSON())); } catch { same = false; }
   foreign = same ? null : event.newValue;
   showForeign();
 }
@@ -113,9 +138,10 @@ function showForeign() {
 }
 async function loadForeign() {
   const json = foreign; if (!json || training(store)) return;
-  let ws; try { ws = await Workspace.parse(json); } catch (e) { status(t('不能载入另一个标签页的工作区：{error}', { error: e.message }), 'bad'); return; }
+  let ws; try { ws = await Workspace.parse(await openLocal(json, artifactStore)); } catch (e) { status(t('不能载入另一个标签页的工作区：{error}', { error: e.message }), 'bad'); return; }
   if (foreign !== json) return;   // a newer save arrived meanwhile: answer that one
   foreign = null; dirty = false; clearTimeout(saveTimer); saveTimer = null;
+  for (const id of savedIds(json)) stored.add(id);                     // it opened, so the store has them
   adopt(ws); showForeign();
   saveNote.show('已载入另一个标签页的工作区 {time}', { time: new Date().toLocaleTimeString() });
 }
@@ -124,7 +150,7 @@ function keepThisTab() { foreign = null; showForeign(); dirty = true; saveWorksp
 async function restoreLocal() {
   const text = localStorage.getItem(STORAGE_KEY);
   if (text === null) return { workspace: new Workspace(), conflict: null };
-  try { return { workspace: await Workspace.parse(text), conflict: null }; }
+  try { const workspace = await Workspace.parse(await openLocal(text, artifactStore)); for (const id of savedIds(text)) stored.add(id); return { workspace, conflict: null }; }
   catch (error) { return { workspace: new Workspace(), conflict: { text, error } }; }
 }
 
@@ -139,7 +165,11 @@ function showConflict() {
   if (!$('conflict').open) $('conflict').showModal();
 }
 function conflictError(text) { $('conflict-error').textContent = text; $('conflict-error').hidden = !text; }
-function exportConflict() { download(`neurom-workbench-local-${stamp()}.json`, conflict.text); }
+/** the unreadable local save, with the artifacts that the store still has back in their place */
+async function exportConflict() {
+  let text = conflict.text; try { text = await openLocal(text, artifactStore); } catch { /* an artifact is missing: export the save as it is */ }
+  download(`neurom-workbench-local-${stamp()}.json`, text);
+}
 /** Close the panel with `ws` as this tab's workspace. A save another tab wrote while it was open is asked about like
  *  any other tab's save (#sync-note), so nothing here writes over it. */
 function resolveConflict(ws) {
@@ -165,7 +195,8 @@ function discardConflict() {
 }
 /** Make `ws` this tab's workspace (startup, opening a file, another tab's save, clearing). Only this function reclaims
  *  the dataset rows that nothing in `ws` references. The undo history that could still need them ends with the old
- *  workspace. While a conflict is open, nothing is reclaimed, because the unreadable save can reference rows. */
+ *  workspace. While a conflict is open, nothing is reclaimed, because the unreadable save can reference rows. Stored
+ *  artifacts are never reclaimed (core/local-save.js). */
 function adopt(ws) {
   unsubscribeStore?.(); disposeSessions();
   store = ws;
@@ -216,11 +247,12 @@ function templateByKey(key) {
   if (key.startsWith('user:')) { const at = key.lastIndexOf('@'); return store.template(key.slice(5, at), Number(key.slice(at + 1))); }
   return builtinTemplate(key);
 }
-/** A template instance, arranged. A prefab (a template with slots) opens as its frame: its group and the groups nested
- *  in it are expanded, so its slots show at once. Call it inside an edit. */
+/** A template instance, arranged. A prefab (a template with slots on its own group or on a nested group) opens as its
+ *  frames: the instance's group and the groups nested in it are expanded, so the slots show at once. Call it inside an
+ *  edit. */
 function place(template, at) {
-  const r = instantiateInto(store.graph, template, at);
-  if (r.group?.prefab) for (const id of [r.group.id, ...Object.values(r.groupIds)]) store.graph.setGroupLayout(id, { collapsed: false });
+  const r = instantiateInto(store.graph, template, at), groups = r.group ? [r.group.id, ...Object.values(r.groupIds)] : [];
+  if (groups.some(id => store.graph.group(id).prefab)) for (const id of groups) store.graph.setGroupLayout(id, { collapsed: false });
   editor.arrange(r.nodes.map(n => n.id));
   return r;
 }
@@ -380,7 +412,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     persist, download,
   });
   adopt(store);
-  window.addEventListener('pagehide', event => { saveWorkspace(); if (!event.persisted) { unsubscribeStore?.(); disposeSessions(); editor.dispose(); } });
+  window.addEventListener('pagehide', event => { saveWorkspace(true); if (!event.persisted) { unsubscribeStore?.(); disposeSessions(); editor.dispose(); } });
+  // while artifacts go to IndexedDB, the final save holds them in its text, which can exceed the localStorage quota
+  window.addEventListener('beforeunload', event => { if (storing) event.preventDefault(); });
   window.addEventListener('storage', followOtherTab);
   $('sync-load').onclick = loadForeign; $('sync-keep').onclick = keepThisTab;
   document.querySelectorAll('[data-drawer]').forEach(b => b.onclick = () => showDrawer(b.dataset.drawer));

@@ -1,6 +1,6 @@
 // The callee hook (core/registry.js): what the kind behind a call wire answers for it — the width it reads, the result
 // type or why the call does not type, the program's params and what a bundle carries. One adapter per kind with call
-// outputs: a code module's exported functions and a bits readout's `run`.
+// outputs: a code module's exported functions and a readout's `run` (bits or argmax).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import './kinds/index.js';
@@ -64,12 +64,25 @@ test('bits readout run: reads the first I bits of one bit vector; carries its fr
   assert.match(run.call([NUMBER], { caller: 'caller' }).error.message, /只收一个位向量参数/);
   assert.match(run.call([bits(2), bits(2)], { caller: 'caller' }).error.message, /只收一个位向量参数/);
   assert.equal(callee(g, readout, 'bits'), null);
-  g.patchConfig(readout.id, { mode: 'argmax', map: [0, 1] });
-  assert.equal(callee(g, g.node(readout.id), 'run'), null, 'an argmax readout has no run');
   const lone = g.addNode({ kind: 'readout', title: 'L', config: { mode: 'bits', width: 2, decode: 'lsb-int' } });
   const none = callee(g, lone, 'run');
   assert.equal(none.width, null);
   assert.match(none.call([bits(2)], { caller: 'caller' }).error.message, /L 的 run 需要它的 scores 接一个网络/);
+});
+
+test('argmax readout run: the same call, its result is bits[map length] (the one-hot of the argmax)', () => {
+  const { g, network, readout } = runGraph();
+  g.patchConfig(readout.id, { mode: 'argmax', map: [2, null, 0, 1] });
+  const run = callee(g, g.node(readout.id), 'run');
+  assert.equal(run.width, 2, 'its network\'s inputs');
+  const r = run.call([bits(3)], { exact: false, caller: 'caller' });
+  assert.equal(r.error, null);
+  assert.deepEqual(r.result, bits(4));
+  assert.deepEqual(r.paramTypes, [bits(2)]);
+  assert.deepEqual(r.carries, { kind: 'net', network: g.node(network.id), readout: { mode: 'argmax', map: [2, null, 0, 1], width: 4 } });
+  assert.match(run.call([bits(1)], { caller: 'caller' }).error.message, /R 的 run 需要 2 位输入，调用方只给 1 位/);
+  assert.match(run.call([bits(2)], { caller: network.id }).error.message, /网络不能把自己当工具/);
+  assert.ok(g.resolved().portsOf(readout.id).outputs.some(p => p.id === 'run' && p.wire === 'call'), 'the readout offers the call output run');
 });
 
 test('bits readout run: its network must be fit to be a tool — any kind, its own tool layers included, untrained, not the caller', () => {

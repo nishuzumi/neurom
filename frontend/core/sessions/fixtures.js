@@ -72,7 +72,7 @@ export function deepThresholdArtifact(add4, { weightBits = 8 } = {}) {
   return makeArtifact({ bundle, model: { format: 'threshold-layers', inputs: 8, outputs: 5, weightBits, layers }, provenance: { test: 'deep threshold' } });
 }
 
-/** The Tool entry (core/loop.js) of a network artifact read through its own bits readout. */
+/** The Tool entry (core/loop.js) of a network artifact read through its own readout. */
 function toolEntry(artifact) {
   const tr = trainedOf(artifact.bundle.loop), tools = artifact.bundle.loop.nodes[tr.id].tools;
   return { kind: 'net', structure: tr.structure, model: artifact.model, artifactId: artifact.id, readout: tr.readout, ...(tools ? { tools } : {}) };

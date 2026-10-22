@@ -19,7 +19,7 @@ import { episodesOf } from '../core/sessions/common.js';
 import { THRESHOLD_FORMAT } from '../runtime/threshold-layers.js';
 import { ADAM, rngOf } from './dense-core.js';
 import { quantizeRegion } from './quantize.js';
-import { Run, selectionOf, validateGreedy, validationEpisodes, finishResult, always } from './run.js';
+import { Run, selectionOf, validateGreedy, validationEpisodes, finishResult, always, startEvaluation } from './run.js';
 import { t } from '../i18n.js';
 
 /** Roll every episode out with the teacher. Rows are `{ X: number[], Y: number[] }`, episode by episode. */
@@ -43,15 +43,27 @@ function teacherRows(bundle, episodes, tables, I, O) {
 export class ThresholdNet {
   constructor(sizes, seed, weightBits) {
     const r = rngOf(seed);
-    this.weightBits = weightBits; this.t = 0; this.L = [];
+    this.weightBits = weightBits; this.t = 0; this.L = []; this.start = null;
     for (let l = 0; l < sizes.length - 1; l++) {
       const n = sizes[l + 1], m = sizes[l], W = new Float64Array(n * m), a = Math.sqrt(3 / m);
       for (let k = 0; k < W.length; k++) W[k] = (r() * 2 - 1) * a;
       this.L.push({ n, m, W, b: new Float64Array(n), mW: new Float64Array(n * m), vW: new Float64Array(n * m), mb: new Float64Array(n), vb: new Float64Array(n) });
     }
   }
-  /** The QAT integers of every layer (quantizeRegion: W codes, b codes, k, gain, scale, clipped counts). */
-  quantized() { return this.L.map(l => quantizeRegion(l.W, l.b, this.weightBits, 'threshold')); }
+  /** The QAT integers of every layer (quantizeRegion: W codes, b codes, k, gain, scale, clipped counts). Before the
+   *  first update of a restored net, these are the integers of the start model. */
+  quantized() { return this.start ?? this.L.map(l => quantizeRegion(l.W, l.b, this.weightBits, 'threshold')); }
+  /** Start from `model` (a `threshold-layers` model of these sizes: the start of a run, ADR 0020). The integers stay
+   *  exactly those of the model until the first update. The shadows get its real values: W = codes / scale and
+   *  b = (1 − th) / (scale·2^k). */
+  restore(model) {
+    this.start = model.layers.map((layer, l) => {
+      const W = Int32Array.from(layer.W.flat()), b = Int32Array.from(layer.th, th => 1 - th), gain = layer.scale * 2 ** layer.k, L = this.L[l];
+      for (let i = 0; i < W.length; i++) L.W[i] = W[i] / layer.scale;
+      for (let j = 0; j < b.length; j++) L.b[j] = b[j] / gain;
+      return { W, b, scale: layer.scale, k: layer.k, gain, threshold: null, clippedWeights: 0, clippedBiases: 0 };
+    });
+  }
   /** Activations per layer (acts[0] = input) and pre-activations z per layer in real units, on the integers `q`
    *  (quantized()). The integer sum (Σ W·x)·2^k + b fires when > 0. z = sum / gain. */
   forward(x, q) {
@@ -90,6 +102,7 @@ export class ThresholdNet {
     this.t++; const { beta1: b1, beta2: b2, eps } = ADAM, tt = this.t, c1 = 1 - b1 ** tt, c2 = 1 - b2 ** tt;
     const adam = (p, g, m, v) => { for (let k = 0; k < p.length; k++) { const gk = g[k] / N * clip; m[k] = b1 * m[k] + (1 - b1) * gk; v[k] = b2 * v[k] + (1 - b2) * gk * gk; p[k] -= lr * (m[k] / c1) / (Math.sqrt(v[k] / c2) + eps); } };
     for (let l = 0; l < L.length; l++) { adam(L[l].W, grads[l].W, L[l].mW, L[l].vW); adam(L[l].b, grads[l].b, L[l].mb, L[l].vb); }
+    this.start = null;                                                               // from now on the shadows give the integers
     return N ? { loss: loss / N, accuracy: correct / N } : { loss: 0, accuracy: 0 };
   }
   /** `threshold-layers` and its per-layer quantisation record: W codes, th = 1 − b (int16), the scale and shift k of
@@ -111,10 +124,15 @@ export async function trainHinge(bundle, { onProgress, isCancelled, tables, bund
   if (!data.length) throw new Error(t('分区没有任何回合'));
   const validation = validationEpisodes(bundle);
   const trainer = new ThresholdNet([I, ...net.layers, O], recipe.seed, net.weightBits);
+  if (bundle.init) trainer.restore(bundle.init.model);                               // the start of the run (ADR 0020)
   await run.tick();
 
   const curves = { loss: [], metric: [], accuracy: [] }, evaluations = [];
   let best = null, epochsRun = 0;
+  if (bundle.init) {
+    const { model, quantization } = trainer.export(I, O);
+    best = { ...startEvaluation({ bundle, run, model, quantization, validation, tables, selection, labelled: always, curves, evaluations, fields: s => ({ validationAccuracy: s.accuracy }) }), floatAccuracy: null, loss: null };
+  }
   for (let epoch = 0; epoch < recipe.epochs; epoch++) {
     const { loss, accuracy: floatAccuracy } = trainer.epoch(data, recipe.lr, recipe.margin, recipe.surrogateWidth, recipe.gradClip); epochsRun = epoch + 1;
     curves.loss.push(loss); curves.accuracy.push(floatAccuracy);

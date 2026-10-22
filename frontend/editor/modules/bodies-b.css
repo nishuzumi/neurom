@@ -44,8 +44,10 @@ button.hist-row:hover{background:var(--soft)}
 .tbar i{position:absolute;left:0;top:0;bottom:0;background:var(--plastic)}
 
 /* ------------------------------------------------------------------ trainer */
-.tpy{padding:2px 6px;border-left:2px solid var(--line-strong)}
-.tpy.ok{border-left-color:var(--ok);color:var(--ok)}.tpy.warn{border-left-color:var(--plastic);color:var(--plastic)}.tpy.bad{border-left-color:var(--bad);color:var(--bad)}
+/* the Python workspace state and the gate state (ADR 0020): one line with a coloured left edge */
+.tpy,.tgate{padding:2px 6px;border-left:2px solid var(--line-strong)}
+.tpy.ok,.tgate.ok{border-left-color:var(--ok);color:var(--ok)}.tpy.warn{border-left-color:var(--plastic);color:var(--plastic)}.tpy.bad,.tgate.bad{border-left-color:var(--bad);color:var(--bad)}
+.tgate-form select{min-width:0;max-width:100%}.tgate-form input[type=number]{width:5em}
 .truns{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
 .trun{padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);display:flex;flex-direction:column;gap:3px;min-width:0}
 .trun.st-running,.trun.st-queued{border-color:var(--plastic)}.trun.st-done{border-color:var(--ok)}.trun.st-failed{border-color:var(--bad)}

@@ -92,7 +92,7 @@ python3 -m venv ~/.cache/neurom-venv
   - 标题栏显示 `budget`。回路框放在训练模块里时，问题显示在训练模块的标题栏上。
   - 折叠时，框多一行回路体摘要，例如“每一步：输入位 → 网络 → 读出 → 动作”。
   - 连线决定回路体，框只是回路体的视图。框里多了或少了模块时，回路报“回路框的成员与回路体不一致”。
-- **训练模块**：从带槽位（`slots`）的模板整件实例化的组合是一个**预制模块**。展开时，它画成一个深色框，徽标是“训练模块 · 方法”。标题栏有存为模板、折叠和删除。它是不是训练模块只看这条预制记录，与里面有几个训练器无关。成员增减不会让框消失。
+- **训练模块**：从带槽位（`slots`）的模板整件实例化的组合是一个**预制模块**。模板里写了 `slots` 的嵌套分组也是预制模块，它外面的模块可以被几个训练模块共用，例如坦克大战的场景。展开时，它画成一个深色框，徽标是“训练模块 · 方法”。标题栏有存为模板、折叠和删除。它是不是训练模块只看这条预制记录，与里面有几个训练器无关。成员增减不会让框消失。
   - 左栏顶部是**槽位**：
     - 模板声明槽位，例如场景、训练集、验证集、目标、指标、评估、执行。每个槽位一枚按钮，按钮排成一行，放不下时换行。
     - 按钮列出接在槽位上的模块。点一下模块，就定位到那一段。
@@ -130,6 +130,7 @@ python3 -m venv ~/.cache/neurom-venv
 - **自动整理**：
   - 整理按连线层次从左到右排列，一层一列。
   - 层数多时，列自动折成几行，像段落换行。每行宽度尽量均衡，整体形状贴近窗口比例。所以整理同时使用横向和纵向空间。
+  - 相邻两列都有训练模块时，不在这两列之间换行。所以一个接一个的阶段在同一行里从左到右排列。
   - `loop` 与 `structure` 线当作从驱动指向回路，所以驱动排在回路前面。
   - 训练模块作为一个整体排列。子画布里的成员在子画布里排好，左栏的段落不参与整理。框的左边为左栏留出宽度，所以框不会压住旁边的模块。
   - 没有输入的模块放在第一个使用它的模块前面一列，而不是最左边。
@@ -161,9 +162,9 @@ python3 -m venv ~/.cache/neurom-venv
 | 分区 | 训练 / 验证 / 测试三种角色的回合来源。来源有种子区间、枚举组合和时间窗。枚举组合中，每个角色取全部、奇偶、下标列表或 `{ mod, rem }` 余数筛选。时间窗有长度、步长和隔离带 | 输入 `table`（可选）。输出三种 `partition` |
 | 随机数 | 32 位线性同余生成器的跳跃表。配置是乘数、增量、表长（默认 1664525 / 1013904223 / 512）。卡片显示取数公式和前几个值 | 输出 `rng: { mul, add }` |
 | 回路 | 回合每一步的边界。回路把场景 `input` 的输入位送进回路体，再把回路体的动作收回交给 `step`。回路体是从 `input` 到 `action` 的连线路径上的模块（网络、读出、位线）。回路通常画成回路框。单独放时，卡片显示场景状态、I、回路体摘要和驱动 | 调用 `scenario`（场景的 `module`）。值 `action`（下一步生效）。输出 `input`（bits[I]）、`loop`（句柄） |
-| 读出 | 分数 → 动作。模式有两种：`argmax` + 映射表（`null` = 无效动作），或 `bits` + 解码。`bits` 模式另有函数输出 `run`：先做它的网络前向，再按位读出。`run` 可以作为工具层的工具 | 输入 `scores`、`actions`。输出 `action`、`bits`。`bits` 模式加调用输出 `run` |
-| 网络 | 整数网络，格式有两种。`dense-policy`：FF / LIF，层列表包含普通层 `{ hidden }` 与工具层 `{ tools, data? }`。在卡片上增删层、改层宽。多层与工具层都能部署，工具层里的代码工具除外。`threshold-layers`：层宽列表。输入宽度 I 由配置 `inputs`（1–256）手写声明，接到 `in` 的位宽必须等于 I。卡片显示权重字节数与部署上限。没有训练器训练这个网络时，在卡片上选定它运行的产物 `artifact`。可选工作区与内置产物，卡片显示名称、指标与兼容性，也可以导入 JSON。`artifact` 与 `weights` 连线二选一 | 输入 `in` 和 `weights`。`weights` 是训练这个网络时在候选里接受的权重，可以闭合回路。每个工具层一个调用端口，接任意多个工具。输出 `scores`、`structure` |
-| 位线 | 位向量的切片与拼接（`parts: [{port, offset, width}]`），总宽 ≤ 256 | 若干 `bits` 输入。输出 `bits` |
+| 读出 | 分数 → 动作。模式有两种：`argmax` + 映射表（`null` = 无效动作），或 `bits` + 解码。两种模式都有函数输出 `run`：先做它的网络前向，再给出读出位。`bits` 模式按位读出，`argmax` 模式给出 argmax 的 one-hot 位（并列时取最小下标）。`run` 可以作为工具层的工具。用 argmax 读出的工具不能部署到链上 | 输入 `scores`、`actions`。输出 `action`、`bits` 和调用输出 `run` |
+| 网络 | 整数网络，格式有两种。`dense-policy`：FF / LIF，层列表包含普通层 `{ hidden }` 与工具层 `{ tools, data? }`。在卡片上增删层、改层宽。多层与工具层都能部署，工具层里的代码工具和 argmax 读出的网络工具除外。`threshold-layers`：层宽列表。输入宽度 I 由配置 `inputs`（1–65535）手写声明，接到 `in` 的位宽必须等于 I。卡片显示权重字节数与部署上限。没有训练器训练这个网络时，在卡片上选定它运行的产物 `artifact`。可选工作区与内置产物，卡片显示名称、指标与兼容性，也可以导入 JSON。`artifact` 与 `weights` 连线二选一 | 输入 `in` 和 `weights`。`weights` 是训练这个网络时在候选里接受的权重，可以闭合回路。每个工具层一个调用端口，接任意多个工具。输出 `scores`、`structure` |
+| 位线 | 位向量的切片与拼接（`parts: [{port, offset, width}]`），总宽 ≤ 65535 | 若干 `bits` 输入。输出 `bits` |
 | 训练器 | 方法：REINFORCE / 交叉熵 / hinge。后端：浏览器或 Python。卡片有开始 / 取消、进度与曲线、运行列表。训练器在整条回路上训练 `structure` 指向的网络，其余网络冻结。回合来自 `training` 分区 | 值 `loop`、`structure`、`training`、`validation`。调用 `objective`、`metric`。输出 `run` |
 | 候选 | 运行产生的产物：兼容性、预览、接受、导出、导入 | 输入 `run`（多个）。输出 `weights`、`artifact` |
 | 评估器 | 每个网络用已接受的权重，在 `partition` 分区上贪心地运行整条回路，计算指标。评估器可以按枚举轴分组 | 值 `loop`、`partition`。调用 `metrics`、`objective`。输出 `report` |
@@ -385,7 +386,7 @@ export function reward(transition) {
 | `editor/history.ts`, `layout.ts`, `workbench-context.ts` | 撤销 / 重做与复制粘贴。视角持久化。内容组件读取工作台的注入 |
 | `ui/template-library.js`, `ui/static-text.js` | 模板库抽屉。`index.html` 静态文字的翻译 |
 | `i18n.js`, `i18n/en.json`, `i18n/check.mjs` | 界面语言、英文词条、覆盖检查 |
-| `module-chain.js`, `chain.js` | ModuleFactory / 模块桥接（ADR 0014、ADR 0017）。**部署计划**（只读）：需要几个权重块、链上已有几个、要发哪几笔交易。**部署**：默认用最新引擎版本，调用方可以指定一个版本。先部署工具。Factory 已有同一产物且核对通过的模块时，就复用这个模块。每个模块和它缺的权重块用一笔交易。放不下 30M 时，先为每个缺的块各发一笔交易。每笔交易发送和上链时回报进度。部署先在链上查一遍，所以中断后再部署只发还缺的交易。**核对**：必须给出官方 Factory。模块记的 factory 必须是它，它的 `isModule` 必须认这个模块。核对还检查描述符、引擎、形状和权重块地址。引擎必须是 Factory 为其引擎 id 列出的版本。核对报告这是第几个版本、是否最新，部署面板显示这个结果。另有 step 和收据校验。只接受 `neurom-module` 产物。**链列表**：每个网络的官方 Factory，没部署的为 null。另有钱包连接。**测试**：装有 Foundry 时，`module-chain.test.js` 在本地 anvil 上运行四种对象：四位算术 / 组合器的内置产物、计数回路上自带的 LIF 产物、跨两个权重块的网络（与只共用第一块的网络）、第二笔交易失败后续部署的三块网络。它检查 Factory 代理就是 `CHAINS[31337].factory`。这个代理来自在新节点上用账户 0 广播的 `contracts/script/Deploy.s.sol`，以及按它的顺序部署的 `anvil.fixture.js`。它还检查：第二个 Factory 上代码和权重相同的模块核对不通过，也不作为工具复用。`core/sessions/deployment.test.js` 用 `core/sessions/fixtures.js` 的计数回路 LIF 模型，经 `module-chain.js` 驱动部署会话（`anvil.fixture.js`，否则跳过） |
+| `module-chain.js`, `chain.js` | ModuleFactory / 模块桥接（ADR 0014、ADR 0017）。**部署计划**（只读）：需要几个权重块、链上已有几个、要发哪几笔交易。**部署**：默认用最新引擎版本，调用方可以指定一个版本。先部署工具。Factory 已有同一产物且核对通过的模块时，就复用这个模块。每个模块和它缺的权重块用一笔交易。放不下 30M 时，先为每个缺的块各发一笔交易。每笔交易发送和上链时回报进度。部署先在链上查一遍，所以中断后再部署只发还缺的交易。**核对**：必须给出官方 Factory。模块记的 factory 必须是它，它的 `isModule` 必须认这个模块。核对还检查描述符、引擎、形状和权重块地址。引擎必须是 Factory 为其引擎 id 列出的版本。核对报告这是第几个版本、是否最新，部署面板显示这个结果。另有 step 和收据校验。只接受 `neurom-module` 产物。**链列表**：每个网络的官方 Factory，没部署的为 null。另有钱包连接。**测试**：装有 Foundry 时，`module-chain.test.js` 在本地 anvil 上运行五种对象：四位算术 / 组合器的内置产物、计数回路上自带的 LIF 产物、跨两个权重块的网络（与只共用第一块的网络）、第二笔交易失败后续部署的三块网络、宽于 256 的网络（1020 → 300 → 300）。它检查 Factory 代理就是 `CHAINS[31337].factory`。这个代理来自在新节点上用账户 0 广播的 `contracts/script/Deploy.s.sol`，以及按它的顺序部署的 `anvil.fixture.js`。它还检查：第二个 Factory 上代码和权重相同的模块核对不通过，也不作为工具复用。`core/sessions/deployment.test.js` 用 `core/sessions/fixtures.js` 的计数回路 LIF 模型，经 `module-chain.js` 驱动部署会话（`anvil.fixture.js`，否则跳过） |
 | `runtime/dense-policy.js`, `runtime/threshold-layers.js` | 整数执行引擎：dense FF / LIF（格式 `dense-policy`）与阈值层（`threshold-layers`）。不依赖 UI |
 | `abi/` | 从 Solidity 生成的 ABI（ModuleFactory、NeuromModule、Roles） |
 

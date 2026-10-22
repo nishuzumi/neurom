@@ -142,6 +142,11 @@ export interface Workbench {
   python: { client: WorkspaceClient | null; connected: Ref<boolean> };
   /** the latest request to show an export's code (EditorRuntime.revealCode). A code body owning `node` answers it. */
   reveal: ShallowRef<{ node: string; name: string; seq: number } | null>;
+  /** 「运行到这里」 (ADR 0023, core/sessions/run-chain.js): the module that the chain runs for and its step now (null
+   *  when no chain runs). `run` starts a chain. It reports through `status` and never throws. */
+  chain: { target: ShallowRef<string | null>; step: ShallowRef<string | null>; run(nodeId: string): void };
+  /** the latest request of the chain to play a script module. The script body of `node` answers it. */
+  play: ShallowRef<{ node: string; seq: number } | null>;
 }
 
 export const WORKBENCH: InjectionKey<Workbench> = Symbol('neurom.workbench');

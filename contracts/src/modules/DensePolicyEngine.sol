@@ -27,15 +27,17 @@ import "./EngineBase.sol";
 ///                   activations / spike counts. When the last layer is a tool layer, its R result bits are the
 ///                   output: scores = +1 / −1.
 ///           action = first maximum. counts = activations / spike counts of every plain layer, in layer order.
-///         Shape (three words):
-///           shape[0] layout: layer l at bits [32·l, 32·l + 32): [0, 9) hidden − 1 or K − 1, [9, 18) D − 1, [18, 27) R − 1,
-///                    bit 27 = tool layer. Zero above the last layer.
-///           shape[1] parameters: [0, 8) layer count 1..8, [8, 16) ticks 1..64, [16, 24) leakShift 0..10,
+///         Shape (four words):
+///           shape[0], shape[1] layout: layer l is the 64-bit descriptor at bits [64·(l % 4), 64·(l % 4) + 64) of
+///                    shape[l / 4]. A descriptor holds [0, 16) hidden − 1 or K − 1, [16, 32) D − 1, [32, 48) R − 1 and
+///                    bit 48 = tool layer. Bits 49..63 are zero. A plain layer has zero at [16, 48). Every width is
+///                    1..65535. Zero above the last layer.
+///           shape[2] parameters: [0, 8) layer count 1..8, [8, 16) ticks 1..64, [16, 24) leakShift 0..10,
 ///                    [24, 32) weightBits (8 or 16), [32, 48) reset (int16). Layer l's shifts are at [48 + 10·l, 53 + 10·l)
 ///                    (its plain region / its choice region) and [53 + 10·l, 58 + 10·l) (its data region, 0 for a plain
 ///                    layer). [128, 133) is the output region's shift (0 when the last layer is a tool layer). Every
 ///                    shift ≤ 20. Zero above the last layer and from bit 133. FF modules carry valid ticks / leak / reset.
-///           shape[2] thresholds: layer l at bits [32·l, 32·l + 32), uint32. A plain layer holds its threshold: FF
+///           shape[3] thresholds: layer l at bits [32·l, 32·l + 32), uint32. A plain layer holds its threshold: FF
 ///                    exactly 1, LIF 1..2^31 − 1. A tool layer and the bits above the last layer hold 0.
 ///         Weights (EngineBase layout, at weightBits) come in layer order. A plain layer has one region of `hidden`
 ///         rows. A tool layer has two regions: its K choice rows, then its D data rows (the engine computes only the
@@ -51,26 +53,29 @@ import "./EngineBase.sol";
 ///         decision, "volt"). An all-zero state is rest.
 contract DensePolicyEngine is EngineBase {
     uint256 public constant MAX_LAYERS = 8;
-    uint256 public constant MAX_WIDTH = 256;
+    uint256 public constant MAX_WIDTH = 65535;
     uint256 public constant MAX_TICKS = 64;
     uint256 public constant MAX_LEAK_SHIFT = 10;
     uint256 public constant MAX_STATE = 256;
     uint256 public constant MAX_SHIFT = 20;
 
-    uint256 private constant TOOL_FLAG = 1 << 27;
+    uint256 private constant TOOL_FLAG = 1 << 48;
+    /// @dev the 64 bits of one layer descriptor
+    uint256 private constant DESC = 0xffffffffffffffff;
     /// @dev the largest LIF threshold, 2^31 − 1
     uint256 private constant MAX_THRESHOLD = 0x7fffffff;
 
     /// @dev The decoded shape and everything one decision threads through the layers.
     struct Run {
-        uint256 layout;
+        uint256 layout0;     // shape[0]: the descriptors of layers 0 .. 3
+        uint256 layout1;     // shape[1]: the descriptors of layers 4 .. 7
         uint256 n;           // layer count
         uint256 ticks;
         uint256 leak;
         uint256 bits;        // weightBits, 8 or 16
         int256 reset;
-        uint256 params;      // shape[1], where each region's shift is read
-        uint256 thresholds;  // shape[2]
+        uint256 params;      // shape[2], where each region's shift is read
+        uint256 thresholds;  // shape[3]
         bytes blob;          // the weight blob
         uint256 pos;         // byte offset of the next layer's region
         uint256 tool;        // index into tools of the next tool layer's first tool
@@ -83,10 +88,10 @@ contract DensePolicyEngine is EngineBase {
     function check(uint8 kind, uint16 inputs, uint16 outputs, uint256[] calldata shape, uint256[] calldata tools)
         external pure returns (uint256 weightBytes, uint256 stateWidth)
     {
-        require(shape.length == 3, "shape");
+        require(shape.length == 4, "shape");
         Run memory r = _decode(shape);
         require(r.n >= 1 && r.n <= MAX_LAYERS, "layers");
-        require(r.n == MAX_LAYERS || r.layout >> (32 * r.n) == 0, "shape");
+        require(r.n >= 4 ? r.layout1 >> (64 * (r.n - 4)) == 0 : r.layout0 >> (64 * r.n) == 0 && r.layout1 == 0, "shape");
         require(r.params >> 133 == 0, "shape");
         require(r.ticks >= 1 && r.ticks <= MAX_TICKS, "ticks");
         require(r.leak <= MAX_LEAK_SHIFT, "leak");
@@ -99,16 +104,16 @@ contract DensePolicyEngine is EngineBase {
         uint256 plain;
         bool lastTool;
         for (uint256 l; l < r.n; l++) {
-            uint256 desc = (r.layout >> (32 * l)) & 0xffffffff;
-            require(desc >> 28 == 0, "shape");
+            uint256 desc = _desc(r, l);
+            require(desc >> 49 == 0, "shape");
             uint256 slot = (r.params >> (48 + 10 * l)) & 1023;                  // k0 | k1 << 5
             uint256 th = (r.thresholds >> (32 * l)) & 0xffffffff;
             lastTool = desc & TOOL_FLAG != 0;
             if (!lastTool) {
                 require(slot <= MAX_SHIFT, "shift");                              // and no data shift
                 require(lif ? th >= 1 && th <= MAX_THRESHOLD : th == 1, "threshold");
-                uint256 hidden = (desc & 511) + 1;
-                require(hidden <= MAX_WIDTH && (desc >> 9) & 0x3ffff == 0, "hidden");
+                uint256 hidden = (desc & 0xffff) + 1;
+                require(hidden <= MAX_WIDTH && (desc >> 16) & 0xffffffff == 0, "hidden");
                 weightBytes += regionBytes(hidden, width, r.bits);
                 width = hidden;
                 plain += hidden;
@@ -116,9 +121,9 @@ contract DensePolicyEngine is EngineBase {
             }
             require(slot & 31 <= MAX_SHIFT && slot >> 5 <= MAX_SHIFT, "shift");
             require(th == 0, "threshold");
-            uint256 K = (desc & 511) + 1;
-            uint256 D = ((desc >> 9) & 511) + 1;
-            uint256 R = ((desc >> 18) & 511) + 1;
+            uint256 K = (desc & 0xffff) + 1;
+            uint256 D = ((desc >> 16) & 0xffff) + 1;
+            uint256 R = ((desc >> 32) & 0xffff) + 1;
             require(K <= MAX_WIDTH && D <= MAX_WIDTH && R <= MAX_WIDTH, "tool layer");
             for (uint256 k; k < K; k++) {
                 require(t + k < tools.length, "tool");
@@ -140,13 +145,13 @@ contract DensePolicyEngine is EngineBase {
     }
 
     function run(uint8 kind, uint16 inputs, uint16 outputs, uint256[] calldata shape, address[] calldata chunks, uint256[] calldata tools, uint256[] calldata state, bytes calldata input)
-        external view virtual returns (int256[] memory, uint8, uint8[] memory, int32[] memory)
+        external view virtual returns (int256[] memory, uint16, uint8[] memory, int32[] memory)
     {
         return _run(kind, inputs, outputs, shape, chunks, tools, state, input);
     }
 
     function _run(uint8 kind, uint16 inputs, uint16 outputs, uint256[] calldata shape, address[] calldata chunks, uint256[] calldata tools, uint256[] calldata state, bytes calldata input)
-        internal view returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages)
+        internal view returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages)
     {
         Run memory r = _decode(shape);
         Vec memory x = _input(input, inputs);
@@ -170,7 +175,7 @@ contract DensePolicyEngine is EngineBase {
         }
         voltages = _voltages(r.state);
 
-        if ((r.layout >> (32 * (r.n - 1))) & TOOL_FLAG != 0) {
+        if (_desc(r, r.n - 1) & TOOL_FLAG != 0) {
             scores = new int256[](outputs);
             unchecked { for (uint256 k; k < outputs; k++) scores[k] = r.result[k] == 1 ? int256(1) : int256(-1); }
         } else {
@@ -180,15 +185,21 @@ contract DensePolicyEngine is EngineBase {
     }
 
     function _decode(uint256[] calldata shape) private pure returns (Run memory r) {
-        r.layout = shape[0];
-        uint256 p = shape[1];
+        r.layout0 = shape[0];
+        r.layout1 = shape[1];
+        uint256 p = shape[2];
         r.n = p & 0xff;
         r.ticks = (p >> 8) & 0xff;
         r.leak = (p >> 16) & 0xff;
         r.bits = (p >> 24) & 0xff;
         r.reset = int16(uint16(p >> 32));
         r.params = p;
-        r.thresholds = shape[2];
+        r.thresholds = shape[3];
+    }
+
+    /// @dev Layer l's 64-bit descriptor.
+    function _desc(Run memory r, uint256 l) private pure returns (uint256) {
+        return ((l < 4 ? r.layout0 : r.layout1) >> (64 * (l & 3))) & DESC;
     }
 
     /// @dev The shift of layer l's plain / choice region (`data` false) or of its data region (`data` true).
@@ -203,8 +214,8 @@ contract DensePolicyEngine is EngineBase {
 
     function _plainWidth(Run memory r) private pure returns (uint256 total) {
         for (uint256 l; l < r.n; l++) {
-            uint256 desc = r.layout >> (32 * l);
-            if (desc & TOOL_FLAG == 0) total += (desc & 511) + 1;
+            uint256 desc = _desc(r, l);
+            if (desc & TOOL_FLAG == 0) total += (desc & 0xffff) + 1;
         }
     }
 
@@ -212,9 +223,9 @@ contract DensePolicyEngine is EngineBase {
     function _feedforward(Run memory r, uint256[] calldata tools, Vec memory x, uint8[] memory counts) private view returns (Vec memory) {
         unchecked {
             for (uint256 l; l < r.n; l++) {
-                uint256 desc = r.layout >> (32 * l);
+                uint256 desc = _desc(r, l);
                 if (desc & TOOL_FLAG != 0) { x = _concat(_vec(_toolStep(r, tools, l, x, 1)), x); continue; }
-                uint256 hidden = (desc & 511) + 1;
+                uint256 hidden = (desc & 0xffff) + 1;
                 int256[] memory current = _affine(r.blob, r.pos, hidden, x, 1, r.bits, _shift(r, l, false));
                 r.pos += regionBytes(hidden, x.width, r.bits);
                 x = _fire(current, 1, counts, r.at);                            // an FF layer's threshold is 1
@@ -232,8 +243,7 @@ contract DensePolicyEngine is EngineBase {
             Vec memory spikes;                   // spike counts of the last segment's last layer, while no tool layer follows
             bool spiking;
             for (uint256 s; s < L;) {
-                uint256 desc = r.layout >> (32 * s);
-                if (desc & TOOL_FLAG != 0) {
+                if (_desc(r, s) & TOOL_FLAG != 0) {
                     Vec memory before = spiking ? _fired(spikes) : x;
                     x = _concat(_vec(_toolStep(r, tools, s, spiking ? spikes : x, spiking ? int256(r.ticks) : int256(1))), before);
                     spiking = false;
@@ -241,7 +251,7 @@ contract DensePolicyEngine is EngineBase {
                     continue;
                 }
                 uint256 e = s;
-                while (e < L && (r.layout >> (32 * e)) & TOOL_FLAG == 0) e++;
+                while (e < L && _desc(r, e) & TOOL_FLAG == 0) e++;
                 spikes = _segment(r, s, e, x, counts, v);
                 spiking = true;
                 s = e;
@@ -253,8 +263,9 @@ contract DensePolicyEngine is EngineBase {
     /// @dev Spike counts → whether each neuron fired at least once.
     function _fired(Vec memory counts) private pure returns (Vec memory v) {
         v.width = counts.width;
+        v.sum = counts.nz.length;
         v.nz = new uint256[](counts.nz.length);
-        for (uint256 i; i < v.nz.length; i++) v.nz[i] = (counts.nz[i] & 0xffff) | (1 << 16);
+        for (uint256 i; i < v.nz.length; i++) v.nz[i] = (counts.nz[i] & 0xffffffff) | (1 << 32);
     }
 
     /// @dev One LIF segment of plain layers [s, e) on input `x`: all ticks. Returns its last layer's spike counts.
@@ -267,7 +278,7 @@ contract DensePolicyEngine is EngineBase {
             uint256[][] memory out = new uint256[][](len);
             uint256 prevWidth = x.width;
             for (uint256 l; l < len; l++) {
-                uint256 hidden = ((r.layout >> (32 * (s + l))) & 511) + 1;
+                uint256 hidden = (_desc(r, s + l) & 0xffff) + 1;
                 pos[l] = r.pos; width[l] = hidden; base[l] = r.at;
                 r.pos += regionBytes(hidden, prevWidth, r.bits);
                 r.at += hidden;
@@ -327,10 +338,10 @@ contract DensePolicyEngine is EngineBase {
     ///      its state slice. The next state that the tool returns replaces its slice. The other tools' slices do not change.
     function _toolStep(Run memory r, uint256[] calldata tools, uint256 l, Vec memory prev, int256 factor) private view returns (uint256[] memory result) {
         unchecked {
-            uint256 desc = r.layout >> (32 * l);
-            uint256 K = (desc & 511) + 1;
-            uint256 D = ((desc >> 9) & 511) + 1;
-            uint256 R = ((desc >> 18) & 511) + 1;
+            uint256 desc = _desc(r, l);
+            uint256 K = (desc & 0xffff) + 1;
+            uint256 D = ((desc >> 16) & 0xffff) + 1;
+            uint256 R = ((desc >> 32) & 0xffff) + 1;
             int256[] memory logits = _affine(r.blob, r.pos, K, prev, factor, r.bits, _shift(r, l, false));
             r.pos += regionBytes(K, prev.width, r.bits);
             uint256 choice;

@@ -54,7 +54,7 @@ The bundle sets the widths:
 - `inputs` is the structure width of the trained network in `loop.nodes`. It is equal to the width wired into the `in` of the network. Examples are the width I that the scenario's `input` returns, or the width that a bit wire slices out.
 - `outputs` comes from the readout of the network.
 
-The on-chain engine `DensePolicyEngine` takes the widths as parameters. Before deployment, the system checks that the widths are in 1..256 and that each layer has at most 256. Weights can have any size. The system splits them into as many weight chunks as necessary.
+The on-chain engine `DensePolicyEngine` takes the widths as parameters. Before deployment, the system checks that the widths are in 1..65535 and that each layer has at most 65535. Weights can have any size. The system splits them into as many weight chunks as necessary.
 
 ## 2. Getting a bundle
 

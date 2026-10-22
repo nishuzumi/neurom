@@ -134,7 +134,7 @@ export class ModuleGraph {
       if (problem) throw new GraphError(problem, { node: target.id, port: to.port });
     }
     if (!inp.loop && this._reaches(target.id, source.id, kind, res)) {
-      throw new GraphError(kind === 'call' ? t('调用线不能形成环路（禁止递归）') : t('值线不能形成环路（只有回路的 action 与网络的 weights 可以闭合回路）'));
+      throw new GraphError(kind === 'call' ? t('调用线不能形成环路（禁止递归）') : t('值线不能形成环路（只有回路的 action、网络的 weights 与训练器的 init 可以闭合回路）'));
     }
     return { id, kind, from: { node: from.node, port: from.port }, to: { node: to.node, port: to.port } };
   }

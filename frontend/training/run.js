@@ -101,6 +101,15 @@ export const anySet = mask => { for (let k = 0; k < mask.length; k++) if (mask[k
 export const always = () => true;
 function sameBits(a, b) { for (let k = 0; k < a.length; k++) if ((a[k] ? 1 : 0) !== (b[k] ? 1 : 0)) return false; return true; }
 
+/** The start of a run from `init` (ADR 0020), before the first epoch: greedy validation of the start `model` as
+ *  epoch 0. It goes into the curves, the evaluations (with `fields(summary)`) and one 'eval' progress message. It is
+ *  the first best, so an epoch must beat it strictly to be selected. Returns that best record. */
+export function startEvaluation({ bundle, run, model, quantization, validation, tables, selection, labelled, curves, evaluations, fields }) {
+  const summary = validateGreedy(bundle, model, validation, { tables, selection, labelled }), metric = summary.metric;
+  curves.metric.push(metric); evaluations.push({ epoch: 0, metric, ...fields(summary) });
+  run.report({ phase: 'eval', epoch: 0, loss: null, metric, metricName: selection.name, selectedEpoch: 0 });
+  return { epoch: -1, model, quantization, metric, summary };
+}
 /** Shared result assembly. */
 export function finishResult({ bundle, run, recipe, best, curves, evaluations, validation, selection, bundleHash, extra = {} }) {
   const evaluation = { metricName: selection.name, metric: best.metric, selectedEpoch: best.epoch + 1,

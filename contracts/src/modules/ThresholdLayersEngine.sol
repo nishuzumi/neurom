@@ -12,14 +12,14 @@ import "./EngineBase.sol";
 ///         layer order.
 ///
 ///         Shape (two words): shape[0] holds width_l at bits [16·l, 16·l + 16) for l = 0 (inputs) .. L (outputs),
-///         zero above. 1 ≤ L ≤ 8, every width 1..256. shape[1]: [0, 8) weightBits (8 or 16). The shift k of map l
+///         zero above. 1 ≤ L ≤ 8, every width 1..65535. shape[1]: [0, 8) weightBits (8 or 16). The shift k of map l
 ///         (l = 0 .. L − 1, the map that produces width l + 1) is at [8 + 5·l, 13 + 5·l). Every k ≤ 20, zero above
 ///         the last map's.
 ///         Weights (EngineBase layout, at weightBits): per map one region of width_l rows over width_{l-1} columns.
 ///         Its (int16) bias column holds th_l.
 contract ThresholdLayersEngine is EngineBase {
     uint256 public constant MAX_LAYERS = 8;
-    uint256 public constant MAX_WIDTH = 256;
+    uint256 public constant MAX_WIDTH = 65535;
     uint256 public constant MAX_SHIFT = 20;
 
     function check(uint8 kind, uint16 inputs, uint16 outputs, uint256[] calldata shape, uint256[] calldata tools)
@@ -48,7 +48,7 @@ contract ThresholdLayersEngine is EngineBase {
     }
 
     function run(uint8, uint16, uint16, uint256[] calldata shape, address[] calldata chunks, uint256[] calldata, uint256[] calldata, bytes calldata input)
-        external view returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages)
+        external view returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages)
     {
         uint256 widths = shape[0];
         uint256 layers = _layers(widths);

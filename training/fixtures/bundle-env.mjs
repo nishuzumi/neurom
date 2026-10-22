@@ -6,7 +6,9 @@
 //                    bits, the Transition and the target; `loops`: greedy episodes of whole loops on fixed integer
 //                    models (a frozen upstream network feeding another; two plain layers FF / LIF; a tool layer between
 //                    plain layers FF / LIF, first in a LIF net, and last FF / LIF, over code and network tools; a LIF
-//                    network tool, and a nested network tool with its own tool layer over a LIF tool), per
+//                    network tool, a nested network tool with its own tool layer over a LIF tool, and network tools
+//                    read through argmax readouts, between plain layers FF and last LIF; a loop wider than 256 FF /
+//                    LIF: a Bit Wire of 300 bits, a layer of 260 and an argmax map of 270 slots), per
 //                    step the input bits, every evaluated value, the nodes that ran, the action, every tool layer
 //                    record, the Transition and every network's state (own potentials ‖ its tools' states), plus the
 //                    lockstep runner's summaries (rewards of the tool loops read `transition.loop`); `intercepted`:
@@ -17,11 +19,15 @@
 //                    intercepted results and bundles both runners refuse; `partitions`: the episodes of partition
 //                    entries; `validations`: greedy validation (training/run.js validateGreedy) of hand-made candidates
 //                    under both accuracy rules (hinge: every decided step; cross-entropy: steps with a target bit set);
-//                    `quantizations`: regions through the per-layer quantiser at both widths and every role (ADR 0015).
+//                    `quantizations`: regions through the per-layer quantiser at both widths and every role (ADR 0015);
+//                    `starts`: greedy validation of the init model of each `*Init` trainer bundle, the epoch 0
+//                    evaluation that a run from `init` reports in both trainers (ADR 0020).
 //   bundles.json     trainer bundles: reinforce / cross-entropy on the counter, hinge on a two-bit adder, reinforce
-//                    of a policy reading the outputs of two frozen threshold networks (AND / OR) beside its input, and
+//                    of a policy reading the outputs of two frozen threshold networks (AND / OR) beside its input,
 //                    the gate task through a tool layer (trailing; reward reading transition.loop; a layer after it;
-//                    AND a nested network tool; OR a LIF network tool over two-step episodes).
+//                    AND a nested network tool; OR a LIF network tool over two-step episodes), the counter
+//                    (reinforce LIF, cross-entropy FF) and the adder (hinge) from a hand-made `init` model, and the
+//                    wide task of frontend/core/fixtures/wide.js (1020 inputs, a layer of 300, 300 actions).
 //   node training/fixtures/bundle-env.mjs        (Python-trained replays: replays.mjs)
 import { writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
@@ -31,6 +37,7 @@ import '../../frontend/core/kinds/index.js';
 import { buildBundle } from '../../frontend/core/bundle.js';
 import { episodesOf } from '../../frontend/core/sessions/common.js';
 import { counterGraph } from '../../frontend/core/fixtures/counter.js';
+import { wideGraph } from '../../frontend/core/fixtures/wide.js';
 import { ModuleGraph } from '../../frontend/core/graph.js';
 import { parseTemplate, instantiateInto } from '../../frontend/core/template.js';
 import { shapedArtifact } from '../../frontend/core/sessions/fixtures.js';
@@ -212,6 +219,38 @@ wires:
            starts: [0, 1, 2, 3, 0].map(seed => ({ seed })) };
 }
 
+/** Wider than 256 (ADR 0021): a Bit Wire repeats the 5 input bits 60 times (300 bits) → net (frozen, plain layers 2,
+ *  260, 2) → 270 scores → an argmax map of 270 slots. Slots 0..255 give action slot mod 2. A slot from 256 gives its
+ *  own number as the action, so the episode ends at once. */
+function wideLoop(kind, seed) {
+  const net = denseModel(seed, { kind, inputs: 300, layers: [{ hidden: 2 }, { hidden: 260 }, { hidden: 2 }], outputs: 270 });
+  const models = { [artifactId(17)]: ['net', net] };
+  const parts = JSON.stringify(Array.from({ length: 60 }, () => ({ port: 'a', offset: 0, width: 5 })));
+  const map = JSON.stringify(Array.from({ length: 270 }, (_, a) => (a < 256 ? a % 2 : a)));
+  const { graph, ids } = instance(`
+format: neurom-template
+id: wide-${kind}
+revision: 1
+name: wider than 256
+kind: composite
+modules:${COUNTER_SCENE}
+  wire: { kind: bits, config: { parts: ${parts} } }
+  net: { kind: network, config: ${netConfig(net, artifactId(17))} }
+  readout: { kind: readout, config: { mode: argmax, map: ${map} } }
+wires:
+  value:${COUNTER_WIRES}
+    - loop.input→wire.a
+    - wire.bits→net.in
+    - net.scores→readout.scores
+    - readout.action→loop.action
+  call:
+    - scene.module→loop.scenario
+    - reward→evaluator.objective
+`);
+  return { name: `wide-${kind}`, bundle: buildBundle(graph, ids.evaluator, { artifacts: pinned(graph, ids, models) }),
+           starts: [0, 1, 2, 3, 0, 2].map(seed => ({ seed })) };
+}
+
 /** The OR tool (threshold layers, 2 bits → [a | b, 1]) and a 3 → 2 dense FF tool, both read through bits readouts. */
 const OR_TOOL = { format: 'threshold-layers', inputs: 2, outputs: 2, weightBits: 8, layers: [{ W: [[1, 1], [0, 0]], th: [1, 0], scale: 1, k: 0 }, { W: [[1, 0], [0, 1]], th: [1, 1], scale: 1, k: 0 }] };
 const DENSE_TOOL = denseModel(23, { kind: 'feedforward', inputs: 3, layers: [{ hidden: 3 }], outputs: 2 });
@@ -238,6 +277,12 @@ const TOOL_PARTS = {
                      `  dn2: { kind: network, config: ${netConfig(DENSE_TOOL, artifactId(11))} }`, `  dn2R: { kind: readout, config: ${BITS2} }`],
            value: ['inner.scores→innerR.scores', 'deep.scores→deepR.scores', 'dn2.scores→dn2R.scores'], call: ['deepR.run→inner.tools', 'dn2R.run→inner.tools'], run: 'innerR.run',
            models: { [artifactId(9)]: ['deep', LIF_TOOL], [artifactId(11)]: ['dn2', DENSE_TOOL], [artifactId(10)]: ['inner', INNER_TOOL, { tools: [artifactId(9), artifactId(11)] }] } },
+  // argmax readouts (ADR 0019): the OR tool (its scores tie when a | b = 1: the first maximum wins), and the LIF tool
+  // with a null slot (the map does not change the one-hot bits)
+  orArg: { modules: [`  orArgNet: { kind: network, config: { engine: threshold-layers, kind: feedforward, inputs: 2, layers: [2], ticks: 1, leak_shift: 0, reset: 0, artifact: '${artifactId(15)}' } }`, '  orArgR: { kind: readout, config: { mode: argmax, map: [0, 1] } }'],
+           value: ['orArgNet.scores→orArgR.scores'], run: 'orArgR.run', models: { [artifactId(15)]: ['orArgNet', OR_TOOL] } },
+  lifArg: { modules: [`  lifArg: { kind: network, config: ${netConfig(LIF_TOOL, artifactId(16))} }`, '  lifArgR: { kind: readout, config: { mode: argmax, map: [1, null] } }'],
+            value: ['lifArg.scores→lifArgR.scores'], run: 'lifArgR.run', models: { [artifactId(16)]: ['lifArg', LIF_TOOL] } },
 };
 
 /** loop.input → sel (frozen, tool layer over `tools` in wire order, D = 3, R = 2) → loop.action. `layers` between /
@@ -278,13 +323,17 @@ const toolLoops = () => [toolLoop('tool-between-ff', 'feedforward', [{ hidden: 4
                          // stateful tools: a LIF network tool under an FF selector (its state is the tool's alone), and a
                          // LIF selector over a nested network tool and a LIF tool (own potentials ‖ nested ‖ LIF)
                          toolLoop('lif-tool-ff', 'feedforward', [{ hidden: 4 }, TOOLS, { hidden: 3 }], 70, ['mix', 'lif', 'dense', 'one']),
-                         toolLoop('nested-tool-lif', 'lif', [{ hidden: 4 }, TOOLS, { hidden: 3 }], 70, ['inner', 'lif', 'mix', 'or'])];
+                         toolLoop('nested-tool-lif', 'lif', [{ hidden: 4 }, TOOLS, { hidden: 3 }], 70, ['inner', 'lif', 'mix', 'or']),
+                         // network tools read through argmax readouts, between plain layers (FF) and trailing (LIF). The
+                         // seeds make the selectors choose them, and the OR tool gives both 1 0 (a tie) and 0 1
+                         toolLoop('argmax-tools-ff', 'feedforward', [{ hidden: 4 }, TOOLS, { hidden: 3 }], 71, ['orArg', 'mix', 'lifArg', 'dense']),
+                         toolLoop('argmax-tools-trailing-lif', 'lif', [{ hidden: 4 }, TOOLS], 81, ['lifArg', 'orArg'])];
 
 const recordLoop = sc => ({ name: sc.name, bundle: sc.bundle, ...loopTrace(sc) });
 
 // ------------------------------------------------------------------ trainer bundles
-/** The counter task trained by cross-entropy (FF) on target `source` (a code export reading `params`). */
-function counterTarget(source) {
+/** The counter task trained by cross-entropy (FF) on target `source` (a code export reading `params`) → `{ graph, ids }`. */
+function counterTargetGraph(source) {
   const { graph, ids } = counterGraph();
   graph.patchConfig(ids.net, { kind: 'feedforward', ticks: 1, leak_shift: 0, reset: 0 });
   graph.patchConfig(ids.trainer, { method: 'cross-entropy' });
@@ -292,18 +341,38 @@ function counterTarget(source) {
   const target = graph.addNode({ kind: 'code', title: 'target', config: { inputs: ['params'], source } });
   graph.connect({ kind: 'value', from: { node: ids.params, port: 'params' }, to: { node: target.id, port: 'params' } });
   graph.connect({ kind: 'call', from: { node: target.id, port: 'target' }, to: { node: ids.trainer, port: 'objective' } });
-  return buildBundle(graph, ids.trainer);
+  return { graph, ids };
 }
+const counterTarget = source => { const { graph, ids } = counterTargetGraph(source); return buildBundle(graph, ids.trainer); };
+/** The trainer bundle of `{ graph, ids }` started from `model` (ADR 0020): the trainer's `init` takes the `weights` of
+ *  a candidates module whose accepted artifact holds `model`. */
+function fromInit({ graph, ids }, model) {
+  const cands = ids.cands ?? graph.addNode({ kind: 'candidates' }).id, id = artifactId(30);
+  graph.connect({ kind: 'value', from: { node: cands, port: 'weights' }, to: { node: ids.trainer, port: 'init' } });
+  graph.patchConfig(cands, { accepted: id });
+  return buildBundle(graph, ids.trainer, { artifacts: a => (a === id ? shapedArtifact(graph, ids.net, model) : null) });
+}
+const COUNTER_TARGET = 'export function target(state) {\n  const want = state.count < params.target ? 1 : 0;\n  return [1 - want, want];\n}';
 function trainerBundles() {
   const gate = (yaml, models = {}) => { const { graph, ids } = instance(yaml); return buildBundle(graph, ids.trainer, { artifacts: pinned(graph, ids, models) }); };
   const reinforce = (() => { const { graph, ids } = counterGraph(); return buildBundle(graph, ids.trainer); })();
-  const crossEntropy = counterTarget('export function target(state) {\n  const want = state.count < params.target ? 1 : 0;\n  return [1 - want, want];\n}');
+  const crossEntropy = counterTarget(COUNTER_TARGET);
   const hinge = (() => { const { graph, ids } = instance(ADD2_YAML); return buildBundle(graph, ids.trainer); })();
   const frozenGates = gate(GATES_YAML, { [artifactId(6)]: ['and', GATE(2)], [artifactId(7)]: ['or', GATE(1)] });
   return { format: 'neurom-trainer-bundles', reinforce, crossEntropy, hinge, frozenGates, gate: gate(GATE_YAML), gateLoop: gate(GATE_LOOP_YAML), gateAfter: gate(GATE_AFTER_YAML),
            gateNested: gate(GATE_NESTED_YAML, { [artifactId(13)]: ['and', NESTED_AND, { tools: [artifactId(14)] }], [artifactId(14)]: ['gateAnd', GATE(2)] }),
-           gateLif: gate(GATE_LIF_YAML, { [artifactId(12)]: ['or', LIF_OR] }) };
+           gateLif: gate(GATE_LIF_YAML, { [artifactId(12)]: ['or', LIF_OR] }),
+           reinforceInit: fromInit(counterGraph(), denseModel(41, { kind: 'lif', inputs: 3, layers: [{ hidden: 8 }], outputs: 2, ticks: 2, leak_shift: 2 })),
+           crossEntropyInit: fromInit(counterTargetGraph(COUNTER_TARGET), denseModel(43, { kind: 'feedforward', inputs: 3, layers: [{ hidden: 8 }], outputs: 2 })),
+           hingeInit: fromInit(instance(ADD2_YAML), ADD2_GUESS),
+           wide: (() => { const { graph, ids } = wideGraph(); return buildBundle(graph, ids.trainer); })() };
 }
+/** The start of a run from `init`: greedy validation of the init model of each `*Init` trainer bundle. Both trainers
+ *  report it as their epoch 0 evaluation. */
+const starts = bundles => ['reinforceInit', 'crossEntropyInit', 'hingeInit'].map(name => {
+  const bundle = bundles[name], labelled = bundle.recipe.method === 'hinge' ? 'all' : 'any';
+  return { name, labelled, summary: validation({ bundle, model: bundle.init.model, labelled }) };
+});
 
 // ------------------------------------------------------------------ intercepted lockstep episodes
 const sum = v => v.reduce((s, x) => s + x, 0);
@@ -589,9 +658,9 @@ const PARTITIONS = [{ kind: 'enumerate', axes: { a: [0, 1, 2, 3, 4], op: ['*', '
                     { kind: 'seed', seed: 7, count: 3 }];
 const windowTask = windowed();
 const out = { format: 'neurom-bundle-env-fixtures', envs: [counter(), noInit(), windowTask].map(recordEnv),
-              loops: [frozenUpstream(), twoLayer('feedforward'), twoLayer('lif'), ...toolLoops()].map(recordLoop),
+              loops: [frozenUpstream(), twoLayer('feedforward'), twoLayer('lif'), ...toolLoops(), wideLoop('feedforward', 106), wideLoop('lif', 92)].map(recordLoop),
               intercepted: intercepted(bundles, windowTask), errors: errors(bundles),
-              partitions: PARTITIONS.map(entry => ({ entry, episodes: episodesOf(entry) })), validations: validations(bundles), quantizations: quantizations() };
+              partitions: PARTITIONS.map(entry => ({ entry, episodes: episodesOf(entry) })), validations: validations(bundles), quantizations: quantizations(), starts: starts(bundles) };
 writeFileSync(join(dir, 'bundle-env.json'), JSON.stringify(out));
 const count = s => `${s.name} (${s.lanes.length} lanes, ${s.lanes.reduce((n, l) => n + l.steps.length, 0)} steps)`;
 console.log(`wrote bundle-env.json: envs ${out.envs.map(count).join(', ')}; loops ${out.loops.map(count).join(', ')}; intercepted ${out.intercepted.map(count).join(', ')}; errors ${out.errors.map(e => e.name).join(', ')}; validations ${out.validations.map(v => `${v.name} ${v.summary.accuracy}`).join(', ')}`);

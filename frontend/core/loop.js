@@ -11,8 +11,9 @@
 //                 Tool = { kind: 'net', structure, model, artifactId, readout, tools? }
 //                 | { kind: 'program', program, bound, boundTypes, exact }.
 //                 A net tool is a frozen network of any kind on its accepted artifact. That artifact is the module a
-//                 deployment reuses or deploys for it. A net tool also carries the bits readout whose `run` is wired,
-//                 and its own `tools` when it has tool layers. A program tool is a code export, typed at bits[D].
+//                 deployment reuses or deploys for it. A net tool also carries the readout (bits or argmax) whose
+//                 `run` is wired, and its own `tools` when it has tool layers. A program tool is a code export, typed
+//                 at bits[D].
 //                 Tools' own nodes are not part of the body.
 //   step          demand-driven from `action`, memoised per step. `ran` holds the nodes evaluated this step. `values`
 //                 holds every evaluated output ('<node>.<port>'). `tools` holds each tool layer's
@@ -31,6 +32,7 @@ import { BundleError, programEntry } from './bundle.js';
 import { networkStructure, structureConfig, readoutOf, isToolLayer, layersNotation, ownTools } from './kinds/network.js';
 import { readoutEntry } from './kinds/readout.js';
 import { partPorts, partsWidth } from './kinds/bits.js';
+import { initCandidatesOf } from './kinds/trainer.js';
 import { bodyIn, withLoopValues, graphView } from './kinds/loop.js';
 import { readout as readScores, readoutBits, decodeBits, INVALID_ACTION } from './readout.js';
 import { createExecutor, modelProblem, stateWidthOf, stepFrom } from './sessions/executor.js';
@@ -121,6 +123,18 @@ function acceptedModel(graph, res, node, artifacts) {
   if (!fit.ok) throw new BundleError(t('网络 {name} 的产物不兼容：{reason}', { name: node.title, reason: fit.reason }));
   return { model: artifact.model, artifactId };
 }
+/** The start of a trainer's run: the accepted artifact of the candidates wired into its `init` → `{ model,
+ *  artifactId }`, or null without the wire. The artifact must fit the trained network `net`, as the artifact of a
+ *  frozen network must (networkCompatibility). Throws BundleError when it cannot start from it (ADR 0020). */
+export function initModel(graph, res, trainer, net, artifacts) {
+  if (!graph.producers(trainer.id, 'init').length) return null;
+  const artifactId = initCandidatesOf(graph, trainer)?.config.accepted ?? null;
+  const artifact = artifactId && artifacts ? artifacts(artifactId) : null;
+  if (!artifact?.model) throw new BundleError(t('训练器 {name} 的 init 没有已接受的权重', { name: trainer.title }));
+  const fit = networkCompatibility(artifact, networkShape(graph, res, net));
+  if (!fit.ok) throw new BundleError(t('训练器 {name} 的 init 产物不兼容：{reason}', { name: trainer.title, reason: fit.reason }));
+  return { model: artifact.model, artifactId };
+}
 /** A module outside the body that a bundle carries (a tool): its problems block the bundle as a body node's do. */
 function ready(graph, res, id) {
   for (const problem of res.problemsOf(id)) throw new BundleError(t('{title} 尚有问题：{message}', { title: graph.node(id).title, message: problem.message }), [problem]);
@@ -136,22 +150,26 @@ export function toolsSection(graph, res, node, structure, artifacts) {
     out[layer.tools] = graph.producers(node.id, layer.tools).map(p => {
       ready(graph, res, p.node);
       const carries = res.calls.get(p.wire.id)?.carries;
-      if (carries?.kind === 'net') {
-        const net = carries.network, { I, O, tools: widths = {} } = res.refsOf(net.id);
-        ready(graph, res, net.id);
-        const own = networkStructure(net.config, I, O, widths), accepted = acceptedModel(graph, res, net, artifacts);
-        if (!own.layers.some(isToolLayer)) return { kind: 'net', structure: own, ...accepted, readout: carries.readout };
-        const tools = toolsSection(graph, res, net, own, artifacts);
-        if (!sameTools(ownTools({ structure: own, tools }), trainedTools(artifacts(accepted.artifactId).bundle.loop))) {
-          throw new BundleError(t('工具网络 {title} 接的工具与它的产物训练时用的不同：链上它调用产物里的工具', { title: net.title }));
-        }
-        return { kind: 'net', structure: own, ...accepted, readout: carries.readout, tools };
-      }
+      if (carries?.kind === 'net') return netTool(graph, res, carries, artifacts);
       const e = programEntry(graph, res, node.id, layer.tools, p.wire.id);   // throws the call's problem when it did not type
       return { kind: 'program', program: e.program, bound: e.bound, boundTypes: e.boundTypes, exact: e.exact };
     });
   }
   return out;
+}
+/** The Tool of the network a typed call carries (`{ kind:'net', network, readout }`, core/resolve.js): the frozen
+ *  network on its accepted weights, with its readout and its own tools. A tool layer and a script module
+ *  (core/script-calls.js) call it. Throws BundleError when it cannot run. */
+export function netTool(graph, res, carries, artifacts) {
+  const net = carries.network, { I, O, tools: widths = {} } = res.refsOf(net.id);
+  ready(graph, res, net.id);
+  const own = networkStructure(net.config, I, O, widths), accepted = acceptedModel(graph, res, net, artifacts);
+  if (!own.layers.some(isToolLayer)) return { kind: 'net', structure: own, ...accepted, readout: carries.readout };
+  const tools = toolsSection(graph, res, net, own, artifacts);
+  if (!sameTools(ownTools({ structure: own, tools }), trainedTools(artifacts(accepted.artifactId).bundle.loop))) {
+    throw new BundleError(t('工具网络 {title} 接的工具与它的产物训练时用的不同：链上它调用产物里的工具', { title: net.title }));
+  }
+  return { kind: 'net', structure: own, ...accepted, readout: carries.readout, tools };
 }
 /** Whether two Tool lists (layer then wire order) call the same tools: network tools by artifact, programs by code and bound values. */
 const sameTools = (a, b) => a.length === b.length && a.every((x, k) => x.kind === b[k].kind
@@ -335,6 +353,13 @@ function toolRunner(tool, D, name, offset) {
     return { width: stateWidthOf(tool.model, tools), run: (data, state, at) => readoutBits(tool.readout, stepFrom(tool.model, tools, data.slice(0, I), state, at + offset).scores) };
   }
   throw new LoopError(t('未知工具种类：{kind}', { kind: String(tool?.kind) }));
+}
+/** A network Tool (netTool) as a function of its data bits that keeps no memory: each call starts from zero
+ *  potentials. A script module calls a network this way (ADR 0019). */
+export function statelessTool(tool, name) {
+  if (tool?.kind !== 'net') throw new LoopError(t('未知工具种类：{kind}', { kind: String(tool?.kind) }));
+  const r = toolRunner(tool, tool.structure.inputs, name, 0);
+  return data => r.run(data, new Array(r.width).fill(0), 0);
 }
 
 // ------------------------------------------------------------------ the lockstep runner

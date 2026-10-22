@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Workspace } from '../store.js';
+import { Workspace, makeArtifact } from '../store.js';
 import { bundleHash, buildBundle } from '../bundle.js';
-import { createTrainerSession } from './trainer.js';
+import { createTrainerSession, gateStatus } from './trainer.js';
 import { WorkspaceClient } from './workspace-client.js';
-import { counterArtifact, counterModel, datasetWorkspace } from './fixtures.js';
+import { createEvaluatorSession } from './evaluator.js';
+import { acceptedCounter, counterArtifact, counterModel, datasetWorkspace } from './fixtures.js';
 
 const result = () => ({ model: counterModel(1), evaluation: { metricName: 'return', metric: 3, selectedEpoch: 1, curves: { loss: [1] }, validation: {} }, provenance: { method: 'reinforce', backend: 'browser', seed: 1, epochs: 10, bundleHash: '0x' + '0'.repeat(64), recipe: {} } });
 
@@ -194,4 +195,55 @@ test('python run: a failed submission is recorded; a python backend without a cl
   const run = [...ws.runs.values()][0];
   assert.equal(run.status, 'failed');
   assert.equal(run.error, 'invalid bundle');
+});
+
+test('gate: no report, a stale report and an unmet condition refuse the start with their reason; a met condition starts', async () => {
+  const { graph, ids, ws, bundle } = await acceptedCounter();
+  graph.connect({ kind: 'value', from: { node: ids.evaluator, port: 'report' }, to: { node: ids.trainer, port: 'gate' } });
+  const metric = graph.node(ids.steps).title;
+  graph.patchConfig(ids.trainer, { gate: { metric, min: 4 } });
+  const evaluator = createEvaluatorSession({ workspace: ws, nodeId: ids.evaluator });
+  const evaluators = id => (id === ids.evaluator ? evaluator : null);
+  const { browser, calls } = fakeBrowser();
+  const s = createTrainerSession({ workspace: ws, nodeId: ids.trainer, browser, evaluators });
+
+  assert.equal(s.snapshot().problem, null, 'the gate is no graph problem');
+  assert.equal(s.snapshot().gate.passed, false);
+  assert.match(s.snapshot().gate.reason, /还没有/);
+  assert.equal(s.snapshot().can.start, false);
+  await assert.rejects(s.start(), /还没有/);
+  const server = fakeServer();
+  graph.patchConfig(ids.trainer, { backend: 'python' });
+  const py = createTrainerSession({ workspace: ws, nodeId: ids.trainer, evaluators, client: new WorkspaceClient('', { fetch: server.fetch, EventSource: undefined }) });
+  await assert.rejects(py.start(), /还没有/, 'the Python backend obeys the same gate');
+  assert.equal(server.submitted.length, 0);
+  py.dispose();
+  graph.patchConfig(ids.trainer, { backend: 'browser' });
+
+  await evaluator.run();                                               // counterModel(1): 3 steps to the target
+  assert.match(s.snapshot().gate.reason, /3.*≥ 4/, 'the snapshot follows the evaluator report');
+  await assert.rejects(s.start(), /≥ 4/);
+
+  const other = await makeArtifact({ bundle, model: counterModel(0), provenance: { test: 'stays' }, evaluation: {} });
+  await ws.addArtifact(other);
+  graph.patchConfig(ids.cands, { accepted: other.id });
+  assert.match(s.snapshot().gate.reason, /过时/);
+  await assert.rejects(s.start(), /过时/);
+  assert.equal(calls.length, 0, 'no refused start reaches the worker');
+
+  await evaluator.run();                                               // counterModel(0) never moves: all 5 steps of the budget
+  assert.deepEqual({ passed: s.snapshot().gate.passed, value: s.snapshot().gate.value }, { passed: true, value: 5 });
+  assert.equal(s.snapshot().can.start, true);
+  const id = await s.start();
+  assert.equal(calls[0].bundle.recipe.gate, undefined, 'the condition is not part of the bundle');
+  evaluator.clear();                                                   // the gate reads the report at the start only
+  assert.equal(ws.runs.get(id).status, 'running');
+  s.dispose(); evaluator.dispose();
+});
+
+test('gate: a report without the metric refuses the start', () => {
+  const snapshot = { report: { metrics: { other: { mean: 1, n: 1 } } }, stale: false };
+  assert.match(gateStatus({ metric: 'steps', min: 1 }, snapshot, 'eval').reason, /没有指标 steps/);
+  assert.equal(gateStatus({ metric: 'other', max: 1 }, snapshot, 'eval').passed, true);
+  assert.equal(gateStatus({ metric: 'other', max: 0.5 }, snapshot, 'eval').passed, false);
 });

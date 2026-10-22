@@ -7,6 +7,11 @@
 // `structure` names the trained network (it must be in the loop body). Its readout is the one consuming its `scores`.
 // Optional `metric: fn(Episode)→number` selects the best epoch on the validation partition (default: mean return for
 // reward objectives, greedy-readout accuracy over labelled steps for target objectives).
+// Optional `init` takes the `weights` of a candidates module. The run then starts from its accepted artifact, not from
+// random weights (ADR 0020). core/loop.js initModel checks that the artifact fits the trained network.
+// Optional `gate` takes the `report` of an evaluator. `config.gate = { metric, min?, max? }` is the condition that
+// report must meet before a run starts (ADR 0020). The trainer session checks it at the start (sessions/trainer.js).
+// Here only the static part is checked: a condition exists and names a metric wired into that evaluator.
 // Its output is a `run` handle. The actual work happens on a bundle (core/bundle.js) in a worker or in Python.
 import { registerKind } from '../registry.js';
 import { valueIn, valueOut, callIn } from './common.js';
@@ -53,6 +58,22 @@ export function trainedOf(ctx, node) {
   const p = ctx.producers(node.id, 'structure')[0], net = p ? ctx.node(p.node) : null;
   return net?.kind === 'network' ? net : null;
 }
+/** The candidates module wired into a trainer's `init`, or null. Its accepted artifact is the start of a run. */
+export function initCandidatesOf(ctx, node) {
+  const p = ctx.producers(node.id, 'init')[0], cands = p ? ctx.node(p.node) : null;
+  return cands?.kind === 'candidates' ? cands : null;
+}
+/** The evaluator wired into a trainer's `gate`, or null. */
+export function gateEvaluatorOf(ctx, node) {
+  const p = ctx.producers(node.id, 'gate')[0], evaluator = p ? ctx.node(p.node) : null;
+  return evaluator?.kind === 'evaluator' ? evaluator : null;
+}
+/** The metric names of an evaluator report: the titles of the metrics wired into it (core/bundle.js names them so). */
+export function metricNamesOf(ctx, evaluatorId) {
+  return ctx.producers(evaluatorId, 'metrics').map(p => ctx.node(p.node).title);
+}
+/** True when `gate` is a complete condition: a metric name and a minimum or a maximum. */
+export const hasCondition = gate => !!gate?.metric && (gate.min != null || gate.max != null);
 /** Refs of a loop driver: the loop's (Start, State, Transition, Episode, I, Table), plus `extra`. */
 export function driverRefs(node, ctx, extra = {}) {
   const L = loopOf(ctx, node);
@@ -89,13 +110,14 @@ registerKind({
       exploration: { type: 'number', min: 0, max: 1 }, baselineDecay: { type: 'number', min: 0, max: 1 }, gradClip: { type: 'number', min: 0, max: 1e6 },
       surrogateWidth: { type: 'number', min: 0.000001, max: 1e6 }, initCurrent: { type: 'number', min: -1e6, max: 1e6 },
       episodesPerEpoch: { type: 'int', min: 1, max: 4096 }, calibrationEpisodes: { type: 'int', min: 1, max: 4096 },
+      gate: { type: 'object', optional: true, fields: { metric: { type: 'string', max: 200 }, min: { type: 'number', optional: true }, max: { type: 'number', optional: true } } },
     },
   },
   ports(node, ctx) {
     const refs = ctx.refs(node.id);
     return {
       inputs: [
-        driverLoopIn(), valueIn('structure', handle('structure'), { required: true }),
+        driverLoopIn(), valueIn('structure', handle('structure'), { required: true }), valueIn('init', handle('weights'), { loop: true }), valueIn('gate', handle('report')),
         callIn('objective', objectiveSignature(node.config.method, refs.O ?? null, !!refs.Table), { required: true, when: WHEN[METHODS[node.config.method].objective] }), callIn('metric', METRIC_SIGNATURE, { when: WHEN.metric }),
         valueIn('training', null, { required: true }), valueIn('validation', null),
       ],
@@ -119,6 +141,11 @@ registerKind({
       if (tooled) out.push({ port: 'structure', message: tooled });
       else if (r && r.config.mode !== mode) out.push({ port: 'structure', message: t('{method} 需要 {mode} 读出', { method: c.method, mode }) });
     }
+    const init = initCandidatesOf(ctx, node);
+    if (init && !init.config.accepted) out.push({ port: 'init', incomplete: true, message: t('init 的候选 {title} 尚未接受任何产物', { title: init.title }) });
+    const gate = gateEvaluatorOf(ctx, node);
+    if (gate && !hasCondition(c.gate)) out.push({ port: 'gate', incomplete: true, message: t('gate 需要条件：选择指标，再填写最小值或最大值') });
+    else if (gate && !metricNamesOf(ctx, gate.id).includes(c.gate.metric)) out.push({ port: 'gate', message: t('评估器 {title} 没有指标 {metric}', { title: gate.title, metric: c.gate.metric }) });
     for (const role of ['training', 'validation']) { const problem = partitionProblem(ctx.inType(node.id, role), role); if (problem) out.push({ port: role, message: problem }); }
     out.push(...callProblems(node, ctx, 'objective', objectiveSignature(c.method, refs.O ?? null, !!refs.Table)), ...callProblems(node, ctx, 'metric', METRIC_SIGNATURE));
     return out;

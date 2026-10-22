@@ -16,10 +16,10 @@ A view can pick one of four built-in renderers (`grid`, `series`, `table`, `kv`)
 2. Sandboxed frame. The script runs in `<iframe sandbox="allow-scripts" srcdoc>` without `allow-same-origin`. The frame has the full build of Vue inlined and a CSP (`default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:`). The script has no access to the DOM, storage, wallet or network of the workbench. Data goes in by `postMessage`. Only the content height and errors come out.
 3. `ctx` contains these items:
    - What the view is wired to. This is a report, or the `state`, `history`, `t` and other outputs of an execution at the scrubbed step.
-   - `ctx.modules`: every member of the nearest training module, keyed by title. Each member is `{ <port>: value }` for its outputs with a static value (`core/bundle.js staticPorts`).
+   - `ctx.modules`: every member of the nearest training module, keyed by title. If the scenario module of one of its loops is outside it (an environment that several training modules share), `ctx.modules` also holds that scenario module. Each member is `{ <port>: value }` for its outputs with a static value (`core/bundle.js staticPorts`).
    - `ctx.errors`: the members that the system cannot evaluate.
 
-   While a member view uses a script, titles in that training module must be unique.
+   While a member view uses a script, titles in that training module and its shared scenario must be unique.
 4. A view without a script uses a built-in renderer.
 
 ## Considered Options
