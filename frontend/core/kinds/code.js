@@ -113,7 +113,7 @@ export function analyseModule(node, inType) {
  * `{ program, result, error, bound: {fileName: Type} }`. `error.incomplete` is set while something it needs is untyped.
  * The program's params are the caller's arguments, then the bound file-level names (bundle programs).
  */
-export function callFunction(analysis, name, argTypes, { exact = false } = {}) {
+export function callFunction(analysis, name, argTypes, { exact }) {
   const fn = analysis.module.functions[name];
   if (!fn) return { program: null, result: null, bound: null, error: new Error(t('代码没有导出函数 {name}', { name })) };
   if (fn.error) return { program: null, result: null, bound: null, error: fn.error };

@@ -28,7 +28,6 @@ import { encodeThresholdWeights } from './runtime/threshold-layers.js';
 import { AbiCoder, Contract, getCreate2Address, isAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { t } from './i18n.js';
 
-const ZERO_SESSION = '0x' + '0'.repeat(64);
 const ZERO_ADDRESS = '0x' + '0'.repeat(40);
 const INT32 = 2147483648;
 /** ModuleFactory.MAX_CHUNK_BYTES: the most weight bytes one chunk holds. */
@@ -59,7 +58,7 @@ function isBit(b) { return b === 0 || b === 1 || b === false || b === true; }
 /** `bits`: 0/1 (or boolean) entries → one byte each, the `bytes` a module expects. */
 function encodeBits(bits, expected, label) {
   if (!bits || typeof bits.length !== 'number') throw new Error(t('{label}必须是 0/1 数组', { label: t(label) }));
-  if (expected !== undefined && bits.length !== expected) throw new Error(t('{label}必须是 {expected} 位，收到 {count}', { label: t(label), expected, count: bits.length }));
+  if (bits.length !== expected) throw new Error(t('{label}必须是 {expected} 位，收到 {count}', { label: t(label), expected, count: bits.length }));
   let hex = '0x';
   for (let i = 0; i < bits.length; i++) {
     if (!isBit(bits[i])) throw new Error(t('{label}第 {index} 位不是 0/1：{value}', { label: t(label), index: i, value: bits[i] }));
@@ -76,7 +75,6 @@ export function sessionId(label) {
 }
 
 function requireSession(session) {
-  if (session === undefined || session === null) return ZERO_SESSION;
   if (typeof session !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(session)) throw new Error(t('会话必须是 bytes32（0x + 64 hex）：{session}', { session }));
   return session.toLowerCase();
 }
@@ -376,9 +374,9 @@ async function planModule(at, plan, valid, tool) {
 }
 
 /**
- * What deployModule would send for `artifact` now, read-only. `runner`: a provider or signer. `from`: the deployer,
- * default the address of the signer. The deployer becomes the owner of the module, so the Factory refuses a deployment
- * estimated without one. `version`: as for deployModule.
+ * What deployModule would send for `artifact` now, read-only. `runner`: a provider or signer. `from`: the deployer.
+ * The deployer becomes the owner of the module, so the Factory refuses a deployment estimated without one. `version`:
+ * as for deployModule.
  * → `{ artifactId, factory, cap, chunks, tools, transactions }`:
  *   - `chunks` = the distinct weight chunks of every module that it creates (`{ artifactId, id, address, bytes, onChain }`,
  *     by their CREATE2 addresses)
@@ -388,13 +386,12 @@ async function planModule(at, plan, valid, tool) {
  * The grouping follows the rule of createModule, from gas estimates made before anything is sent (splitByGas).
  * deployModule estimates again before each transaction. So a forecast at a boundary can be one transaction off.
  */
-export async function planDeployment(runner, factoryAddress, artifact, { artifacts = null, from = null, version = null } = {}) {
+export async function planDeployment(runner, factoryAddress, artifact, { artifacts = null, from, version = null } = {}) {
   const valid = await validateArtifact(artifact);
-  const deployer = from ?? (typeof runner.getAddress === 'function' ? await runner.getAddress() : null);
-  if (!deployer || !isAddress(deployer)) throw new Error(t('部署计划需要部署者地址（from）：模块的 owner 是部署者，估算要以它的身份进行'));
+  if (!from || !isAddress(from)) throw new Error(t('部署计划需要部署者地址（from）：模块的 owner 是部署者，估算要以它的身份进行'));
   const factory = contractOf(runner, factoryAddress, FactoryABI, 'ModuleFactory'), cap = await txGasCap(runner);
   const plan = { artifactId: valid.id, factory: factoryAddress, cap: cap.toString(), chunks: [], tools: [], transactions: [] };
-  await planModule({ runner, factory, factoryAddress, artifacts, cap, as: { from: deployer }, reuse: new Map(), version }, plan, valid, false);
+  await planModule({ runner, factory, factoryAddress, artifacts, cap, as: { from }, reuse: new Map(), version }, plan, valid, false);
   return plan;
 }
 
@@ -477,8 +474,8 @@ export async function deployModule(signer, factoryAddress, artifact, { artifacts
 }
 
 /**
- * Read-only decision. mode 'forward' = rest state. mode 'peek' = the stored state of `from` (defaults to the signer)
- * under `session`, nothing persisted.
+ * Read-only decision. mode 'forward' = rest state. mode 'peek' = the stored state of `from` under `session`, nothing
+ * persisted.
  */
 export async function inferModule(providerOrSigner, address, observation, { mode = 'forward', session, from } = {}) {
   const h = await readModule(providerOrSigner, address);
@@ -486,10 +483,9 @@ export async function inferModule(providerOrSigner, address, observation, { mode
   const bytes = encodeBits(observation, h.inputs, '输入位');
   if (mode === 'forward') return decodeDecision(await c.forward(bytes), h);
   if (mode !== 'peek') throw new Error(t('未知模式：{mode}', { mode }));
-  const who = from ?? (typeof providerOrSigner.getAddress === 'function' ? await providerOrSigner.getAddress() : null);
-  if (!who) throw new Error(t('peek 需要 from（读取谁的状态）'));
-  if (!isAddress(who)) throw new Error(t('from 地址无效：{address}', { address: who }));
-  return decodeDecision(await c.peekAs(who, requireSession(session), bytes), h);
+  if (!from) throw new Error(t('peek 需要 from（读取谁的状态）'));
+  if (!isAddress(from)) throw new Error(t('from 地址无效：{address}', { address: from }));
+  return decodeDecision(await c.peekAs(from, requireSession(session), bytes), h);
 }
 
 function resultHashOf(decision) {

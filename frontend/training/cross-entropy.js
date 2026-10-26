@@ -41,14 +41,14 @@ function teacherBatch(lockstep, episodes, rng, exploration, I, O) {
   return { B, steps, labelled };
 }
 
-export async function trainCrossEntropy(bundle, { onProgress, isCancelled, tables, bundleHash } = {}) {
+export async function trainCrossEntropy(bundle, { onProgress, tables, bundleHash } = {}) {
   const recipe = bundle.recipe, { structure: net } = trainedOf(bundle.loop), ff = net.kind === 'feedforward';
   const H = denseStateWidth(net), I = net.inputs, O = net.outputs, ticks = ff ? 1 : net.ticks;
   const selection = selectionOf(bundle);
   const training = bundle.partitions.training;
   const B = epochSize(training, recipe);
   assertTapeBudget(bundle.env.budget, ticks, B, H);
-  const run = new Run(recipe.epochs, { onProgress, isCancelled });
+  const run = new Run(recipe.epochs, { onProgress });
   run.report({ phase: 'init', epoch: 0, loss: null, metric: null, metricName: selection.name });
 
   const policy = new QatPolicy(net, recipe.surrogateWidth);

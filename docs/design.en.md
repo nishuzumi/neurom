@@ -315,7 +315,7 @@ The main points of templates are:
 All parts that run a scenario run the loop through one loop executor. The loop executor is `frontend/core/loop.js`. The Python twin is `training/bundle_loop.py`, batched over lanes, with the same semantics. The main points are:
 
 - **`loopSection(graph, res, loopId, { trained, artifacts })`** builds the `loop` section of the bundle. If the loop or its body has problems, it throws `BundleError`.
-- **`createLoop(loop, { models })`** → `{ reset(), step(bits) → { action, values, ran, tools }, states() }`. Every network runs its own model. `models` replaces network models by id, for example the candidate model of the trained network during validation and evaluation.
+- **`createLoop(loop)`** → `{ reset(), step(bits) → { action, values, ran, tools }, states() }`. Every network runs its own model from the loop section. To replace a model (for example the candidate model of the trained network during validation and evaluation), use the `models` of the lockstep runner and the greedy runner. It replaces network models by id.
 - **Demand-driven**: the executor works back from `action`, and evaluates each node at most once per step. A tool layer runs only the tool that it chose. `ran` is the set of nodes evaluated in this step. `values` is every evaluated output (`'<node>.<port>'` → bits, number or scores). `tools` is the `{ choice, data, result }` of each tool layer in this step. Executions and views show these values.
 
   Networks keep their executor state across steps. The state is first the network's own LIF potentials, then the state of each of its network tools. The tool states are in tool-layer order and then wire order, nested level by level (`toolCaller`'s `width`). The state of a tool advances only when the tool layer chooses the tool. `states()` gives the whole state of every network, and `reset()` sets all of it to zero. During REINFORCE training, each lane also has its own tool state, which goes to zero with the potentials when the episode of the lane starts.
@@ -489,15 +489,10 @@ All parts that run a scenario run the loop through one loop executor. The loop e
 
 ### Performance
 
-There is no CPU profile of the mining template yet. The main work of each step is:
+There is no CPU profile. The main work of each step is:
 
 - **The mining input program.** On every step, it gets the 9×9 view window around the agent (81 cells) with IR `range(81).map`. Then it encodes coal and gold as 81 bits each, and adds the base offset, the bag and the steps left.
 - **LIF training** in JS goes through the BPTT path of `dense-core.js`, which is not related to the IR.
-
-The next work has two items:
-
-- Measure the JS and generated-Python profiles on the mining template. Do this first.
-- Make the BPTT path of `dense-core.js` faster.
 
 ## 12. Known limits
 

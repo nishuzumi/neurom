@@ -414,12 +414,6 @@ class Contract(unittest.TestCase):
         r = bt.quantize_region([[0.0, 0.0]], [0.5], 8, 'ff')
         self.assertEqual((r['W'].tolist(), r['b'].tolist(), r['scale'], r['k']), ([[0, 0]], [32512], 127.0, 9))
 
-    def test_cancellation_raises_abort(self):
-        seen = []
-        with self.assertRaises(bt.Cancelled):
-            bt.train_bundle(bundle('reinforce', epochs=50, replicas=1, episodesPerEpoch=4), on_progress=seen.append, is_cancelled=lambda: len(seen) >= 3)
-        self.assertLess(len(seen), 50)
-
     def test_progress_messages_are_bounded(self):
         seen = []
         result = bt.train_bundle(bundle('hinge', epochs=900, evalEvery=900, replicas=1), on_progress=seen.append)

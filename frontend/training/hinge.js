@@ -115,10 +115,10 @@ export class ThresholdNet {
   }
 }
 
-export async function trainHinge(bundle, { onProgress, isCancelled, tables, bundleHash } = {}) {
+export async function trainHinge(bundle, { onProgress, tables, bundleHash } = {}) {
   const recipe = bundle.recipe, { structure: net } = trainedOf(bundle.loop), I = net.inputs, O = net.outputs;
   const selection = selectionOf(bundle);
-  const run = new Run(recipe.epochs, { onProgress, isCancelled });
+  const run = new Run(recipe.epochs, { onProgress });
   run.report({ phase: 'init', epoch: 0, loss: null, metric: null, metricName: selection.name });
   const data = teacherRows(bundle, episodesOf(bundle.partitions.training), tables, I, O);
   if (!data.length) throw new Error(t('分区没有任何回合'));

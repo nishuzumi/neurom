@@ -1,12 +1,15 @@
-// templates/tank-battle.test.js — the tank battle template: a Battle City level. It instantiates with only the problems
-// of candidates that accepted nothing yet. It has four training modules, each with one trainer and its loop (ADR 0020).
-// In stage 1, 中 and 大 learn the teacher of one shared scene. In stage 2, each structure continues from its stage 1
-// candidates by REINFORCE on the battle reward of the scene, behind a gate on its stage 1 report. Its script module
-// 坦克对战 plays the two stage 2 networks against each other on the battle of the same scene.
+// templates/tank-battle.test.js — the tank battle template: a Botzone Tank2 battle (1 tank per side, 2 lives) on a
+// fixed 9 × 9 map with a base at each end. It instantiates with only the problems of candidates that accepted nothing
+// yet. It has four training modules, each with one trainer and its loop (ADR 0020). Both stages play the battle against
+// the bot of one shared scene. In stage 1, 中 and 大 learn the teacher of the scene. In stage 2, each structure
+// continues from its stage 1 candidates by REINFORCE on the reward of the scene, behind a gate on its stage 1 report.
+// Its script module 坦克对战 plays the stage 2 中 against a bot of the scene (the hard bot by default) or against the
+// stage 2 大, on the battle of the same scene.
 //
-// The rules of the level run through the runner on fixed seeds. A test that needs a given position resets the runner,
-// then puts the tanks and bullets in place on the runner's state. The teacher runs as the trainers call it. The rules of
-// the battle run through the calls of the script module, as the script calls them.
+// The rules of the battle without a bot run through the calls of the script module, as the script calls them. A test
+// that needs a given position puts the tanks in place on a start state and changes cells of the map. The rules of the
+// training step run through the runner on fixed seeds: a test resets the runner, then puts the position on its state.
+// The teacher runs as the trainers call it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ModuleGraph } from '../core/graph.js';
@@ -27,12 +30,16 @@ import { createExecutor } from '../core/sessions/executor.js';
 const instance = () => { const graph = new ModuleGraph(); return { graph, ...instantiateInto(graph, builtinTemplate('tank-battle')) }; };
 /** The two structures of stage 1: 中 (2 × 32) and 大 (3 × 128). */
 const STRUCTURES = ['s1_a', 's1_b'];
-/** The same structures in stage 2 (the battle map against the bot). */
+/** The same structures in stage 2. */
 const STAGE2 = ['s2_a', 's2_b'];
-/** The metrics of each stage 1 evaluator, by the titles that its report shows. */
-const METRICS = ['过关率', '平均击毁数', '基地保住的比例', '和教师一致的比例'];
-/** The metrics of each stage 2 evaluator. */
-const DUEL_METRICS = ['胜率', '击毁对方坦克的比例', '我方坦克被击中的比例', '超时的比例'];
+/** The metrics of each stage 2 evaluator, by the titles that its report shows. */
+const DUEL_METRICS = ['胜率', '击毁对方坦克的比例', '我方坦克被击中的比例', '平局的比例'];
+/** The metrics of each stage 1 evaluator: the agreement with the teacher, then the metrics of stage 2. */
+const METRICS = ['和教师一致的比例', ...DUEL_METRICS];
+/** The levels of the bot: 1 easy, 2 medium, 3 hard. */
+const LEVELS = [1, 2, 3];
+/** The bits that each side sees, and the actions. */
+const [INPUTS, ACTIONS] = [572, 9];
 
 test('the tank battle template instantiates with no problem but candidates that accepted nothing yet and the starts that wait for them', () => {
   const { graph, ids } = instance();
@@ -53,12 +60,12 @@ test('each training module trains one network: each stage has one for 中 and on
     assert.deepEqual(frame.trainers, [ids[`${m}_trainer`]], `${m}: one trainer`);
     assert.deepEqual(frame.canvas, [groupIds[`${m}_box`]], `${m}: its loop box is in the well`);
   }
-  const metrics = [...graph.nodes.values()].filter(n => [...METRICS, ...DUEL_METRICS].includes(n.title));
-  assert.equal(metrics.length, METRICS.length + DUEL_METRICS.length);
+  const metrics = [...graph.nodes.values()].filter(n => METRICS.includes(n.title));
+  assert.equal(metrics.length, METRICS.length, 'one module for each metric');
   for (const n of metrics) assert.equal(graph.parentOf(n.id).id, group.id, `${n.title} sits outside the training modules`);
 });
 
-test('in stage 1, 中 and 大 learn the teacher of one shared scene', () => {
+test('in stage 1, 中 and 大 learn the teacher of one shared scene, and the evaluators count the agreement as the reward', () => {
   const { graph, ids, group } = instance();
   assert.deepEqual(STRUCTURES.map(m => graph.node(ids[`${m}_net`]).config.layers.map(L => L.hidden)), [[32, 32], [128, 128, 128]]);
   assert.equal(graph.parentOf(ids.scene).id, group.id, 'the scene sits outside the training module');
@@ -68,10 +75,12 @@ test('in stage 1, 中 and 大 learn the teacher of one shared scene', () => {
     assert.equal(trainer.config.method, 'cross-entropy', m);
     assert.deepEqual([graph.producers(trainer.id, 'init'), graph.producers(trainer.id, 'gate')], [[], []], `${m}: stage 1 starts from random weights`);
     assert.deepEqual(graph.producers(trainer.id, 'objective').map(p => [p.node, p.port]), [[ids.scene, 'teacher']], m);
+    assert.deepEqual(graph.producers(ids[`${m}_evaluator`], 'objective').map(p => [p.node, p.port]), [[ids.scene, 'agreement']], `${m}: evaluator reward`);
     assert.deepEqual(graph.producers(ids[`${m}_evaluator`], 'metrics').map(p => graph.node(p.node).title).sort(), [...METRICS].sort(), `${m}: evaluator`);
     const env = createEnv(buildBundle(graph, trainer.id).env);
     env.reset({ seed: 1 });
     assert.equal(env.input().length, graph.node(ids[`${m}_net`]).config.inputs, `${m}: the network reads all input bits of the scene`);
+    assert.deepEqual(graph.node(ids[`${m}_readout`]).config.map, [0, 1, 2, 3, 4, 5, 6, 7, 8], `${m}: the readout maps the 9 actions`);
   }
   // both trainers train on the same scene: their bundles agree on the environment
   const envs = STRUCTURES.map(m => JSON.stringify(buildBundle(graph, ids[`${m}_trainer`]).env));
@@ -88,290 +97,74 @@ function fixedModel(inputs, hidden, outputs, seed) {
     output: { ...region(outputs, hidden.at(-1)), scale: 1000, k: 0 } };
 }
 
-test('stage 2 continues each structure from its stage 1 candidates on the battle map, gated on its stage 1 report', () => {
+test('stage 2 continues each structure from its stage 1 candidates on the same battle, gated on its stage 1 report', () => {
   const { graph, ids } = instance();
   for (const [m, from, hidden] of [['s2_a', 's1_a', [32, 32]], ['s2_b', 's1_b', [128, 128, 128]]]) {
     const trainer = graph.node(ids[`${m}_trainer`]), wired = port => graph.producers(trainer.id, port).map(p => [p.node, p.port]);
     assert.equal(trainer.config.method, 'reinforce', m);
     assert.deepEqual(graph.node(ids[`${m}_net`]).config.layers.map(L => L.hidden), hidden, `${m}: the structure of ${from}`);
-    assert.deepEqual(wired('objective'), [[ids.scene, 'duelReward']], `${m}: the battle reward of the scene`);
+    assert.deepEqual(wired('objective'), [[ids.scene, 'reward']], `${m}: the reward of the scene`);
     assert.deepEqual(wired('init'), [[ids[`${from}_cands`], 'weights']], `${m}: init`);
     assert.deepEqual(wired('gate'), [[ids[`${from}_evaluator`], 'report']], `${m}: gate`);
     assert.deepEqual(graph.producers(ids[`${m}_evaluator`], 'metrics').map(p => graph.node(p.node).title).sort(), [...DUEL_METRICS].sort(), `${m}: evaluator`);
 
-    // the condition: 和教师一致的比例 of the stage 1 report is at least 0.9
+    // the condition: 和教师一致的比例 of the stage 1 report is at least 0.85
     const evaluation = mean => ({ stale: false, report: { metrics: { 和教师一致的比例: { mean } } } });
     assert.ok(METRICS.includes(trainer.config.gate.metric), `${m}: the gate reads a metric of the stage 1 evaluator`);
-    assert.deepEqual([0.89, 0.9, 0.95].map(v => gateStatus(trainer.config.gate, evaluation(v), 'e').passed), [false, true, true], m);
+    assert.deepEqual([0.84, 0.85, 0.95].map(v => gateStatus(trainer.config.gate, evaluation(v), 'e').passed), [false, true, true], m);
     assert.equal(gateStatus(trainer.config.gate, null, 'e').passed, false, `${m}: no report, no start`);
     assert.equal(gateStatus(trainer.config.gate, { ...evaluation(0.95), stale: true }, 'e').passed, false, `${m}: a stale report, no start`);
 
-    // the run starts from the accepted stage 1 weights, and the loop runs the battle: the network is side 0 and sees view(state, 0)
-    const id = '0x' + '4'.repeat(64), model = fixedModel(492, hidden, 6, 3), artifact = shapedArtifact(graph, ids[`${from}_net`], model);
+    // the run starts from the accepted stage 1 weights. Its loop plays the battle of stage 1: the network is side 0 and
+    // sees view(state, 0).
+    const id = '0x' + '4'.repeat(64), model = fixedModel(INPUTS, hidden, ACTIONS, 3), artifact = shapedArtifact(graph, ids[`${from}_net`], model);
     graph.patchConfig(ids[`${from}_cands`], { accepted: id });
     const bundle = buildBundle(graph, trainer.id, { artifacts: a => (a === id ? artifact : null) });
     assert.deepEqual(bundle.init, { artifactId: id, model }, m);
+    assert.equal(JSON.stringify(bundle.env), JSON.stringify(buildBundle(graph, ids[`${from}_trainer`]).env), `${m}: the environment of ${from}`);
     const env = createEnv(bundle.env), page = scriptCalls(graph, graph.resolved(), ids.vs_battle, { artifacts: () => null });
     const start = env.reset({ seed: 7 }), battle = page.call('battle', [{ seed: 7 }]);
-    assert.deepEqual({ ...start, seed: undefined }, { ...battle, seed: undefined }, `${m}: the start of the battle`);
+    assert.deepEqual(start, battle, `${m}: the start of the battle`);
     assert.deepEqual(env.input(), page.call('view', [start, 0]), `${m}: the input is the view of side 0`);
   }
 });
 
-test('the parameters of stage 2 do not change the environment of stage 1, so its artifacts stay compatible', () => {
+test('the rewards of stage 2 do not change the environment of stage 1, so its artifacts stay compatible', () => {
   const envOf = values => {
     const { graph, ids } = instance();
-    graph.patchConfig(ids.duel, { values });
+    graph.patchConfig(ids.rewards, { values });
     return JSON.stringify(buildBundle(graph, ids.s1_a_trainer).env);
   };
-  assert.equal(envOf({}), envOf({ botRandom: 0.9, stepCost: 0.1 }));
+  assert.equal(envOf({}), envOf({ win: 2, kill: 0.9, hurt: -0.5, step: 0.1 }));
 });
-
-// ---------------------------------------------------------------------------------------------- the level
-const [UP, RIGHT, DOWN, LEFT, FIRE, WAIT] = [0, 1, 2, 3, 4, 5];
-/** Map codes of the scene: 0 empty, 1 brick, 2 steel, 3 base. */
-const [BRICK, STEEL, BASE] = [1, 2, 3];
-const IDLE = { on: false, x: 0, y: 0, d: 0 };
-/** A tank or a bullet record from [x, y, d], or IDLE for null. */
-const thing = v => (v ? { on: true, x: v[0], y: v[1], d: v[2] } : IDLE);
-const cellOf = (s, x, y) => s.cells[y * 9 + x];
-
-/** The scene of the template with `values` in the parameters: the runner, the teacher and the bundle of 中. */
-function level(values = {}) {
-  const { graph, ids } = instance();
-  graph.patchConfig(ids.params, { values });
-  const bundle = buildBundle(graph, ids.s1_a_trainer);
-  return { graph, ids, bundle, env: createEnv(bundle.env), teacher: compileEntry(bundle.objective, [bundle.env.types.State], 'teacher') };
-}
-/**
- * Resets `env` on seed 1, then puts the given things on its state. `me` is [x, y, d]. `foes` and `shots` list [x, y, d]
- * or null for each slot: shots[0] is our bullet, shots[1 + i] the bullet of enemy i. All enemies have appeared, so no
- * new enemy comes.
- */
-function place(env, { me = [2, 8, UP], foes = [null, null, null], shots = [null, null, null, null], ...more } = {}) {
-  env.reset({ seed: 1 });
-  env.state = { ...env.state, me: { x: me[0], y: me[1], d: me[2] }, foes: foes.map(thing), shots: shots.map(thing), spawned: 6, ...more };
-  return env.state;
-}
-
-test('a bullet removes the brick that it hits, and our own bullet on the base loses the level', () => {
-  const { env } = level({ fireProb: 0 });
-  const start = place(env);
-  assert.equal(cellOf(start, 3, 8), BRICK, 'the brick ring of the base');
-  const turn = env.step(RIGHT);
-  assert.deepEqual(turn.next.me, { x: 2, y: 8, d: RIGHT }, 'a move into a brick only turns the tank');
-  const first = env.step(FIRE);
-  assert.equal(cellOf(first.next, 3, 8), 0, 'the brick is gone');
-  assert.deepEqual([first.next.shots[0].on, first.next.end, first.done], [false, -1, false], 'the bullet is gone too');
-  const second = env.step(FIRE);
-  assert.deepEqual([second.next.end, second.done, second.success], [2, true, false], 'the next bullet hits the base');
-});
-
-test('steel stops a bullet and stays', () => {
-  const { env } = level({ fireProb: 0 });
-  place(env, { me: [4, 5, UP] });
-  const fired = env.step(FIRE);
-  assert.deepEqual([fired.next.shots[0].on, fired.next.shots[0].x, fired.next.shots[0].y], [true, 4, 3], 'a bullet flies 2 cells per step');
-  const stopped = env.step(WAIT);
-  assert.equal(stopped.next.shots[0].on, false);
-  assert.equal(cellOf(stopped.next, 4, 2), STEEL);
-});
-
-test('our bullet and an enemy bullet that meet both disappear', () => {
-  const { env } = level({ fireProb: 0 });
-  // the two bullets fly into the same cell (4,0)
-  place(env, { me: [2, 0, RIGHT], shots: [null, [6, 0, LEFT], null, null] });
-  const meet = env.step(FIRE);
-  assert.deepEqual(meet.next.shots.map(b => b.on), [false, false, false, false]);
-  assert.equal(meet.next.end, -1);
-  // the two bullets pass each other between (2,0) and (3,0). Without the clash, the enemy bullet hits our tank.
-  place(env, { me: [2, 0, RIGHT], shots: [null, [3, 0, LEFT], null, null] });
-  const cross = env.step(FIRE);
-  assert.deepEqual([cross.next.shots[0].on, cross.next.shots[1].on, cross.next.end], [false, false, -1]);
-  place(env, { me: [2, 0, UP], shots: [null, [3, 0, LEFT], null, null] });
-  assert.deepEqual([env.step(WAIT).next.end], [1], 'with no bullet of ours, the enemy bullet hits');
-});
-
-test('an enemy bullet flies through enemies, and our bullet destroys an enemy', () => {
-  const { env } = level({ fireProb: 0 });
-  // enemy 0 at (1,0) faces the brick (1,1), enemy 1 at (2,0) faces the map edge, so both only turn
-  const foes = [[1, 0, DOWN], [2, 0, UP], null];
-  place(env, { foes, shots: [null, null, null, [0, 0, RIGHT]] });
-  const through = env.step(WAIT).next;
-  assert.deepEqual(through.foes.map(f => f.on), [true, true, false]);
-  assert.deepEqual([through.shots[3].on, through.shots[3].x, through.kills], [true, 2, 0]);
-  place(env, { me: [4, 0, LEFT], foes });
-  const hit = env.step(FIRE).next;
-  assert.deepEqual(hit.foes.map(f => f.on), [true, false, false]);
-  assert.deepEqual([hit.kills, hit.killed, hit.end], [1, 1, -1]);
-});
-
-// ---------------------------------------------------------------------------------------------- the trails of the bullets
-/** The end reasons of a trail: still in flight, a brick (gone), steel or the map edge, a base, a tank, a clash. */
-const [FLYING, HIT_BRICK, HIT_STEEL, HIT_BASE, HIT_TANK, MEET, CROSS] = [0, 1, 2, 3, 4, 5, 6];
-/** The trail of a bullet that starts at [x, y] in direction d, flies n cells, ends at [ex, ey] for the reason `why`. */
-const trail = ([x, y, d], n, [ex, ey], why) => ({ on: true, x, y, d, n, ex, ey, why });
-/** The trail of an idle bullet: it did not fly in this step. */
-const IDLE_TRAIL = { on: false, x: 0, y: 0, d: 0, n: 0, ex: 0, ey: 0, why: 0 };
-
-test('each step records the trail of each bullet: its start, the cells it flies, its end and why it stops', () => {
-  const { env } = level({ fireProb: 0 });
-  const flown = action => env.step(action).next.trails;
-  place(env, { me: [2, 8, RIGHT] });
-  const brick = env.step(FIRE).next;
-  assert.deepEqual(brick.trails, [trail([2, 8, RIGHT], 1, [3, 8], HIT_BRICK), IDLE_TRAIL, IDLE_TRAIL, IDLE_TRAIL],
-    'a bullet fired into the brick next to the tank ends in the same step');
-  assert.equal(cellOf(brick, 3, 8), 0, 'the brick is gone');
-  assert.deepEqual(flown(FIRE)[0], trail([2, 8, RIGHT], 2, [4, 8], HIT_BASE), 'the next bullet passes the empty cell to the base');
-  place(env, { me: [4, 5, UP] });
-  assert.deepEqual(flown(FIRE)[0], trail([4, 5, UP], 2, [4, 3], FLYING), 'a bullet flies 2 cells');
-  assert.deepEqual(flown(WAIT)[0], trail([4, 3, UP], 1, [4, 2], HIT_STEEL), 'then it stops at the steel');
-  place(env, { me: [1, 7, RIGHT] });
-  const far = env.step(FIRE).next;
-  assert.deepEqual([far.trails[0], cellOf(far, 3, 7)], [trail([1, 7, RIGHT], 2, [3, 7], HIT_BRICK), 0], 'a brick 2 cells away');
-  place(env, { me: [0, 0, LEFT] });
-  assert.deepEqual(flown(FIRE)[0], trail([0, 0, LEFT], 1, [-1, 0], HIT_STEEL), 'the map edge stops a bullet as steel does');
-  place(env, { me: [4, 0, LEFT], foes: [[1, 0, DOWN], [2, 0, UP], null] });
-  assert.deepEqual(flown(FIRE)[0], trail([4, 0, LEFT], 2, [2, 0], HIT_TANK), 'our bullet destroys the enemy at (2,0)');
-  place(env, { me: [2, 0, UP], shots: [null, [3, 0, LEFT], null, null] });
-  assert.deepEqual(flown(WAIT)[1], trail([3, 0, LEFT], 1, [2, 0], HIT_TANK), 'an enemy bullet hits our tank');
-  place(env, { me: [2, 8, UP], shots: [null, [2, 7, RIGHT], null, null] });
-  assert.deepEqual(flown(UP)[1], trail([2, 7, RIGHT], 0, [2, 7], HIT_TANK), 'our tank drives into an enemy bullet before it flies');
-  place(env, { me: [2, 0, RIGHT], shots: [null, [6, 0, LEFT], null, null] });
-  assert.deepEqual(flown(FIRE).slice(0, 2), [trail([2, 0, RIGHT], 2, [4, 0], MEET), trail([6, 0, LEFT], 2, [4, 0], MEET)],
-    'two bullets that fly into one cell');
-  place(env, { me: [2, 0, RIGHT], shots: [null, [3, 0, LEFT], null, null] });
-  assert.deepEqual(flown(FIRE).slice(0, 2), [trail([2, 0, RIGHT], 1, [3, 0], CROSS), trail([3, 0, LEFT], 1, [2, 0], CROSS)],
-    'two bullets that pass through each other: each ends in the start cell of the other');
-});
-
-test('enemies appear one by one, at most 3 at a time, and running out of steps is not a win', () => {
-  const { env } = level({ fireProb: 0 });
-  let s = env.reset({ seed: 1 }), tr;
-  const onField = st => st.foes.filter(f => f.on).length;
-  assert.equal(onField(s), 1, 'the first enemy is there at the start');
-  const counts = [1];
-  do {
-    tr = env.step(WAIT);
-    const before = onField(tr.prev), after = onField(tr.next);
-    assert.ok(after <= before + 1, `step ${tr.next.t}: one enemy appears at a time`);
-    if (after > before) assert.equal(tr.next.t % 8, 0, `step ${tr.next.t}: enemies appear every 8 steps`);
-    counts.push(after);
-    s = tr.next;
-  } while (!tr.done);
-  assert.equal(Math.max(...counts), 3);
-  assert.deepEqual([s.spawned, s.kills], [3, 0], 'no enemy is destroyed, so no fourth enemy appears');
-  assert.deepEqual([tr.done, tr.success, s.end, s.t], [true, false, 3, 200]);
-});
-
-test('an enemy bullet on our tank loses the level, and destroying the sixth enemy wins it', () => {
-  const { env } = level({ fireProb: 0, turnProb: 0 });
-  place(env, { shots: [null, [2, 6, DOWN], null, null] });
-  const lost = env.step(WAIT);
-  assert.deepEqual([lost.next.end, lost.done, lost.success], [1, true, false]);
-  place(env, { me: [2, 4, UP], foes: [[2, 2, DOWN], null, null], kills: 5 });
-  const won = env.step(FIRE);
-  assert.deepEqual([won.next.kills, won.next.end, won.done, won.success], [6, 0, true, true]);
-});
-
-test('in a full level, 6 enemies appear over time and the teacher can destroy all of them', () => {
-  const { env, teacher } = level();
-  let s = env.reset({ seed: 2 }), tr, most = 0;
-  do { tr = env.step(teacher(s).indexOf(1)); s = tr.next; most = Math.max(most, s.foes.filter(f => f.on).length); } while (!tr.done);
-  assert.deepEqual([s.end, tr.success, s.kills, s.spawned], [0, true, 6, 6]);
-  assert.ok(most <= 3);
-});
-
-test('the input has 492 bits: six maps of 81 cells, then the facing, our bullet in flight and the bias', () => {
-  const { env } = level();
-  place(env, { me: [2, 8, LEFT], foes: [[0, 0, DOWN], null, null], shots: [[2, 7, UP], [0, 1, DOWN], null, null] });
-  const bits = env.input();
-  assert.equal(bits.length, 492);
-  const map = k => bits.slice(k * 81, (k + 1) * 81);
-  const at = (x, y) => y * 9 + x;
-  const ones = v => v.flatMap((b, c) => (b ? [c] : []));
-  assert.ok(map(0)[at(3, 8)] === 1 && map(0)[at(4, 8)] === 0, 'bricks');
-  assert.deepEqual(ones(map(1)), [at(4, 2), at(0, 4), at(8, 4)], 'steel');
-  assert.deepEqual(ones(map(2)), [at(4, 8)], 'base');
-  assert.deepEqual(ones(map(3)), [at(0, 0)], 'enemy tanks');
-  assert.deepEqual(ones(map(4)), [at(0, 1)], 'enemy bullets');
-  assert.deepEqual(ones(map(5)), [at(2, 8)], 'our tank');
-  assert.deepEqual(bits.slice(486), [0, 0, 0, 1, 1, 1], 'facing left, our bullet in flight, bias');
-});
-
-// ---------------------------------------------------------------------------------------------- the teacher
-/** The 6 target bits with the slots `on` set. */
-const slots = (...on) => [UP, RIGHT, DOWN, LEFT, FIRE, WAIT].map(a => (on.includes(a) ? 1 : 0));
-
-test('the teacher dodges an enemy bullet to a side, or fires at the bullet when it faces it', () => {
-  const { env, teacher } = level();
-  const foes = [[8, 6, LEFT], null, null];
-  // the bullet at (2,2) flies up to our tank at (2,0). Both side cells in row 0 are free.
-  assert.deepEqual(teacher(place(env, { me: [2, 0, LEFT], foes, shots: [null, [2, 2, UP], null, null] })), slots(LEFT, RIGHT));
-  assert.deepEqual(teacher(place(env, { me: [2, 0, DOWN], foes, shots: [null, [2, 2, UP], null, null] })), slots(LEFT, RIGHT, FIRE));
-  // (2,2) has a brick on each side, so only the shot back at the bullet helps
-  assert.deepEqual(teacher(place(env, { me: [2, 2, UP], foes, shots: [null, [2, 0, DOWN], null, null] })), slots(FIRE));
-  // a side cell that another bullet hits in the next step is not a dodge
-  assert.deepEqual(teacher(place(env, { me: [2, 0, LEFT], foes, shots: [null, [2, 2, UP], [1, 0, UP], null] })), slots(RIGHT));
-});
-
-test('the teacher fires at an enemy behind a brick, and turns to it first', () => {
-  const { env, teacher } = level();
-  const foes = [[0, 5, UP], null, null];
-  assert.deepEqual(teacher(place(env, { me: [2, 5, LEFT], foes })), slots(FIRE), 'the brick (1,5) is between');
-  assert.deepEqual(teacher(place(env, { me: [2, 5, UP], foes })), slots(LEFT));
-  assert.deepEqual(teacher(place(env, { me: [2, 5, LEFT], foes, shots: [[1, 5, LEFT], null, null, null] })), slots(WAIT), 'our bullet is in flight');
-});
-
-test('the teacher goes to intercept an enemy that faces the base before it goes to a nearer enemy', () => {
-  const { env, teacher } = level();
-  // the enemy at (7,8) faces left to the base. (7,7) sees it along column 7, 6 steps from (2,6) below our tank.
-  // (2,3) sees the enemy at (4,3) along row 3, 1 step from (2,4) above our tank.
-  assert.deepEqual(teacher(place(env, { me: [2, 5, UP], foes: [[7, 8, LEFT], [4, 3, LEFT], null] })), slots(DOWN));
-  assert.deepEqual(teacher(place(env, { me: [2, 5, UP], foes: [[7, 8, UP], [4, 3, LEFT], null] })), slots(UP), 'no enemy faces the base');
-});
-
-test('the teacher does not fire when the bullet would hit its own base first', () => {
-  const { env, teacher } = level();
-  // the enemy at (7,8) is in row 8 to the right of our tank, but the base (4,8) is between them
-  const mask = teacher(place(env, { me: [2, 8, RIGHT], foes: [[7, 8, LEFT], null, null] }));
-  assert.equal(mask[FIRE], 0);
-  assert.deepEqual(mask, slots(UP), 'it goes to intercept the enemy, which faces the base');
-});
-
-test('the teacher marks every shortest way to a cell that sees an enemy', () => {
-  const { env, teacher } = level();
-  // from (2,0), (6,0) sees the enemy at (6,4) along column 6 and (2,4) sees it along row 4: 4 steps each way
-  assert.deepEqual(teacher(place(env, { me: [2, 0, LEFT], foes: [[6, 4, UP], null, null] })), slots(RIGHT, DOWN));
-});
-
-test('the metric 和教师一致的比例 is the share of steps where our tank took an action that the teacher marks', () => {
-  const { graph, ids, bundle, env, teacher } = level();
-  const id = '0x' + '3'.repeat(64), artifact = shapedArtifact(graph, ids.s1_a_net, fixedModel(492, [32, 32], 6, 5));
-  graph.patchConfig(ids.s1_a_cands, { accepted: id });
-  const entry = buildBundle(graph, ids.s1_a_evaluator, { artifacts: a => (a === id ? artifact : null) }).metrics.find(m => m.name === '和教师一致的比例');
-  const agreeRate = compileEntry(entry, [episodeType(bundle.env.types.State)], 'agreeRate');
-  /** Plays seed 4 with `choose(mask)` for our tank. Returns agreeRate of the episode and the steps that the teacher marks. */
-  const play = choose => {
-    let s = env.reset({ seed: 4 }), marked = 0, tr;
-    do { const mask = teacher(s), a = choose(mask); marked += mask[a]; tr = env.step(a); s = tr.next; } while (!tr.done);
-    return { rate: agreeRate({ initial: tr.prev, final: s, steps: s.t, success: tr.success, return: 0 }), marked, t: s.t };
-  };
-  assert.equal(play(mask => mask.indexOf(1)).rate, 1, 'our tank follows the teacher');
-  const waits = play(() => WAIT);
-  assert.ok(waits.marked < waits.t, 'the teacher does not mark wait on each step');
-  assert.equal(waits.rate, waits.marked / waits.t);
-});
-
-/** A Transition from `prev` to `next`. */
-const transition = (prev, next, done = false) => ({ prev, action: WAIT, next, done, truncated: false, success: next.end === 0 })
 
 // ---------------------------------------------------------------------------------------------- the battle
+/** The 9 actions: move up, right, down, left; fire up, right, down, left; wait. */
+const [UP, RIGHT, DOWN, LEFT, FIRE_UP, FIRE_RIGHT, FIRE_DOWN, FIRE_LEFT, WAIT] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+/** Map codes of the scene: 0 empty, 1 brick, 2 steel, 3 base, 4 water. */
+const [BRICK, STEEL, BASE, WATER] = [1, 2, 3, 4];
+/** The end reasons of a trail: a brick (gone), steel or the map edge, a base, a tank, mutual fire (both shells cancel). */
+const [HIT_BRICK, HIT_STEEL, HIT_BASE, HIT_TANK, MUTUAL] = [1, 2, 3, 4, 5];
+/** A tank on the map at [x, y] with 2 lives, not fired, with its start cell there; `more` overrides fields. */
+const tank = ([x, y], more = {}) => ({ on: true, x, y, d: 0, lives: 2, fired: false, sx: x, sy: y, ...more });
+/** The trail of a shell fired from [x, y] in direction d: it hits the n-th cell for the reason `why`. */
+const trail = ([x, y], d, n, why) => ({ on: true, x, y, d, n, why });
+const cellOf = (s, x, y) => s.cells[y * 9 + x];
+/** The action `a` turned 180°: a move or a fire direction turns, wait stays. */
+const turnAct = a => (a < 8 ? a - (a % 4) + ((a % 4) + 2) % 4 : a);
+/** The state `s` with `tanks` in place and the cells { 'x,y': code } changed. */
+const place = (s, tanks, cells = {}) => {
+  const map = [...s.cells];
+  for (const [xy, v] of Object.entries(cells)) { const [x, y] = xy.split(',').map(Number); map[y * 9 + x] = v; }
+  return { ...s, cells: map, tanks };
+};
+
 /** Fixed models of 中 and 大, accepted in the stage 2 candidates that the networks of the battle read. */
-const BATTLE_MODELS = { mid: fixedModel(492, [32, 32], 6, 11), big: fixedModel(492, [128, 128, 128], 6, 13) };
+const BATTLE_MODELS = { mid: fixedModel(INPUTS, [32, 32], ACTIONS, 11), big: fixedModel(INPUTS, [128, 128, 128], ACTIONS, 13) };
 /**
  * The battle script of the template, with BATTLE_MODELS accepted. `calls()` gives the page side of its inputs over the
- * graph of the moment. `call(name, ...args)` calls one of them.
+ * graph of the moment. `call(name, ...args)` calls one of them. `at(tanks, cells)` is the start of seed 1 with the
+ * position in place (see `place`), and `step(s, a0, a1)` plays one step with both actions in the directions of the map.
  */
 function arena(values = {}) {
   const { graph, ids } = instance();
@@ -383,199 +176,345 @@ function arena(values = {}) {
     graph.patchConfig(ids[`${m}_cands`], { accepted: id });
   }
   const calls = () => scriptCalls(graph, graph.resolved(), ids.vs_battle, { artifacts: a => store.get(a) ?? null });
-  return { graph, ids, calls, call: (name, ...args) => calls().call(name, args) };
+  const call = (name, ...args) => calls().call(name, args);
+  const start = call('battle', { seed: 1 });
+  return { graph, ids, calls, call, at: (tanks, cells) => place(start, tanks, cells), step: (s, a0, a1 = WAIT) => call('play', s, a0, turnAct(a1)) };
 }
-/** A tank, bullet or trail record turned 180° on the 9 × 9 map. A trail also turns its end cell. */
-const rot = o => ({ ...o, x: 8 - o.x, y: 8 - o.y, d: (o.d + 2) % 4, ...('ex' in o ? { ex: 8 - o.ex, ey: 8 - o.ey } : {}) });
+/** A tank or trail record turned 180° on the 9 × 9 map. A tank also turns its start cell. */
+const rot = o => ({ ...o, x: 8 - o.x, y: 8 - o.y, d: (o.d + 2) % 4, ...('sx' in o ? { sx: 8 - o.sx, sy: 8 - o.sy } : {}) });
 /** The battle state `s` as side 1 has it: the map turned 180°, and the two sides swap places. */
 const turn = s => ({
   ...s,
   cells: s.cells.map((_, c) => s.cells[80 - c]),
   tanks: [rot(s.tanks[1]), rot(s.tanks[0])],
-  shots: [rot(s.shots[1]), rot(s.shots[0])],
   trails: [rot(s.trails[1]), rot(s.trails[0])],
   bases: [s.bases[1], s.bases[0]],
-  acts: [s.acts[1], s.acts[0]].map(a => (a < 4 ? (a + 2) % 4 : a)),
+  acts: [turnAct(s.acts[1]), turnAct(s.acts[0])],
+  hits: [s.hits[1], s.hits[0]],
   end: s.end === 0 ? 1 : s.end === 1 ? 0 : s.end,
 });
-const tank = ([x, y, d]) => ({ on: true, x, y, d });
+/** The state `s` with only `on` of a trail of a side that did not fire: the scene leaves its other fields unspecified. */
+const quiet = s => ({ ...s, trails: s.trails.map(b => (b.on ? b : { on: false })) });
 
-test('the battle has a base at each end and no bots, and side 1 sees the map turned 180°', () => {
+test('the battle starts on the fixed map with a base at each end, each tank on its start cell of the seed, and side 1 sees the map turned 180°', () => {
   const { call } = arena();
-  const starts = [new Set(), new Set()];
+  const first = call('battle', { seed: 1 }), starts = [new Set(), new Set()];
+  assert.deepEqual([cellOf(first, 4, 8), cellOf(first, 4, 0)], [BASE, BASE], 'the bases');
+  assert.deepEqual(first.cells.filter((v, c) => v !== first.cells[80 - c]), [], 'the map is the same after a turn of 180°');
+  assert.deepEqual(first.cells.slice(36, 45).map((v, x) => (v === BRICK ? x : v === 0 ? -1 : null)).filter(v => v !== null), [3, 5], 'the middle row has only the two brick passages');
   for (let seed = 1; seed <= 100; seed++) {
     const s = call('battle', { seed });
-    assert.deepEqual(s.cells.filter((v, c) => v !== s.cells[80 - c]), [], `seed ${seed}: the map is the same after a turn of 180°`);
-    assert.deepEqual([cellOf(s, 4, 8), cellOf(s, 4, 0)], [BASE, BASE], `seed ${seed}: the bases`);
-    assert.deepEqual([s.bases, s.end, s.t, s.shots.map(b => b.on)], [[true, true], -1, 0, [false, false]], `seed ${seed}`);
+    assert.deepEqual(s, call('battle', { seed }), `seed ${seed}: the start repeats on the seed`);
+    assert.deepEqual([s.cells, s.bases, s.end, s.t, s.hits, s.acts, s.trails.map(b => b.on)], [first.cells, [true, true], -1, 0, [false, false], [WAIT, WAIT], [false, false]], `seed ${seed}`);
     const [a, b] = s.tanks;
-    assert.ok(a.on && a.y >= 7 && a.d === UP && cellOf(s, a.x, a.y) === 0, `seed ${seed}: side 0 starts near its base, facing up`);
-    assert.ok(b.on && b.y <= 1 && b.d === DOWN && cellOf(s, b.x, b.y) === 0, `seed ${seed}: side 1 starts near its base, facing down`);
+    assert.deepEqual([a, b], [tank([a.x, a.y]), tank([b.x, b.y], { d: DOWN })], `seed ${seed}: 2 lives, not fired, the start cell under the tank`);
+    assert.ok(a.y >= 7 && cellOf(s, a.x, a.y) === 0, `seed ${seed}: side 0 starts on a free cell of its two bottom rows`);
+    assert.ok(b.y <= 1 && cellOf(s, b.x, b.y) === 0, `seed ${seed}: side 1 starts on a free cell of its two top rows`);
     starts[0].add(`${a.x},${a.y}`); starts[1].add(`${b.x},${b.y}`);
   }
-  assert.deepEqual(starts.map(c => c.size), [12, 12], 'neighbouring seeds give each side all 12 start cells');
-  const s = { ...call('battle', { seed: 1 }), tanks: [tank([2, 5, RIGHT]), tank([6, 2, DOWN])], shots: [tank([2, 3, UP]), tank([6, 4, LEFT])] };
+  assert.deepEqual(starts.map(c => c.size), [10, 10], 'the seeds give each side all 10 start cells');
+  assert.deepEqual([...starts[1]].map(c => c.split(',').map(Number)).map(([x, y]) => `${8 - x},${8 - y}`).sort(), [...starts[0]].sort(), 'the start cells of side 1 are those of side 0 turned');
+  const s = place(first, [tank([2, 5], { fired: true }), tank([6, 2], { lives: 1 })]);
   const bits = call('view', s, 0), map = k => bits.slice(k * 81, (k + 1) * 81), ones = v => v.flatMap((x, c) => (x ? [c] : []));
-  assert.equal(bits.length, 492, 'the same 492 bits as in the level');
-  assert.deepEqual(ones(map(2)), [8 * 9 + 4], 'the own base');
-  assert.deepEqual(ones(map(3)), [4, 2 * 9 + 6], 'the other base is a target with the other tank');
-  assert.deepEqual(ones(map(4)), [4 * 9 + 6], 'the bullet of the other side');
+  assert.equal(bits.length, INPUTS, 'seven maps of 81 cells, then the five flags');
+  assert.deepEqual(ones(map(0)), s.cells.flatMap((v, c) => (v === BRICK ? [c] : [])), 'bricks');
+  assert.deepEqual(ones(map(1)), [10, 16, 38, 40, 42, 64, 70], 'steel');
+  assert.deepEqual(ones(map(2)), [27, 35, 36, 37, 43, 44, 45, 53], 'water');
+  assert.deepEqual(ones(map(3)), [8 * 9 + 4], 'the own base');
+  assert.deepEqual(ones(map(4)), [4], 'the other base');
   assert.deepEqual(ones(map(5)), [5 * 9 + 2], 'the own tank');
-  assert.deepEqual(bits.slice(486), [0, 1, 0, 0, 1, 1], 'facing right, the own bullet in flight, bias');
+  assert.deepEqual(ones(map(6)), [2 * 9 + 6], 'the other tank');
+  assert.deepEqual(bits.slice(7 * 81), [1, 0, 1, 0, 1], 'own fired, other not; own lives 2, other 1; bias');
+  const gone = call('view', { ...s, bases: [true, false], tanks: [s.tanks[0], { ...s.tanks[1], on: false, lives: 0 }] }, 0);
+  assert.deepEqual([ones(gone.slice(4 * 81, 5 * 81)), ones(gone.slice(6 * 81, 7 * 81))], [[], []], 'a destroyed base and a tank off the map are not shown');
   assert.deepEqual(call('view', s, 1), call('view', turn(s), 0), 'side 1 sees what side 0 sees on the turned map');
+  assert.deepEqual(call('view', s, 1).slice(7 * 81), [0, 1, 0, 1, 1], 'side 1: the flags of its own tank first');
 });
 
 test('the battle rules are the same for both sides: a turned battle plays the turned moves', () => {
   const { call } = arena();
-  // fixed moves that walk, turn into walls, fire and wait, as each side sees the map
-  const moves = [[UP, UP], [FIRE, FIRE], [RIGHT, LEFT], [FIRE, WAIT], [UP, FIRE], [LEFT, RIGHT], [FIRE, FIRE], [WAIT, UP]];
+  // fixed moves that walk, move into walls, fire and wait, as each side sees the map
+  const moves = [[UP, UP], [FIRE_UP, FIRE_UP], [RIGHT, LEFT], [FIRE_LEFT, WAIT], [UP, FIRE_RIGHT], [LEFT, RIGHT], [FIRE_UP, FIRE_DOWN], [WAIT, UP], [DOWN, FIRE_LEFT]];
   for (const seed of [1, 4, 9]) {
     let s = call('battle', { seed }), k = 0;
     while (s.end < 0 && k < 40) {
       const [a, b] = moves[(k * 5 + seed) % moves.length];
       const next = call('play', s, a, b);
-      assert.deepEqual(call('play', turn(s), b, a), turn(next), `seed ${seed}, step ${k}`);
+      assert.deepEqual(quiet(call('play', turn(s), b, a)), quiet(turn(next)), `seed ${seed}, step ${k}`);
       assert.deepEqual(call('view', next, 1), call('view', turn(next), 0), `seed ${seed}, step ${k}`);
       s = next; k++;
     }
   }
 });
 
-test('in the battle, a hit on a tank or a base decides it, and both sides losing in one step or the last step is a draw', () => {
-  const { call } = arena({ steps: 3 });
-  const start = call('battle', { seed: 1 });
-  const at = (tanks, shots = [null, null]) => ({ ...start, tanks: tanks.map(tank), shots: shots.map(thing) });
-  // column 2 is free from top to bottom
-  const shot = call('play', at([[2, 6, UP], [2, 2, DOWN]]), FIRE, WAIT);
-  assert.deepEqual([shot.shots[0].y, shot.end], [4, -1], 'a bullet flies 2 cells per step');
-  const hit = call('play', shot, WAIT, WAIT);
-  assert.deepEqual([hit.tanks[1].on, hit.end], [false, 0], 'side 0 hits the tank of side 1');
-  // side 1 at (4,6) faces down to the base of side 0 behind the brick (4,7). Down for side 1 is up on its own map.
-  const brick = call('play', at([[0, 8, UP], [4, 6, DOWN]]), WAIT, FIRE);
-  assert.deepEqual([cellOf(brick, 4, 7), brick.end], [0, -1], 'the bullet removes the brick');
-  const base = call('play', brick, WAIT, FIRE);
-  assert.deepEqual([base.bases, base.end], [[false, true], 1], 'the next bullet hits the base: side 1 wins');
-  const both = call('play', at([[2, 6, RIGHT], [6, 2, LEFT]], [[6, 4, UP], [2, 4, DOWN]]), WAIT, WAIT);
-  assert.deepEqual([both.tanks.map(t => t.on), both.end], [[false, false], 2], 'both tanks hit in one step');
-  const meet = call('play', at([[3, 6, RIGHT], [5, 6, LEFT]]), RIGHT, RIGHT);
-  assert.deepEqual(meet.tanks, [tank([3, 6, RIGHT]), tank([5, 6, LEFT])], 'two tanks that go into one cell only turn');
-  const clash = call('play', at([[2, 7, UP], [2, 1, DOWN]], [[2, 5, UP], [2, 3, DOWN]]), WAIT, WAIT);
-  assert.deepEqual([clash.shots.map(b => b.on), clash.end], [[false, false], -1], 'two bullets that meet disappear');
-  let s = start;
-  for (let k = 0; k < 3; k++) s = call('play', s, WAIT, WAIT);
-  assert.deepEqual([s.t, s.end], [3, 2], 'out of steps');
+test('a move into a brick, steel, water, the edge or a tank is a wait, and two tanks can enter one empty cell and overlap', () => {
+  const { at, step } = arena();
+  const foe = tank([6, 1], { d: DOWN });
+  const moved = (s, a) => { const n = step(s, a); return [n.acts[0], n.tanks[0].x, n.tanks[0].y]; };
+  assert.deepEqual(moved(at([tank([2, 2]), foe]), LEFT), [WAIT, 2, 2], 'a brick at (1,2)');
+  assert.deepEqual(moved(at([tank([0, 1]), foe]), RIGHT), [WAIT, 0, 1], 'steel at (1,1)');
+  assert.deepEqual(moved(at([tank([0, 2]), foe]), DOWN), [WAIT, 0, 2], 'water at (0,3)');
+  assert.deepEqual(moved(at([tank([0, 2]), foe]), LEFT), [WAIT, 0, 2], 'the map edge');
+  assert.deepEqual(moved(at([tank([2, 2]), tank([2, 3])]), DOWN), [WAIT, 2, 2], 'the other tank at (2,3)');
+  assert.deepEqual(moved(at([tank([2, 2]), foe]), RIGHT), [RIGHT, 3, 2], 'a free cell');
+  const both = step(at([tank([2, 2]), tank([3, 3])]), RIGHT, UP);
+  assert.deepEqual([both.acts, both.tanks.map(t => [t.x, t.y, t.d])], [[RIGHT, UP], [[3, 2, RIGHT], [3, 2, UP]]], 'both tanks go into (3,2)');
+  for (const a of [FIRE_UP, FIRE_RIGHT, FIRE_DOWN, FIRE_LEFT]) {
+    const fired = step(both, a, turnAct(a));
+    assert.deepEqual([fired.hits, fired.tanks.map(t => t.lives), fired.trails.map(b => b.why === HIT_TANK)], [[false, false], [2, 2], [false, false]], `overlapping tanks cannot hit each other: ${a}`);
+  }
+  const apart = step(both, LEFT, RIGHT);
+  assert.deepEqual([apart.acts, apart.tanks.map(t => [t.x, t.y])], [[LEFT, WAIT], [[2, 2], [3, 2]]], 'from the shared cell, side 0 leaves and the move of side 1 into the brick (4,2) is a wait');
 });
 
-test('the battle records the trails of both bullets with the code of the level', () => {
-  const { call } = arena();
-  const start = call('battle', { seed: 1 });
-  const at = (tanks, shots = [null, null]) => ({ ...start, tanks: tanks.map(tank), shots: shots.map(thing) });
-  assert.deepEqual(start.trails, [IDLE_TRAIL, IDLE_TRAIL], 'no bullet flies before the first step');
-  const shot = call('play', at([[2, 6, UP], [2, 2, DOWN]]), FIRE, WAIT);
-  assert.deepEqual(shot.trails, [trail([2, 6, UP], 2, [2, 4], FLYING), IDLE_TRAIL]);
-  assert.deepEqual(call('play', shot, WAIT, WAIT).trails[0], trail([2, 4, UP], 2, [2, 2], HIT_TANK), 'side 0 hits the tank of side 1');
-  const brick = call('play', at([[0, 8, UP], [4, 6, DOWN]]), WAIT, FIRE);
-  assert.deepEqual(brick.trails[1], trail([4, 6, DOWN], 1, [4, 7], HIT_BRICK), 'side 1 fires into the brick next to its tank');
-  assert.deepEqual(call('play', brick, WAIT, FIRE).trails[1], trail([4, 6, DOWN], 2, [4, 8], HIT_BASE), 'then into the base of side 0');
-  const clash = call('play', at([[2, 7, UP], [2, 1, DOWN]], [[2, 5, UP], [2, 3, DOWN]]), WAIT, WAIT);
-  assert.deepEqual(clash.trails, [trail([2, 5, UP], 1, [2, 4], MEET), trail([2, 3, DOWN], 1, [2, 4], MEET)]);
+test('a shell is an instant ray: it hits the first cell that is not empty or water, destroys a brick or a base, and moves resolve before fires', () => {
+  const { at, step } = arena();
+  const foe = tank([6, 1], { d: DOWN });
+  const steel = step(at([tank([2, 2]), foe]), FIRE_DOWN);
+  assert.deepEqual([cellOf(steel, 2, 4), steel.trails[0], steel.tanks[0].fired], [STEEL, trail([2, 2], DOWN, 2, HIT_STEEL), true], 'steel at (2,4) stays');
+  const edge = step(at([tank([0, 2]), foe]), FIRE_LEFT);
+  assert.deepEqual(edge.trails[0], trail([0, 2], LEFT, 1, HIT_STEEL), 'the map edge stops the shell as steel does');
+  const water = step(at([tank([0, 2]), tank([0, 6])]), FIRE_DOWN);
+  assert.deepEqual([water.trails[0], water.hits, [3, 4, 5].map(y => cellOf(water, 0, y))], [trail([0, 2], DOWN, 4, HIT_TANK), [false, true], [WATER, WATER, WATER]], 'the shell passes over the water to the tank');
+  const brick = step(at([tank([2, 2]), foe]), FIRE_LEFT);
+  assert.deepEqual([cellOf(brick, 1, 2), brick.trails[0]], [0, trail([2, 2], LEFT, 1, HIT_BRICK)], 'the brick at (1,2) is destroyed');
+  // from (2,0), the brick (3,0) hides the base of side 1 at (4,0)
+  const dig = step(at([tank([2, 0]), foe]), FIRE_RIGHT);
+  assert.deepEqual([cellOf(dig, 3, 0), dig.bases, dig.tanks[0].fired], [0, [true, true], true]);
+  const cool = step(dig, FIRE_RIGHT);
+  assert.deepEqual([cool.acts[0], cool.trails[0].on, cool.tanks[0].fired, cool.bases], [WAIT, false, false, [true, true]], 'fire right after fire is a wait, and the cooldown ends');
+  const base = step(cool, FIRE_RIGHT);
+  assert.deepEqual([cellOf(base, 4, 0), base.bases, base.end, base.trails[0]], [0, [true, false], 0, trail([2, 0], RIGHT, 2, HIT_BASE)], 'the next shell destroys the base: side 0 wins');
+  assert.equal(step(dig, RIGHT).acts[0], RIGHT, 'a move right after fire is no wait');
+  // the ray of side 0 from (2,2) goes right along row 2 to the brick (4,2)
+  const out = step(at([tank([2, 2]), tank([3, 2])]), FIRE_RIGHT, DOWN);
+  assert.deepEqual([out.hits, out.tanks[1].y, out.trails[0]], [[false, false], 3, trail([2, 2], RIGHT, 2, HIT_BRICK)], 'the tank steps out of the ray before the shell flies');
+  const into = step(at([tank([2, 2]), tank([3, 3])]), FIRE_RIGHT, UP);
+  assert.deepEqual([into.hits, into.trails[0]], [[false, true], trail([2, 2], RIGHT, 1, HIT_TANK)], 'the tank steps into the ray before the shell flies');
 });
 
-// ---------------------------------------------------------------------------------------------- stage 2: the battle map against the bot
+test('mutual fire cancels both shells and neither side counts as fired, while a one-sided hit lands', () => {
+  const { at, step } = arena();
+  const face = at([tank([2, 2]), tank([3, 2])]);
+  const mutual = step(face, FIRE_RIGHT, FIRE_LEFT);
+  assert.deepEqual([mutual.hits, mutual.tanks.map(t => [t.lives, t.fired]), mutual.acts], [[false, false], [[2, false], [2, false]], [FIRE_RIGHT, FIRE_LEFT]], 'both shells cancel, and the acts still show the fires');
+  assert.deepEqual(mutual.trails, [trail([2, 2], RIGHT, 1, MUTUAL), trail([3, 2], LEFT, 1, MUTUAL)], 'the trails show the mutual fire');
+  assert.deepEqual(step(mutual, FIRE_RIGHT, FIRE_LEFT).trails.map(b => b.why), [MUTUAL, MUTUAL], 'neither side cooled down, so they can fire again');
+  const one = step(face, FIRE_RIGHT, WAIT);
+  assert.deepEqual([one.hits, one.tanks.map(t => [t.lives, t.fired])], [[false, true], [[2, true], [1, false]]], 'one side fires: the other is hit');
+  // side 1 fires up into the brick (3,1), so its ray does not reach side 0: no mutual fire
+  const miss = step(face, FIRE_RIGHT, FIRE_UP);
+  assert.deepEqual([miss.hits, miss.tanks[0].fired, cellOf(miss, 3, 1), miss.trails[1]], [[false, true], true, 0, trail([3, 2], UP, 1, HIT_BRICK)], 'both fire, but only one ray hits a tank: both shells fly');
+});
+
+test('a hit costs a life and respawns the tank at its start cell; the second hit, a destroyed base or the steps end the battle', () => {
+  const { at, step } = arena({ steps: 3 });
+  const hit = step(at([tank([2, 2]), tank([3, 2], { sx: 6, sy: 1 })]), FIRE_RIGHT);
+  assert.deepEqual([hit.hits, hit.tanks[1], hit.end], [[false, true], tank([6, 1], { d: DOWN, lives: 1, sx: 6, sy: 1 }), -1], 'the tank is back at its start cell with 1 life');
+  assert.equal(step(hit, WAIT, FIRE_DOWN).acts[1], FIRE_DOWN, 'the respawned tank acts in the next step');
+  const dead = step(at([tank([2, 2]), tank([3, 2], { sx: 6, sy: 1, lives: 1 })]), FIRE_RIGHT);
+  assert.deepEqual([dead.hits, dead.tanks[1].on, dead.tanks[1].lives, dead.end], [[false, true], false, 0, 0], 'the second hit: side 0 wins');
+  // side 0 at (2,8) with the brick (3,8) gone sees its own base at (4,8)
+  const own = step(at([tank([2, 8]), tank([6, 1])], { '3,8': 0 }), FIRE_RIGHT);
+  assert.deepEqual([own.bases, own.end], [[false, true], 1], 'a shell into the own base loses');
+  // side 1 at (2,8) destroys the base of side 0 while side 0 from (2,6) hits its last life
+  const both = step(at([tank([2, 6]), tank([2, 8], { lives: 1 })], { '3,8': 0 }), FIRE_DOWN, FIRE_RIGHT);
+  assert.deepEqual([both.bases, both.hits, both.tanks[1].on, both.end], [[false, true], [false, true], false, 2], 'both sides lose in one step: a draw');
+  let s = at([tank([2, 2]), tank([6, 6])]);
+  for (let k = 0; k < 3; k++) { assert.equal(s.end, -1, `step ${k}: running`); s = step(s, WAIT, WAIT); }
+  assert.deepEqual([s.t, s.end], [3, 2], 'out of steps: a draw');
+});
+
+// ---------------------------------------------------------------------------------------------- the training step and the bot
 /**
- * The loop of stage 2 for 中 with `values` in the parameters of stage 2 and `level` in the shared parameters: its runner
- * and its reward. The network is side 0, the bot side 1. `at(tanks, shots, cells)` resets on seed 1 and puts the given
- * things on the state: tanks and shots are [x, y, d], or null for a tank that is not on the map or a bullet that does not
- * fly. `cells` changes cells of the map: { [x + ',' + y]: code }.
+ * The loop of stage 1 for 中 with `values` in the parameters: its runner, its teacher and its bundle. The network is
+ * side 0, the bot side 1. `at(tanks, cells)` resets on seed 1 and puts the position on the state (see `place`).
  */
-function duel(values = {}, level = {}) {
+function scene(values = {}) {
   const { graph, ids } = instance();
-  graph.patchConfig(ids.duel, { values });
-  graph.patchConfig(ids.params, { values: level });
-  const id = '0x' + '8'.repeat(64), artifact = shapedArtifact(graph, ids.s1_a_net, fixedModel(492, [32, 32], 6, 5));
+  graph.patchConfig(ids.params, { values });
+  const bundle = buildBundle(graph, ids.s1_a_trainer);
+  const env = createEnv(bundle.env);
+  const at = (tanks, cells = {}) => { env.reset({ seed: 1 }); env.state = place(env.state, tanks, cells); return env.state; };
+  return { graph, ids, bundle, env, at, teacher: compileEntry(bundle.objective, [bundle.env.types.State], 'teacher') };
+}
+/** The teacher at each level: `masks(tanks, cells)` gives its 9 target bits for levels 1, 2 and 3. */
+const teachers = () => {
+  const levels = LEVELS.map(teacherLevel => scene({ teacherLevel }));
+  return (tanks, cells) => levels.map(({ at, teacher }) => teacher(at(tanks, cells)));
+};
+/** The 9 target bits with the slots `on` set. */
+const slots = (...on) => Array.from({ length: ACTIONS }, (_, a) => (on.includes(a) ? 1 : 0));
+/** The same bits for each of the 3 levels. */
+const all = bits => LEVELS.map(() => bits);
+/** A tank of side 1 far from the action, on its own start row. */
+const FAR = tank([8, 0], { d: DOWN });
+
+test('at each level, the teacher fires at the base of the bot on a clear ray, and digs toward it from the lane of the base', () => {
+  const masks = teachers();
+  // from (2,0), the brick (3,0) hides the base at (4,0)
+  assert.deepEqual(masks([tank([2, 0]), FAR], { '3,0': 0 }), all(slots(FIRE_RIGHT)), 'the base on a clear ray');
+  assert.deepEqual(masks([tank([2, 0]), FAR]), all(slots(FIRE_RIGHT)), 'the brick before the base');
+  assert.deepEqual(masks([tank([0, 0]), FAR]), all(slots(FIRE_RIGHT)), 'from the end of the row too');
+  assert.deepEqual(masks([tank([2, 0], { fired: true }), FAR], { '3,0': 0 }).map(m => m[FIRE_RIGHT]), [0, 0, 0], 'not during the cooldown');
+});
+
+test('at each level, the teacher never fires along the lane of its own base', () => {
+  const masks = teachers();
+  // the tank of the bot at (2,8) is a direct hit from (1,8), but our base (4,8) is behind it on row 8
+  assert.deepEqual(masks([tank([1, 8]), tank([2, 8])]).map(m => m[FIRE_RIGHT]), [0, 0, 0]);
+  assert.deepEqual(masks([tank([2, 8]), tank([3, 8])], { '3,8': 0 }).map(m => m[FIRE_RIGHT]), [0, 0, 0], 'with the brick (3,8) gone too');
+  assert.deepEqual(masks([tank([2, 2]), tank([3, 2])]).map(m => m[FIRE_RIGHT]), [1, 1, 1], 'away from the lane, the tank is a target');
+});
+
+test('the medium and hard teachers do not step into the clear ray of an armed bot, and dodge or counter-fire when in it; the easy teacher steps in', () => {
+  const masks = teachers();
+  // the bot at (3,2) fires left along row 2 and down along column 3. Our tank at (2,3) has (2,2) above and (3,3) to the
+  // right in its rays, a brick to the left and steel below.
+  const [easy, medium, hard] = masks([tank([2, 3]), tank([3, 2])]);
+  assert.deepEqual(easy, slots(UP, RIGHT), 'the easy teacher walks into the rays');
+  assert.deepEqual([medium, hard].map(m => [m[UP], m[RIGHT]]), [[0, 0], [0, 0]]);
+  assert.deepEqual(masks([tank([2, 3]), tank([3, 2], { fired: true })]).map(m => m[RIGHT]), [1, 1, 1], 'a bot that cannot fire has no ray');
+  // our tank at (3,3) is in the ray of the bot at (3,2): (2,3) to the left is safe
+  assert.deepEqual(masks([tank([3, 3]), tank([3, 2])]), [slots(FIRE_UP), slots(LEFT, FIRE_UP), slots(LEFT, FIRE_UP)], 'dodge or counter-fire');
+  assert.deepEqual(masks([tank([3, 3], { fired: true }), tank([3, 2])]).slice(1), [slots(LEFT), slots(LEFT)], 'only the dodge during the cooldown');
+});
+
+test('the medium and hard teachers hunt a bot that is nearer to our base than we are to its base', () => {
+  const masks = teachers();
+  // the bot at (6,8) stands on the lane of our base (row 8). From (2,2), the way to its base is 2 steps.
+  assert.deepEqual(masks([tank([2, 2]), tank([6, 8])]), [slots(UP, RIGHT), slots(RIGHT, DOWN), slots(RIGHT, DOWN)]);
+  // the bot at (6,6) needs as many steps to our lane as we do, so every teacher attacks
+  assert.deepEqual(masks([tank([2, 2]), tank([6, 6])]), all(slots(UP, RIGHT)));
+});
+
+test('the hard teacher blocks a direct shot at its base and holds there, while the medium teacher does not', () => {
+  const masks = teachers();
+  // with the brick (3,8) gone, the bot at (1,8) sees our base (4,8). From (2,7), down to (2,8) is between them.
+  const [easy, medium, hard] = masks([tank([2, 7]), tank([1, 8])], { '3,8': 0 });
+  assert.deepEqual(hard, slots(DOWN), 'the hard teacher steps between');
+  assert.equal(medium[DOWN], 0, 'the medium teacher does not step into the ray');
+  assert.equal(easy[DOWN], 1);
+  assert.deepEqual(masks([tank([2, 7]), tank([1, 8], { fired: true })], { '3,8': 0 }).map(m => m[DOWN]), [1, 1, 1], 'nothing to block from a bot that cannot fire');
+  // between the bot at (0,8) and our base, the hard teacher counter-fires or waits; the medium teacher dodges up
+  assert.deepEqual(masks([tank([2, 8]), tank([0, 8])], { '3,8': 0 }), [slots(FIRE_LEFT), slots(UP, FIRE_LEFT), slots(FIRE_LEFT)]);
+  assert.deepEqual(masks([tank([2, 8], { fired: true }), tank([0, 8])], { '3,8': 0 }).slice(1), [slots(UP), slots(WAIT)], 'during the cooldown');
+});
+
+/** The action of the bot in the step after `state` when our tank waits, in the directions of the map. It steps `env` once. */
+const botMove = (env, state) => { env.reset({ seed: state.seed }); env.state = state; return env.step(WAIT).next.acts[1]; };
+
+test('at each level, the bot of side 1 plays the rules of the teacher on the turned map', () => {
+  for (const level of LEVELS) {
+    const { bundle, env, teacher } = scene({ teacherLevel: level, botLevel: level, botRandom: 0 });
+    const probe = createEnv(bundle.env);
+    for (let seed = 1; seed <= 12; seed++) {
+      let s = env.reset({ seed }), tr;
+      do {
+        const bot = botMove(probe, s), mask = teacher(turn(s));
+        assert.equal(mask[turnAct(bot)], 1, `level ${level}, seed ${seed}, step ${s.t}: the bot takes an action that the teacher marks`);
+        tr = env.step(teacher(s).indexOf(1)); s = tr.next;
+      } while (!tr.done && s.t < 40);
+    }
+  }
+});
+
+test('in the training step, the bot of side 1 plays at params.botLevel', () => {
+  // the position of the ray test, turned: the bot at (6,5) has the cells (6,6) and (5,5) in the rays of our tank at (5,6).
+  // The medium and hard bots fire at the brick (7,5) to go around instead.
+  const moves = LEVELS.map(level => { const { env, at } = scene({ botLevel: level, botRandom: 0 }); at([tank([5, 6]), tank([6, 5], { d: DOWN })]); return env.step(WAIT).next.acts[1]; });
+  assert.ok([DOWN, LEFT].includes(moves[0]), `the easy bot steps into a ray: ${moves[0]}`);
+  assert.deepEqual(moves.slice(1), [FIRE_RIGHT, FIRE_RIGHT], 'the medium and hard bots do not');
+});
+
+test('in the training step, success is the base or the last life of the bot, a loss or a draw is not, and the bot beats a tank that only waits', () => {
+  const { env, at } = scene({ botRandom: 0, steps: 2 });
+  at([tank([2, 0]), tank([6, 6])], { '3,0': 0 });
+  const win = env.step(FIRE_RIGHT);
+  assert.deepEqual([win.next.bases, win.next.end, win.done, win.success], [[true, false], 0, true, true], 'the base of the bot');
+  // the bot at (0,6) cannot fire back, and its only free neighbour (0,7) is in our ray down column 0
+  at([tank([0, 2]), tank([0, 6], { d: DOWN, lives: 1, fired: true })]);
+  const kill = env.step(FIRE_DOWN);
+  assert.deepEqual([kill.next.tanks[1].on, kill.next.end, kill.done, kill.success], [false, 0, true, true], 'the last life of the bot');
+  at([tank([2, 8]), tank([6, 6])], { '3,8': 0 });
+  const lose = env.step(FIRE_RIGHT);
+  assert.deepEqual([lose.next.bases, lose.next.end, lose.done, lose.success], [[false, true], 1, true, false], 'our base');
+  at([tank([2, 2]), tank([6, 6])]);
+  env.step(WAIT);
+  const draw = env.step(WAIT);
+  assert.deepEqual([draw.next.t, draw.next.end, draw.done, draw.truncated, draw.success], [2, 2, true, false, false], 'out of steps: a draw, not a truncation');
+  for (const level of LEVELS) {
+    const { env } = scene({ botLevel: level, botRandom: 0 });
+    for (let seed = 1; seed <= 10; seed++) {
+      let tr;
+      env.reset({ seed });
+      do tr = env.step(WAIT); while (!tr.done);
+      assert.equal(tr.next.end, 1, `level ${level}, seed ${seed}: our side loses`);
+    }
+  }
+});
+
+test('the random actions of the bot repeat on the seed', () => {
+  const noisy = scene({ botRandom: 1 }).env, moves = seed => { noisy.reset({ seed }); return Array.from({ length: 10 }, () => noisy.step(WAIT).next.acts[1]); };
+  const once = moves(3);
+  assert.deepEqual(moves(3), once, 'the same seed gives the same random actions');
+  assert.ok(new Set(once).size > 2, 'botRandom 1: the actions are random');
+  assert.notDeepEqual(moves(4), once, 'another seed gives other actions');
+});
+
+/** A Transition from `prev` to `next` with the action `action`. */
+const transition = (prev, next, action = WAIT) => ({ prev, action, next, done: next.end >= 0, truncated: false, success: next.end === 0 });
+
+test('the reward of stage 2 gives win, lose or nothing for the end, kill and hurt for the hits, and each step costs step', () => {
+  const { graph, ids } = instance();
+  graph.patchConfig(ids.rewards, { values: { win: 2, lose: -1.5, kill: 0.3, hurt: -0.4, step: 0.01 } });
+  const id = '0x' + '8'.repeat(64), artifact = shapedArtifact(graph, ids.s1_a_net, fixedModel(INPUTS, [32, 32], ACTIONS, 5));
   graph.patchConfig(ids.s1_a_cands, { accepted: id });
   const bundle = buildBundle(graph, ids.s2_a_trainer, { artifacts: a => (a === id ? artifact : null) });
-  const env = createEnv(bundle.env);
-  const at = (tanks, shots = [null, null], cells = {}) => {
-    env.reset({ seed: 1 });
-    const map = [...env.state.cells];
-    for (const [xy, v] of Object.entries(cells)) { const [x, y] = xy.split(',').map(Number); map[y * 9 + x] = v; }
-    env.state = { ...env.state, cells: map, tanks: tanks.map(thing), shots: shots.map(thing) };
-    return env.state;
-  };
-  return { env, at, reward: compileEntry(bundle.objective, [bundle.env.types.Transition], 'reward') };
-}
-/** The action of the bot in the step after `state` when our tank waits, in the directions of the map. */
-const botMove = (env, state) => { env.state = state; return env.step(WAIT).next.acts[1]; };
-
-test('the bot of stage 2 fires at a tank that it sees, and turns to it first', () => {
-  const { env, at } = duel({ botRandom: 0 });
-  // column 2 is free from top to bottom: the bot at (2, 2) sees our tank at (2, 6)
-  assert.equal(botMove(env, at([[2, 6, UP], [2, 2, DOWN]])), FIRE, 'facing the tank');
-  assert.equal(botMove(env, at([[2, 6, UP], [2, 2, LEFT]])), DOWN, 'it turns to the tank');
-  assert.equal(botMove(env, at([[2, 6, UP], [2, 2, DOWN]], [null, [2, 4, DOWN]])), WAIT, 'its own bullet still flies');
-});
-
-test('the bot of stage 2 dodges a bullet to the side, and does not fire along the line to its own base', () => {
-  const { env, at } = duel({ botRandom: 0 });
-  // our bullet at (2, 4) flies up into the bot at (2, 2). Left of the bot is a brick, right is free.
-  assert.equal(botMove(env, at([[6, 8, UP], [2, 2, LEFT]], [[2, 4, UP], null])), RIGHT);
-  // the bot at (4, 3) faces up: our tank at (4, 2) is in front of it, but the base of the bot is behind (4, 2)
-  assert.notEqual(botMove(env, at([[4, 2, DOWN], [4, 3, UP]])), FIRE);
-});
-
-test('in stage 2, only the destroyed base of the bot wins: a hit bot tank leaves the map, and the episode goes on', () => {
-  const { env, at } = duel({ botRandom: 0 });
-  // the bot at (0, 2) has the map edge on its left and a brick on its right, so it cannot dodge our bullet from (0, 3)
-  at([[6, 8, UP], [0, 2, LEFT]], [[0, 3, UP], null]);
-  const kill = env.step(WAIT);
-  assert.deepEqual([kill.next.tanks[1].on, kill.next.end, kill.done], [false, -1, false], 'the bot tank is hit and leaves the map');
-  const after = env.step(WAIT);
-  assert.deepEqual([after.next.tanks[1].on, after.next.acts[1], after.next.shots[1].on], [false, WAIT, false], 'a tank off the map does not act');
-  // our tank at (4, 2) faces the base of the bot at (4, 0). The brick at (4, 1) is gone.
-  at([[4, 2, UP], null], [null, null], { '4,1': 0 });
-  const win = env.step(FIRE);
-  assert.deepEqual([win.next.bases, win.next.end, win.success], [[true, false], 0, true], 'the base of the bot is destroyed: a win');
-});
-
-test('in stage 2, our tank hit or the end of the steps is a loss, and there is no draw', () => {
-  const { env, at } = duel({ botRandom: 0 }, { steps: 3 });
-  // column 2 is free: the bullet of the bot at (2, 4) flies down into our tank at (2, 6)
-  at([[2, 6, UP], [2, 2, DOWN]], [null, [2, 4, DOWN]]);
-  const hit = env.step(WAIT);
-  assert.deepEqual([hit.next.tanks[0].on, hit.next.end, hit.success], [false, 1, false], 'our tank is hit: a loss');
-  at([[2, 6, UP], null]);
-  let tr;
-  do tr = env.step(WAIT); while (!tr.done);
-  assert.deepEqual([tr.next.t, tr.next.end, tr.truncated, tr.next.tanks[0].on, tr.next.bases], [3, 1, false, true, [true, true]], 'out of steps: a loss');
-});
-
-test('the bot of stage 2 beats a tank that only waits, and its random actions repeat on the seed', () => {
-  const { env } = duel({ botRandom: 0 });
-  for (let seed = 1; seed <= 20; seed++) {
-    let tr;
-    env.reset({ seed });
-    do tr = env.step(WAIT); while (!tr.done);
-    assert.equal(tr.next.end, 1, `seed ${seed}: our side loses`);
-  }
-  const noisy = duel({ botRandom: 1 }).env, moves = () => { noisy.reset({ seed: 3 }); return Array.from({ length: 10 }, () => noisy.step(WAIT).next.acts[1]); };
-  const once = moves();
-  assert.deepEqual(moves(), once, 'the same seed gives the same random actions');
-  assert.ok(new Set(once).size > 2, 'botRandom 1: the actions are random');
-});
-
-test('the reward of stage 2 gives 1 for the base of the bot, killReward for its tank, −1 for a loss, and each step costs stepCost', () => {
-  const { at, reward } = duel({ stepCost: 0.01, killReward: 0.3 });
-  const s = at([[2, 6, UP], [2, 2, DOWN]]);
+  const reward = compileEntry(bundle.objective, [bundle.env.types.Transition], 'reward');
+  const env = createEnv(bundle.env), s = env.reset({ seed: 1 });
   const close = (got, want, why) => assert.ok(Math.abs(got - want) < 1e-12, `${why}: ${got}`);
-  const off = { ...s.tanks[1], on: false };
-  close(reward(transition(s, { ...s, end: -1 })), -0.01, 'a step');
-  close(reward(transition(s, { ...s, tanks: [s.tanks[0], off], end: -1 })), 0.3 - 0.01, 'the bot tank is hit');
-  close(reward(transition({ ...s, tanks: [s.tanks[0], off] }, { ...s, tanks: [s.tanks[0], off], end: -1 })), -0.01, 'a tank that is already off gives nothing');
-  close(reward(transition(s, { ...s, bases: [true, false], end: 0 }, true)), 1 - 0.01, 'a win');
-  close(reward(transition(s, { ...s, end: 1 }, true)), -1 - 0.01, 'a loss');
+  const next = (end, hits = [false, false]) => ({ ...s, end, hits });
+  close(reward(transition(s, next(-1))), -0.01, 'a step');
+  close(reward(transition(s, next(-1, [false, true]))), 0.3 - 0.01, 'the bot tank is hit');
+  close(reward(transition(s, next(-1, [true, false]))), -0.4 - 0.01, 'our tank is hit');
+  close(reward(transition(s, next(-1, [true, true]))), 0.3 - 0.4 - 0.01, 'both are hit');
+  close(reward(transition(s, next(0))), 2 - 0.01, 'a win');
+  close(reward(transition(s, next(0, [false, true]))), 2 + 0.3 - 0.01, 'a win by the last life of the bot');
+  close(reward(transition(s, next(1))), -1.5 - 0.01, 'a loss');
+  close(reward(transition(s, next(2))), -0.01, 'a draw');
 });
 
+test('the metrics: 和教师一致的比例 is the share of steps where our tank took an action that the teacher marks, and the duel metrics read the final state', () => {
+  const { graph, ids, bundle, env, teacher } = scene();
+  const id = '0x' + '3'.repeat(64), artifact = shapedArtifact(graph, ids.s1_a_net, fixedModel(INPUTS, [32, 32], ACTIONS, 5));
+  graph.patchConfig(ids.s1_a_cands, { accepted: id });
+  const evaluator = buildBundle(graph, ids.s1_a_evaluator, { artifacts: a => (a === id ? artifact : null) });
+  const agreement = compileEntry(evaluator.objective, [bundle.env.types.Transition], 'agreement');
+  const metric = (title, name) => compileEntry(evaluator.metrics.find(m => m.name === title), [episodeType(bundle.env.types.State)], name);
+  const agreeRate = metric('和教师一致的比例', 'agreeRate');
+  /** Plays seed 4 with `choose(mask)` for our tank. Returns agreeRate of the episode, with the evaluator's return, and the steps that the teacher marks. */
+  const play = choose => {
+    let s = env.reset({ seed: 4 }), marked = 0, ret = 0, tr;
+    do { const mask = teacher(s), a = choose(mask); marked += mask[a]; tr = env.step(a); ret += agreement(tr); s = tr.next; } while (!tr.done);
+    return { rate: agreeRate({ initial: tr.prev, final: s, steps: s.t, success: tr.success, return: ret }), marked, t: s.t };
+  };
+  assert.equal(play(mask => mask.indexOf(1)).rate, 1, 'our tank follows the teacher');
+  const waits = play(() => WAIT);
+  assert.ok(waits.marked < waits.t, 'the teacher does not mark wait on each step');
+  assert.equal(waits.rate, waits.marked / waits.t);
+  const [winRate, killRate, hitRate, drawRate] = [['胜率', 'winRate'], ['击毁对方坦克的比例', 'killRate'], ['我方坦克被击中的比例', 'hitRate'], ['平局的比例', 'drawRate']].map(m => metric(...m));
+  const start = env.reset({ seed: 1 });
+  const episode = (end, lives) => ({ initial: start, final: { ...start, end, tanks: start.tanks.map((t, k) => ({ ...t, lives: lives[k], on: lives[k] > 0 })) }, steps: 5, success: end === 0, return: 0 });
+  const rates = (end, lives) => [winRate, killRate, hitRate, drawRate].map(f => f(episode(end, lives)));
+  assert.deepEqual(rates(0, [2, 0]), [1, 1, 0, 0], 'a win on the last life of the bot');
+  assert.deepEqual(rates(0, [1, 2]), [1, 0, 1, 0], 'a win on its base, after one hit on our tank');
+  assert.deepEqual(rates(1, [2, 1]), [0, 1, 0, 0], 'a loss, after one hit on the bot');
+  assert.deepEqual(rates(2, [1, 1]), [0, 1, 1, 1], 'a draw');
+  assert.deepEqual(rates(2, [2, 2]), [0, 0, 0, 1], 'a draw with no hit');
+});
+
+// ---------------------------------------------------------------------------------------------- the battle script
 /** The file `name` of the battle script, loaded as a module (game.js imports nothing). */
 const scriptFile = (graph, ids, name) => import(`data:text/javascript,${encodeURIComponent(graph.node(ids.vs_battle).config.files.find(f => f.name === name).source)}`);
 /** The function inputs of the battle script as the sandbox gives them to the script: `call.<name>(…args)` → a promise. */
@@ -637,14 +576,31 @@ test('a battle repeats on its seed: with no random action, and with the random a
   const once = await play(5, RANDOM), again = await play(5, RANDOM);
   assert.deepEqual(once, again);
   assert.ok(once.some(e => e.wild.some(Boolean)), 'some actions are random');
+  assert.ok(once.flatMap(e => e.moves).every(a => Number.isInteger(a) && a >= 0 && a < ACTIONS), 'a random action is one of the 9');
   assert.notDeepEqual(once.map(e => e.moves), still.map(e => e.moves), 'the random actions change the battle');
+});
+
+test('蓝方 can be the bot of each level: through the script, it takes an action that the teacher of that level marks', async () => {
+  const { graph, ids, calls } = arena();
+  const { fight, names } = await scriptFile(graph, ids, 'game.js');
+  for (const level of LEVELS) {
+    const { teacher } = scene({ teacherLevel: level });
+    assert.deepEqual(names(level), ['红方', `蓝方（${['简单', '中等', '困难'][level - 1]}机器人）`]);
+    for (const seed of [1, 2, 3]) {
+      const states = [];
+      const { log } = await fight(ctxCall(calls()), { seed, random: 0, opponent: level, show: s => states.push(s) });
+      // the move of 蓝方 is on its own map, that is, the map of side 0 in the turned battle
+      log.forEach((e, i) => assert.equal(teacher(turn(states[i]))[e.moves[1]], 1, `level ${level}, seed ${seed}, step ${e.t}`));
+    }
+  }
 });
 
 test('the battle calls the networks on the stage 2 candidates and the scene that the loops run, and 整理 puts it after stage 2', () => {
   const { graph, ids, groupIds, group, nodes } = instance();
   const from = port => graph.producers(ids.vs_battle, port).map(p => [p.node, p.port]);
-  assert.deepEqual(['battle', 'view', 'play'].map(from), [[[ids.scene, 'battle']], [[ids.scene, 'view']], [[ids.scene, 'play']]]);
+  assert.deepEqual(['battle', 'view', 'play', '机器人'].map(from), [[[ids.scene, 'battle']], [[ids.scene, 'view']], [[ids.scene, 'play']], [[ids.scene, 'botMove']]]);
   assert.deepEqual([from('红方'), from('蓝方')], [[[ids.vs_mid_readout, 'run']], [[ids.vs_big_readout, 'run']]]);
+  assert.deepEqual(from('设置'), [[ids.vs_settings, 'params']], 'the settings choose 蓝方');
   for (const [net, cands, of] of [['vs_mid_net', 's2_a_cands', 's2_a_net'], ['vs_big_net', 's2_b_cands', 's2_b_net']]) {
     assert.deepEqual(graph.producers(ids[net], 'weights').map(p => [p.node, p.port]), [[ids[cands], 'weights']], net);
     assert.deepEqual(graph.node(ids[net]).config, graph.node(ids[of]).config, `${net}: the structure of ${of}`);

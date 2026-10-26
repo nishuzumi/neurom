@@ -18,10 +18,11 @@ export function createMemoryArtifactStore() {
 
 /** The IndexedDB store of the app (database `neurom-artifacts`, object store `artifacts`, key = artifact id), or null
  *  when the browser has no IndexedDB. Without a store, the local save holds all of its artifacts itself. */
-export function createArtifactStore({ indexedDB = globalThis.indexedDB, name = 'neurom-artifacts' } = {}) {
+export function createArtifactStore() {
+  const indexedDB = globalThis.indexedDB;
   if (!indexedDB) return null;
   const open = () => new Promise((resolve, reject) => {
-    const req = indexedDB.open(name, 1);
+    const req = indexedDB.open('neurom-artifacts', 1);
     req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('artifacts')) req.result.createObjectStore('artifacts', { keyPath: 'id' }); };
     req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
   });

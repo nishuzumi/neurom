@@ -39,9 +39,9 @@ import { t } from '../i18n.js';
  *   wire. `refs`: callers[0]'s named types (State, Transition…). `signature`: callers[0]'s contract with its `<ref>`s
  *   (null for a const role). `result`: what the protocol declares it returns, over refs. `returns`: what the result
  *   means (raw text)
- * @typedef {{ name: string, role: string, kind: 'function' | 'const', required: boolean, text: string }} ScenarioRole
- *   `name` the export that fills the role in the loop (its `roles` config), `role` the protocol's name for it
- * @typedef {{ loop: string, title: string, withTable: boolean, I: number | null, roles: ScenarioRole[], stub: string }} Scenario
+ * @typedef {{ name: string, kind: 'function' | 'const', required: boolean, text: string }} ScenarioRole
+ *   `name` the export that fills the role in the loop (its `roles` config)
+ * @typedef {{ loop: string, roles: ScenarioRole[], stub: string }} Scenario
  *   `roles` in file order, each with the text that adds it. `stub` the scenario a new module starts from
  */
 
@@ -68,9 +68,9 @@ function sceneOf(graph, res, loopId) {
   const signatures = scenarioSignatures(withTable, I);
   const roles = SCENARIO_ORDER.map(role => {
     const fn = SCENARIO_CALLS.includes(role), name = fn ? exports[role] : role;
-    return { name, role, kind: fn ? 'function' : 'const', required: fn ? REQUIRED_CALLS.includes(role) : SCENARIO_CONSTS[role].required, text: roleText(name, fn ? signatures[role] : null) };
+    return { name, kind: fn ? 'function' : 'const', required: fn ? REQUIRED_CALLS.includes(role) : SCENARIO_CONSTS[role].required, text: roleText(name, fn ? signatures[role] : null) };
   });
-  const scene = { refs, signatures, exports, scenario: { loop: loopId, title: graph.nodes.get(loopId)?.title ?? loopId, withTable, I, roles, stub: scenarioStub(withTable, I, exports) } };
+  const scene = { refs, signatures, exports, scenario: { loop: loopId, roles, stub: scenarioStub(withTable, I, exports) } };
   memo.set(loopId, scene);
   return scene;
 }

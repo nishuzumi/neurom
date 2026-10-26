@@ -21,9 +21,9 @@ import { regionBytes, WEIGHT_BITS } from '../../runtime/dense-policy.js';
 import { t } from '../../i18n.js';
 
 export const ENGINES = Object.freeze(['dense-policy', 'threshold-layers']);
-/** On-chain limits: ports (ModuleFactory), layer widths / count, ticks, leak shift (DensePolicyEngine / ThresholdLayersEngine).
+/** On-chain limits: ports (ModuleFactory), layer widths / count, ticks (DensePolicyEngine / ThresholdLayersEngine).
  *  Ports and layer widths share the one bit-width limit MAX_BITS (ADR 0021). */
-export const MAX_PORT = MAX_BITS, MAX_WIDTH = MAX_BITS, MAX_LAYERS = 8, MAX_TICKS = 64, MAX_LEAK_SHIFT = 10;
+export const MAX_PORT = MAX_BITS, MAX_WIDTH = MAX_BITS, MAX_LAYERS = 8, MAX_TICKS = 64;
 /** ModuleFactory.MAX_TOOL_DEPTH: how deep tools may nest (toolDepth), so a step's gas stays bounded. */
 export const MAX_TOOL_DEPTH = 3;
 /** The most int32 a module keeps per session (DensePolicyEngine MAX_STATE): its own LIF potentials and its tools' states. */

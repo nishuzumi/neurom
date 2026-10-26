@@ -315,7 +315,7 @@ slots:                                # 预制模块的槽位：成员的一个�
 所有运行场景的部分都经同一个回路执行器运行回路。回路执行器是 `frontend/core/loop.js`。Python 孪生是 `training/bundle_loop.py`，它按 lane 批量运行，语义相同。要点如下：
 
 - **`loopSection(graph, res, loopId, { trained, artifacts })`** 构建快照的 `loop` 部分。如果回路或回路体有问题，它抛出 `BundleError`。
-- **`createLoop(loop, { models })`** → `{ reset(), step(bits) → { action, values, ran, tools }, states() }`。每个网络都运行自己的模型。`models` 按网络 id 覆盖模型，例如验证和评估时给被训练网络换上候选模型。
+- **`createLoop(loop)`** → `{ reset(), step(bits) → { action, values, ran, tools }, states() }`。每个网络都运行回路快照里自己的模型。要换模型时（例如验证和评估时给被训练网络换上候选模型），用锁步运行器和贪心运行器的 `models`，它按网络 id 覆盖模型。
 - **按需求值**：执行器从 `action` 出发倒推，每一步每个节点至多求一次值。工具层只运行它选中的工具。`ran` 是这一步运行过的节点。`values` 是每个求过的输出（`'<节点>.<端口>'` → 位、数字或分数）。`tools` 是每个工具层这一步的 `{ choice, data, result }`。执行实例和视图显示这些值。
 
   网络跨步保留自己的执行器状态。状态先是网络自己的 LIF 电位，然后是它每个网络工具的状态。工具的状态先按工具层排，再按连线顺序排，逐层嵌套（`toolCaller` 的 `width`）。工具的状态只在工具层选中它时前进。`states()` 给出每个网络的整份状态，`reset()` 把状态全部清零。REINFORCE 训练时，每个 lane 也各有一份工具状态，回合开始时随电位清零。
@@ -489,15 +489,10 @@ slots:                                # 预制模块的槽位：成员的一个�
 
 ### 性能
 
-挖矿模板还没有 CPU 剖面。每一步的主要工作如下：
+没有 CPU 剖面。每一步的主要工作如下：
 
 - **挖矿的输入程序**。它每步用 IR 的 `range(81).map` 取出以智能体为中心的 9×9 视野方块（81 格）。然后它把煤和金各编成 81 位，再拼上基地偏移、背包和剩余步数。
 - **LIF 训练**在 JS 侧走 `dense-core.js` 的 BPTT 路径，与 IR 无关。
-
-下一步有两项工作：
-
-- 测 JS 与 Python 生成代码在挖矿模板上的剖面。先做这一项。
-- 加快 `dense-core.js` 的 BPTT 路径。
 
 ## 12. 已知限制
 

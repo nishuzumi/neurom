@@ -199,7 +199,7 @@ function toolNetworks(loop) {
     .map(([id, n]) => ({ id, title: n.title, tools: Object.fromEntries(n.structure.layers.filter(isToolLayer).map(L => [L.tools, { D: L.D, R: L.R }])) }));
 }
 /** The Transition type a bundle's reward receives: the env's, with the `loop` field of its loop's tool layers. */
-export const transitionTypeOf = bundle => withLoopValues(bundle.env.types.Transition, bundle.loop ? toolNetworks(bundle.loop) : []);
+const transitionTypeOf = bundle => withLoopValues(bundle.env.types.Transition, bundle.loop ? toolNetworks(bundle.loop) : []);
 /** `(transition, tools) → Transition` of a loop section: the runner's record, plus `loop` from the step's `tools`
  *  (`{ <network>: { <port>: { choice, data, result } } }`). The `loop` field is keyed by network title and is present
  *  when the loop has tool layers. */
@@ -223,12 +223,11 @@ export function refWidth(loop, ref) {
 
 // ------------------------------------------------------------------ the executor
 /**
- * An executor for a loop section. `models` overrides network models by node id (a candidate model for the trained
- * network). → `{ reset(), step(bits) → { action, values, ran, tools }, states() → { <networkId>: voltages } }`, every
- * network on its model.
+ * An executor for a loop section, every network on its accepted model. → `{ reset(), step(bits) → { action, values,
+ * ran, tools }, states() → { <networkId>: voltages } }`.
  */
-export function createLoop(loop, { models = {} } = {}) {
-  const { reset, begin, states } = loopExecutor(loop, models);
+export function createLoop(loop) {
+  const { reset, begin, states } = loopExecutor(loop, {});
   return { reset, step: bits => begin(bits, null).finish(), states };
 }
 /** createLoop with the step split in two around the intercepted network `node`: `begin(bits, node) → { demanded: its

@@ -159,12 +159,12 @@ export class ModuleGraph {
   group(id) { const group = this.groups.get(id); if (!group) throw new GraphError(t('组合不存在：{id}', { id: String(id) })); return group; }
   parentOf(id) { const p = this._parent.get(id); return p ? this.groups.get(p) : null; }
 
-  createGroup({ title = '', members = [], expose = [], template = null, loop = null, columns = null, collapsed = true, x = 0, y = 0, w = 320, h = 200, id = freshId('g') }) {
+  createGroup({ title = '', members = [], template = null, columns = null, collapsed = true, x = 0, y = 0, w = 320, h = 200, id = freshId('g') }) {
     if (this.nodes.has(id) || this.groups.has(id)) throw new GraphError(t('id 已存在：{id}', { id }));
     if (template !== null && !(plain(template) && typeof template.id === 'string' && Number.isInteger(template.revision))) throw new GraphError(t('组合的 template 必须是 {id, revision}'));
     const group = { id, title: String(title), template: template ? { id: template.id, revision: template.revision } : null, loop: null, prefab: null, columns: checkColumns(columns), members: [], expose: [], collapsed: collapsed === true, x, y, w, h };
     this.groups.set(id, group);
-    try { for (const member of members) this.addToGroup(id, member); this.setExpose(id, expose); this._setLoop(group, loop); }
+    try { for (const member of members) this.addToGroup(id, member); }
     catch (error) { for (const member of group.members) this._parent.delete(member); this.groups.delete(id); throw error; }
     this._changed();
     return group;

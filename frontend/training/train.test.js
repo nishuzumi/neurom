@@ -558,14 +558,3 @@ test('REINFORCE through a nested network tool (FF and LIF policies): OR is a net
     for (const r of test) if (r.start.a !== r.start.b) assert.equal(r.trace[0].tools[ids.net].tools.choice, r.start.s ? 1 : 0, `${kind}: AND (0) for s = 0, the nested OR (1) for s = 1`);
   }
 });
-
-test('cancellation rejects with AbortError and stops reporting', async () => {
-  let reports = 0, cancelled = false;
-  await assert.rejects(
-    trainBundle(counterBundle({ epochs: 200, evalEvery: 1 }), { onProgress: () => { reports++; }, isCancelled: () => { if (reports >= 3) cancelled = true; return cancelled; } }),
-    error => error.name === 'AbortError');
-  const seen = reports;
-  await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(reports, seen);
-  await assert.rejects(trainBundle(counterBundle(), { isCancelled: () => true }), error => error.name === 'AbortError');
-});

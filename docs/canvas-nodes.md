@@ -75,7 +75,7 @@ flowchart LR
 
 展开的预制模块画成一个框（ADR 0011）。成员的划分只由连线推出（`editor/training-module.js trainingModule`）。这只是画法，不改变模块图。
 
-每个内置任务模板实例化后都画成这样的框，例如挖矿和坦克大战。坦克大战的回放视图是左栏里的一个视图段落，它的视图脚本画出地图（砖墙、钢墙、基地）、坦克和子弹。
+每个内置任务模板实例化后都画成这样的框，例如挖矿和坦克大战。坦克大战的回放视图是左栏里的一个视图段落，它的视图脚本画出地图（砖墙、钢墙、水、基地）、坦克、它们的命和炮弹。
 
 - **段落**（左栏）：段落不是 Vue Flow 节点，没有端口带。下面的模块是段落：
   - 训练器、候选、评估器、执行实例、分区和数据集总是段落。
@@ -143,7 +143,7 @@ flowchart LR
 | `number` / `boolean` / `string` / `vector` / `array` / `record` / `any` / `table` / `handle-partition` | `--plastic` | 值与数据（包括回路的 `action`） |
 | `handle-weights` / `handle-structure` / `handle-artifact` | `--mod` | 权重、结构、产物 |
 | `handle-run` / `handle-report` | `--train` | 训练运行、报告 |
-| `handle-execution` / `handle-deployment` | `--focus` | 执行实例、链上部署 |
+| `handle-execution` | `--focus` | 执行实例 |
 | `handle-loop` | `--inh` | 回路句柄（回路的 `loop` 输出与训练器、评估器、执行实例的 `loop` 输入） |
 
 新的句柄类型要同时加到 `core/types.js` 的 `HANDLES` 和 `editor.css` 里。模块边框颜色在 `.kind-<kind>` 里，例如 `.kind-loop` 用 `--inh`。

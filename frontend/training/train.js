@@ -1,12 +1,11 @@
 // training/train.js — `trainBundle(bundle, options)`. It validates a `neurom-bundle` trainer snapshot against the
 // requirements of its method (core/kinds/trainer.js METHODS, checked on the trained network of the loop and its
 // readout). Then it sends the snapshot to the trainer of the method. Result `{ model, evaluation, provenance }`.
-// Rejects with name 'AbortError' when `isCancelled()` turns true.
+// Browser cancellation terminates the training worker (training/client.js).
 import { bundleProblem, bundleHash as hashBundle } from '../core/bundle.js';
 import { readoutProblem } from '../core/readout.js';
 import { METHODS, requiredReadout, toolLayerProblem } from '../core/kinds/trainer.js';
 import { trainedOf, refWidth } from '../core/loop.js';
-import { abortError } from './run.js';
 import { modelProblem } from '../core/sessions/executor.js';
 import { trainReinforce } from './reinforce.js';
 import { trainCrossEntropy } from './cross-entropy.js';
@@ -52,12 +51,11 @@ export function trainingProblem(bundle) {
 
 /**
  * Train a bundle to completion. `tables` maps dataset id → `{ column: number[] }` for envs that read a table.
- * Resolves `{ model, evaluation, provenance }`. Rejects with name 'AbortError' when `isCancelled()` turns true.
+ * Resolves `{ model, evaluation, provenance }`.
  */
-export async function trainBundle(bundle, { onProgress = () => {}, isCancelled = () => false, tables = {} } = {}) {
+export async function trainBundle(bundle, { onProgress = () => {}, tables = {} } = {}) {
   const problem = trainingProblem(bundle);
   if (problem) throw new Error(problem);
-  if (isCancelled()) throw abortError();
   const bundleHash = await hashBundle(bundle);
-  return TRAINERS[bundle.recipe.method](bundle, { onProgress, isCancelled, tables, bundleHash });
+  return TRAINERS[bundle.recipe.method](bundle, { onProgress, tables, bundleHash });
 }

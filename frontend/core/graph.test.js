@@ -43,8 +43,8 @@ test('value wire: type mismatch is rejected, matching widths accepted', () => {
   const src8 = code(graph, 'export const b = bits(0, 8);');
   const readout = graph.addNode({ kind: 'readout', config: { mode: 'argmax', map: [0, 1, 2] } });
   const net = graph.addNode({ kind: 'network' });
-  const loop = graph.addNode({ kind: 'loop' }), text = graph.addNode({ kind: 'text' });
-  rejects(graph, value({ node: text.id, port: 'text' }, { node: loop.id, port: 'action' }), /number/);
+  const loop = graph.addNode({ kind: 'loop' }), cands = graph.addNode({ kind: 'candidates' });
+  rejects(graph, value({ node: cands.id, port: 'artifact' }, { node: loop.id, port: 'action' }), /number/);
   rejects(graph, value({ node: src8.id, port: 'b' }, { node: readout.id, port: 'scores' }), /vector\[3\]/);
   graph.connect(value({ node: src8.id, port: 'b' }, { node: net.id, port: 'in' }));
   graph.connect(value({ node: net.id, port: 'scores' }, { node: readout.id, port: 'scores' }));
@@ -211,9 +211,9 @@ test('code inputs: file-level names bound by value wires; a bad binding is rejec
   assert.deepEqual(site.carries.bound, { w: { type: 'record', fields: { bonus: NUMBER, target: NUMBER } } });
   assert.deepEqual(site.result, NUMBER);
   // binding a wrongly typed value breaks the call-site check and is rejected
-  const text = graph.addNode({ kind: 'text' });
+  const cands = graph.addNode({ kind: 'candidates' });
   graph.disconnect(graph.producers(reward.id, 'w')[0].wire.id);
-  rejects(graph, value({ node: text.id, port: 'text' }, { node: reward.id, port: 'w' }), /./);
+  rejects(graph, value({ node: cands.id, port: 'artifact' }, { node: reward.id, port: 'w' }), /./);
   // a field path must name an existing field of a record output
   rejects(graph, value({ node: params.id, port: 'params.missing' }, { node: reward.id, port: 'w' }), /没有输出端口/);
   rejects(graph, value({ node: params.id, port: 'params.bonus.deeper' }, { node: reward.id, port: 'w' }), /没有输出端口/);
@@ -287,7 +287,7 @@ test('nested groups: single parent, no self-containment, expose only member port
   assert.throws(() => graph.addToGroup(group.id, outer.id), /祖先/);
   assert.deepEqual(new Set(graph.memberNodes(outer.id)), new Set(Object.values(ids)));
   const note = graph.addNode({ kind: 'text' });
-  assert.throws(() => graph.setExpose(outer.id, [{ node: note.id, port: 'text' }]), /不属于组合成员/);
+  assert.throws(() => graph.setExpose(outer.id, [{ node: note.id, port: 'artifact' }]), /不属于组合成员/);
   graph.setExpose(outer.id, [{ node: ids.cands, port: 'artifact' }, { node: ids.net, port: 'in' }]);
   assert.deepEqual(graph.exposedPorts(outer.id).map(e => e.direction), ['output', 'input']);
   graph.removeGroup(group.id);

@@ -149,7 +149,7 @@ CLI 把 `{"type":"progress", …}` JSON 行写到 stdout。训练结束时，CLI
 
 库形式：
 
-- `training/bundle_train.py`：`train_bundle(bundle, on_progress, is_cancelled, tables, bundle_hash)` 是同一个入口。`validate_bundle(bundle, tables)` 在训练前检查格式、方法要求和每段程序的类型。`validate_model(model, network)` 检查导出的整数模型和快照里的网络结构一致。
+- `training/bundle_train.py`：`train_bundle(bundle, on_progress, tables, bundle_hash)` 是同一个入口。`validate_bundle(bundle, tables)` 在训练前检查格式、方法要求和每段程序的类型。`validate_model(model, network)` 检查导出的整数模型和快照里的网络结构一致。
 - `training/bundle_env.py`：`frontend/core/runner.js` 的孪生。`create_env(bundle['env'], tables)` → `reset(starts)` / `input()` / `step(actions)`，按 lane 批量运行。`step` 返回批量的 `Transition`，环境掩码已结束的 lane。
 - `training/bundle_loop.py`：`frontend/core/loop.js` 的孪生。`create_loop(bundle['loop'], models)` → `reset(B)` / `step(bits, mask, intercept)` → `{ action, values, ran, tools }`。`intercept = (网络 id, fn)`，`fn(x, lanes)` 返回 `{'scores'}`、`{'slot'}` 或 `{'bits'}`。`run_episodes(env, lx, starts, reward, intercept, on_step)` 是唯一的贪心回合运行器。
 

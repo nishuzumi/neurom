@@ -404,7 +404,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const local = await restoreLocal();
   store = local.workspace; conflict = local.conflict;
   editor = createVueEditor($('workspace-viewport'), {
-    workspace: () => store, changed: persist, status, session, datasets, python,
+    workspace: () => store, changed: persist, status, session, python,
   });
   library = createTemplateLibrary($('template-lib'), {
     workspace: () => store, editor: () => editor, status, builtinTemplates,

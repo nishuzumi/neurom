@@ -15,7 +15,7 @@ def bundle_epochs(bundle, epochs, profile):
     b = json.loads(json.dumps(bundle))
     b['recipe'].update({'epochs': epochs, 'evalEvery': 100000})
     s = bt.Session(b, None)
-    run = bt.Run(epochs, None, None)
+    run = bt.Run(epochs, None)
     times = []
     orig = bt._evaluate
 

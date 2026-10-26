@@ -15,7 +15,7 @@
 //   ctx.callAll(nodeId, port, argTypes) → [Call…]          (every call wire)
 //   ctx.callWidths(nodeId, port) → [number…]              the bits each callee wired into `port` reads (callees typed
 //                                                         by their arguments alone omitted)
-//   ctx.callUses(nodeId) → [{k, signature, from, caller, port, wire, error}]   call sites of a module's call outputs
+//   ctx.callUses(nodeId) → [{signature, from, wire, error}]   call sites of a module's call outputs
 //   ctx.callees(nodeId, port) → [{node, fn, wire, callee}]  every call wire into `port` with its kind's callee hook
 //                                                         answer (null: not callable), untyped. res.callees is the same
 //                                                         after the resolution, for a caller that types its calls at
@@ -119,7 +119,7 @@ export function resolve(graph) {
   function callOne(callerId, port, producer, argTypes) {
     const wire = producer.wire, source = graph.node(producer.node), k = argTypes.length;
     const portDef = res.portsOf(callerId).inputs.find(p => p.id === port);
-    const record = { k, signature: null, from: producer.port, caller: callerId, port, wire: wire.id, error: null };
+    const record = { signature: null, from: producer.port, wire: wire.id, error: null };
     if (!uses.has(source.id)) uses.set(source.id, new Map());
     uses.get(source.id).set(wire.id, record);
     const info = { result: null, error: null, paramTypes: argTypes, exact: false, carries: null, node: source, wire, k, fn: producer.port, caller: callerId, port };
@@ -190,6 +190,5 @@ function normalise(nodeId, problem) {
   const { error, ...rest } = problem;
   const out = { node: nodeId, ...rest, message: problem.message ?? error?.message ?? '' };
   out.incomplete = problem.incomplete === true || error?.incomplete === true;
-  if (error && !problem.wire && error.wire) out.wire = error.wire;
   return out;
 }

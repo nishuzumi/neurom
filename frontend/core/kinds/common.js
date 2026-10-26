@@ -17,10 +17,10 @@ export const callIn = (id, signature, { required = false, many = false, when = n
   return { id, wire: 'call', signature: { exact: false, ...signature }, required, many, ...(when ? { when } : {}) };
 };
 export const valueOut = (id, type = null) => ({ id, wire: 'value', type });
-export const fnOut = (id = 'fn') => ({ id, wire: 'call' });
+export const fnOut = id => ({ id, wire: 'call' });
 /** a whole code module (its file) travels on a call wire as a `module` handle, to a kind that calls its functions by role */
-export const moduleOut = (id = 'module') => ({ id, wire: 'call', handle: 'module' });
-export const moduleIn = (id, { required = true } = {}) => ({ id, wire: 'call', handle: 'module', required, many: false });
+export const moduleOut = id => ({ id, wire: 'call', handle: 'module' });
+export const moduleIn = id => ({ id, wire: 'call', handle: 'module', required: true, many: false });
 
 /** The single type flowing into a non-`many` port, or null. */
 export const single = (inTypes, id) => (Array.isArray(inTypes[id]) ? inTypes[id][0] ?? null : inTypes[id] ?? null);

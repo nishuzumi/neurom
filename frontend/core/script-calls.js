@@ -46,9 +46,9 @@ function typeOfValue(v, numbers) {
  * @param {any} graph
  * @param {any} res
  * @param {string} scriptId
- * @param {{ artifacts?: (id: string) => any }} [options]
+ * @param {{ artifacts: (id: string) => any }} options
  */
-export function scriptCalls(graph, res, scriptId, { artifacts = () => null } = {}) {
+export function scriptCalls(graph, res, scriptId, { artifacts }) {
   const ports = res.portsOf(scriptId).inputs;
   const functions = ports.filter(p => p.wire === 'call').map(p => p.id), inputs = ports.filter(p => p.wire === 'value').map(p => p.id);
   const runners = new Map();

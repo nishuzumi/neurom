@@ -149,7 +149,7 @@ The CLI prints `{"type":"progress", …}` JSON lines to stdout. When training is
 
 As a library:
 
-- `training/bundle_train.py`: `train_bundle(bundle, on_progress, is_cancelled, tables, bundle_hash)` is the same entry point. `validate_bundle(bundle, tables)` checks the format, the method requirements and the types of every program before training. `validate_model(model, network)` checks that an exported integer model agrees with the network structure in the bundle.
+- `training/bundle_train.py`: `train_bundle(bundle, on_progress, tables, bundle_hash)` is the same entry point. `validate_bundle(bundle, tables)` checks the format, the method requirements and the types of every program before training. `validate_model(model, network)` checks that an exported integer model agrees with the network structure in the bundle.
 - `training/bundle_env.py`: the Python twin of `frontend/core/runner.js`. `create_env(bundle['env'], tables)` → `reset(starts)` / `input()` / `step(actions)`, in batches over lanes. `step` returns a batched `Transition`, and the environment masks the lanes that are finished.
 - `training/bundle_loop.py`: the twin of `frontend/core/loop.js`. `create_loop(bundle['loop'], models)` → `reset(B)` / `step(bits, mask, intercept)` → `{ action, values, ran, tools }`. `intercept = (networkId, fn)`, and `fn(x, lanes)` returns `{'scores'}`, `{'slot'}` or `{'bits'}`. `run_episodes(env, lx, starts, reward, intercept, on_step)` is the one greedy episode runner.
 

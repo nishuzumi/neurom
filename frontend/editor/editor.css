@@ -162,7 +162,7 @@
 [data-type=table],[data-type^=handle-partition]{--pt:var(--plastic)}
 [data-type=handle-weights],[data-type=handle-structure],[data-type=handle-artifact]{--pt:var(--mod)}
 [data-type=handle-run],[data-type=handle-report]{--pt:var(--train)}
-[data-type=handle-execution],[data-type=handle-deployment]{--pt:var(--focus)}
+[data-type=handle-execution]{--pt:var(--focus)}
 [data-type=handle-loop]{--pt:var(--inh)}
 .port-row.call .port-name{font-style:italic}
 .port-row.required:not(.bound) .port-name::after{content:" *";color:var(--bad)}

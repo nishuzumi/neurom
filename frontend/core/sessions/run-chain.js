@@ -29,7 +29,7 @@ const ACTIVE = new Set(['queued', 'running']);
  * The candidates modules that `nodeId` reads upstream: the walk follows every wire into the module and into each module
  * above it. It stops at a candidates module (that one is a need) and does not go into a module of `skip`.
  */
-export function upstreamCandidates(graph, nodeId, skip = new Set()) {
+function upstreamCandidates(graph, nodeId, skip = new Set()) {
   const out = [], seen = new Set([nodeId, ...skip]);
   const visit = id => {
     for (const w of graph.wires.values()) {

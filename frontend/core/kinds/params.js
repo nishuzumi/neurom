@@ -107,7 +107,7 @@ export function fieldConstraints(config) {
   return out;
 }
 /** Why `value` is not acceptable for `field` under its effective constraint `c` (fieldConstraints), or '' when it is. */
-export function fieldProblem(field, value, c = {}) {
+export function fieldProblem(field, value, c) {
   switch (field.type) {
     case 'int': if (!Number.isSafeInteger(value)) return t('必须是整数'); break;
     case 'number': if (typeof value !== 'number' || !Number.isFinite(value)) return t('必须是有限数'); break;

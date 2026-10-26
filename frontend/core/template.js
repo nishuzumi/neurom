@@ -364,7 +364,7 @@ const slug = text => text.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_
 /** Turn a selection of nodes into a template: inner wires are kept, wires crossing the boundary become exposed ports
  *  (plus the exposes of any group covering the whole selection). Groups strictly inside the selection are recorded as
  *  the template's nested `groups`. */
-export function fromSelection(graph, nodeIds, { id = freshId('tpl').toLowerCase().replace(/[^a-z0-9_-]/g, ''), name = id, revision = 1, kind = null, description } = {}) {
+export function fromSelection(graph, nodeIds, { id = freshId('tpl').toLowerCase().replace(/[^a-z0-9_-]/g, ''), name = id, revision = 1 } = {}) {
   const selected = [...new Set(nodeIds)];
   if (!selected.length) fail(t('请选择至少一个模块'));
   const set = new Set(selected), local = {}, used = new Set();
@@ -412,6 +412,6 @@ export function fromSelection(graph, nodeIds, { id = freshId('tpl').toLowerCase(
     };
   }
   const slots = slotsOf(whole.find(g => g.prefab)?.prefab);
-  const template = { format: TEMPLATE_FORMAT, id, revision, name, kind: kind ?? (selected.length === 1 ? 'module' : 'composite'), ...(description ? { description } : {}), modules, wires, expose: [...expose], groups, ...(slots.length ? { slots } : {}), layout };
+  const template = { format: TEMPLATE_FORMAT, id, revision, name, kind: selected.length === 1 ? 'module' : 'composite', modules, wires, expose: [...expose], groups, ...(slots.length ? { slots } : {}), layout };
   return parseTemplate(template);
 }

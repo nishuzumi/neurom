@@ -75,7 +75,7 @@ When a group has `loop` (`group.loop` = the id of a loop module), `GroupNode.vue
 
 An expanded prefab shows as one frame (ADR 0011). The split of its members comes only from the wires (`editor/training-module.js trainingModule`). This split is presentation only. It never changes the graph.
 
-Each builtin task template shows as such a frame after you place it, for example mining and the tank battle. The replay view of the tank battle is a view section in the left column. Its view script draws the map (bricks, steel, base), the tanks and the bullets.
+Each builtin task template shows as such a frame after you place it, for example mining and the tank battle. The replay view of the tank battle is a view section in the left column. Its view script draws the map (bricks, steel, water, bases), the tanks, their lives and the shells.
 
 - **Sections** (the left column): sections are not Vue Flow nodes and have no port band. These modules are sections:
   - Trainers, candidates, evaluators, executions, partitions and datasets are always sections.
@@ -143,7 +143,7 @@ Behaviour:
 | `number` / `boolean` / `string` / `vector` / `array` / `record` / `any` / `table` / `handle-partition` | `--plastic` | values and data (including the loop's `action`) |
 | `handle-weights` / `handle-structure` / `handle-artifact` | `--mod` | weights, structure, artifacts |
 | `handle-run` / `handle-report` | `--train` | training runs, reports |
-| `handle-execution` / `handle-deployment` | `--focus` | executions, deployments |
+| `handle-execution` | `--focus` | executions |
 | `handle-loop` | `--inh` | the loop handle (the loop's `loop` output and the `loop` inputs of trainer, evaluator and execution) |
 
 Add a new handle type to `HANDLES` in `core/types.js` and also to `editor.css`. Module border colours are in `.kind-<kind>`, for example `.kind-loop` uses `--inh`.

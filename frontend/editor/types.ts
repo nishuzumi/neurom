@@ -2,7 +2,7 @@
 // the node components. The domain is frontend/core (ModuleGraph inside a Workspace). The editor never makes it
 // reactive. draw() rebuilds plain view models and Vue Flow diffs them by id.
 import type { Ref } from 'vue';
-import type { DatasetStore, SessionKind, SessionOf, Workspace, WorkspaceClient } from './workbench-context';
+import type { SessionKind, SessionOf, Workspace, WorkspaceClient } from './workbench-context';
 import type { EdgePresentationState } from './edge-presentation';
 import type { PortSpec } from './wiring';
 import type { LoopContract } from './graph-view';
@@ -19,7 +19,6 @@ export interface EditorContext {
   changed(): void;
   status(text: string, tone?: 'ok' | 'warn' | 'bad'): void;
   session<K extends SessionKind>(kind: K, nodeId: string): SessionOf<K>;
-  datasets: DatasetStore;
   python: { client: WorkspaceClient | null; connected: Ref<boolean> };
 }
 

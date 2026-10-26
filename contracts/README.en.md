@@ -378,8 +378,6 @@ The differences between the two chains come from the Monad price rules ([Opcode 
 - A cold account access costs 10,100 on Monad and 2,600 on Ethereum. The first write of a fresh storage slot in a page costs 27,900 on Monad and 22,100 on Ethereum. Thus a redeploy (module only) and a single step cost more on Monad.
 - Memory expansion is linear on Monad and quadratic on Ethereum. Thus calls that use much memory cost less on Monad, for example a 63-step game or a very large network (see the root README).
 
-A comparison with `hardfork = "monad:MonadNine"` (before MIP-8) gives the effect of MIP-8. From MonadNine to MonadTen, a deploy costs 16,400–16,500 gas less, and a redeploy costs 8,400 gas less. forward, step and the game do not change.
-
 ### Benchmarks
 
 The scripts in [benchmark/](../benchmark/README.en.md) measured the section "Monad network results" of the root README. That folder gives the steps of each script, and the check of `anvil --network monad` against the Monad testnet.

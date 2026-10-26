@@ -54,7 +54,7 @@ function objectiveSignature(method, O, withTable) {
 }
 
 /** The network wired into a trainer's `structure`, or null. */
-export function trainedOf(ctx, node) {
+function trainedOf(ctx, node) {
   const p = ctx.producers(node.id, 'structure')[0], net = p ? ctx.node(p.node) : null;
   return net?.kind === 'network' ? net : null;
 }

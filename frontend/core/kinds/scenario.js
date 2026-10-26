@@ -96,13 +96,13 @@ export function scenarioStub(withTable, I = null, exports = roleExports(null)) {
  * The scenario typed as the runner calls it. `scene` is the scenario code node (null while unwired). `sceneInType`
  * types that module's inputs. `tag` is the episode kind the loop's drivers run it on (null while unknown). `Table` is
  * their dataset's type (null without one). `exports` (roleExports) names the export that fills each role. → `{ scene,
- * analysis, refs, calls, signatures, exports }`: refs (Start, State, Transition, Episode, I, Table, each null while
- * unknown), each role's typed call `{ result, error, bound }` (absent when the scenario has no such export) and the
- * analysis of the file (kinds/code.js). Errors name the export.
+ * analysis, refs, calls, exports }`: refs (Start, State, Transition, Episode, I, Table, each null while unknown), each
+ * role's typed call `{ result, error, bound }` (absent when the scenario has no such export) and the analysis of the
+ * file (kinds/code.js). Errors name the export.
  */
-export function analyseScenario(scene, sceneInType, { tag = null, Table = null, exports = roleExports(null) } = {}) {
+export function analyseScenario(scene, sceneInType, { tag, Table, exports }) {
   const refs = { Start: tag ? startTypeOf(tag) : null, State: null, Transition: null, Episode: null, I: null, Table: Table ?? null }, calls = {}, sig = scenarioSignatures(!!Table);
-  if (!scene) return { scene: null, analysis: null, refs, calls, signatures: sig, exports };
+  if (!scene) return { scene: null, analysis: null, refs, calls, exports };
   const analysis = analyseModule(scene, sceneInType), fns = analysis.module.functions, tbl = Table ? [Table] : [];
   const fn = role => fns[exports[role]];
   const call = (role, args) => {
@@ -131,7 +131,7 @@ export function analyseScenario(scene, sceneInType, { tag = null, Table = null, 
   // roles the chain above did not reach still say why
   const why = refs.Start ? name => incomplete(t('{name} 要等 {init} 的类型确定', { name, init: exports.init })) : () => incomplete(t('先把回路接到训练器、评估器或执行实例：它们的分区决定回合从什么开始'));
   for (const role of SCENARIO_CALLS) if (fn(role) && !(role in calls)) calls[role] = { result: null, error: fn(role).error ?? why(exports[role]), bound: null };
-  return { scene, analysis, refs, calls, signatures: sig, exports };
+  return { scene, analysis, refs, calls, exports };
 }
 
 /**

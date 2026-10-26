@@ -13,6 +13,6 @@ self.onmessage = async ({ data }) => {
     const result = await trainBundle(bundle, { onProgress: progress => self.postMessage({ type: 'progress', runId, progress }), tables });
     self.postMessage({ type: 'complete', runId, result });
   } catch (error) {
-    self.postMessage({ type: 'error', runId, error: error?.message ?? String(error), name: error?.name ?? 'Error' });
+    self.postMessage({ type: 'error', runId, error: error?.message ?? String(error) });
   }
 };

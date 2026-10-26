@@ -2,8 +2,8 @@
 // This works the way TS shows a property's JSDoc wherever the property is read. Trees are ir/docs.js doc trees.
 //   · what the value wire into a port carries: its producer's output doc.
 //   · everything asks the node's kind: `docs.output(node, port, d)` for a value output, `docs.ref(node, name, d)`
-//     for a named type it publishes (State, Transition…), `docs.arg(node, port, i, d)` for the i-th arg of a call port
-//     (default: the ref that signature param names).
+//     for a named type it publishes (State, Transition…). The i-th arg of a call port is the ref that signature
+//     param names.
 // What a code module's function params mean — its first caller's args under its own Doc Comment — is core/roles.js.
 // Memoised per resolution. A cycle (a doc that would depend on itself) resolves to null.
 import { docAt } from '../ir/index.js';
@@ -42,8 +42,6 @@ function build(graph, res) {
     input: (nodeId, port) => { const p = graph.producers(nodeId, port)[0]; return p ? d.output(p.node, p.port) : null; },
     ref: (nodeId, name) => once(`r\u0000${nodeId}\u0000${name}`, () => hook(nodeId, 'ref', name)),
     arg: (callerId, port, i) => once(`a\u0000${callerId}\u0000${port}\u0000${i}`, () => {
-      const own = hook(callerId, 'arg', port, i);
-      if (own) return own;
       const P = res.portsOf(callerId).inputs.find(p => p.id === port)?.signature?.params?.[i];
       return isRef(P) ? d.ref(callerId, P.slice(1, -1)) : null;
     }),

@@ -377,7 +377,6 @@ export function createVueEditor(viewport: HTMLElement, ctx: EditorContext): Edit
     version,
     resolution: () => graph().resolved(),
     session: (kind, nodeId) => ctx.session(kind, nodeId),
-    datasets: ctx.datasets,
     edit,
     status: (message, tone) => ctx.status(message, tone),
     python: ctx.python,

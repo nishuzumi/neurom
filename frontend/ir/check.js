@@ -8,7 +8,7 @@ const PROGRAM_KEYS = new Set(['format', 'params', 'nodes', 'output']);
 const NODE_KEYS = new Set(['id', 'op', 'inputs', 'value', 'name', 'body']);
 const BODY_KEYS = new Set(['params', 'nodes', 'output']);
 
-/** op → arity ('variadic' = 1..n, 'variadic0' = 0..n) plus which node fields it carries (value / name / body param count). */
+/** op → arity ('variadic' = 1..n) plus which node fields it carries (value / name / body param count). */
 export const OPS = Object.freeze({
   constant: { arity: 0, value: true }, param: { arity: 0, name: true },
   add: { arity: 2 }, sub: { arity: 2 }, mul: { arity: 2 }, div: { arity: 2 }, mod: { arity: 2 }, neg: { arity: 1 },
@@ -17,7 +17,7 @@ export const OPS = Object.freeze({
   lt: { arity: 2 }, lte: { arity: 2 }, gt: { arity: 2 }, gte: { arity: 2 }, eq: { arity: 2 }, neq: { arity: 2 },
   and: { arity: 2 }, or: { arity: 2 }, not: { arity: 1 }, select: { arity: 3 },
   vector: { arity: 'variadic' }, concat: { arity: 'variadic' }, bits: { arity: 2 }, oneHot: { arity: 2 }, at: { arity: 2 }, slice: { arity: 3 },
-  get: { arity: 1, name: true }, record: { arity: 'variadic0', value: true }, set: { arity: 2, name: true },
+  get: { arity: 1, name: true }, record: { arity: 'variadic', value: true }, set: { arity: 2, name: true },
   array: { arity: 'variadic' }, index: { arity: 2 }, update: { arity: 3 }, range: { arity: 0, value: true },
   map: { arity: 1, body: 2 }, fold: { arity: 2, body: 3 }, scan: { arity: 2, body: 3 },
   u32: { arity: 1 }, imul32: { arity: 2 }, add32: { arity: 2 }, sub32: { arity: 2 }, xor32: { arity: 2 }, and32: { arity: 2 }, or32: { arity: 2 }, shl32: { arity: 2 }, shr32: { arity: 2 },
@@ -57,7 +57,7 @@ export function analyzeStructure(program) {
       const spec = OPS[op];
       if (!Array.isArray(inputs) || inputs.some(x => typeof x !== 'string')) throw err(t('inputs 必须是节点 id 数组'), node);
       if (spec.arity === 'variadic') { if (inputs.length === 0) throw err(t('{op} 至少需要一个输入', { op }), node); }
-      else if (spec.arity !== 'variadic0' && inputs.length !== spec.arity) throw err(t('{op} 需要 {arity} 个输入，收到 {count}', { op, arity: spec.arity, count: inputs.length }), node);
+      else if (inputs.length !== spec.arity) throw err(t('{op} 需要 {arity} 个输入，收到 {count}', { op, arity: spec.arity, count: inputs.length }), node);
       if (spec.value ? !Object.hasOwn(node, 'value') : Object.hasOwn(node, 'value')) throw err(spec.value ? t('{op} 缺少 value', { op }) : t('{op} 不能带 value', { op }), node);
       if (spec.name ? typeof node.name !== 'string' : Object.hasOwn(node, 'name')) throw err(spec.name ? t('{op} 缺少 name', { op }) : t('{op} 不能带 name', { op }), node);
       if (spec.body ? !plain(node.body) : Object.hasOwn(node, 'body')) throw err(spec.body ? t('{op} 缺少 body', { op }) : t('{op} 不能带 body', { op }), node);

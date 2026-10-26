@@ -378,8 +378,6 @@ int8 让权重块小了约一半。计算上，一个 int8 列词按行号模 4 
 - 冷账户访问在 Monad 上是 10,100，在以太坊上是 2,600。在一页里首次写一个新存储槽，Monad 上是 27,900，以太坊上是 22,100。所以只建模块的“再部署”和单独一步在 Monad 上更贵。
 - Monad 的内存扩展是线性的，以太坊是平方的。所以用内存多的调用在 Monad 上更便宜，例如一局 63 步，或者很大的网络（见根目录 README）。
 
-MIP-8 的影响用 `hardfork = "monad:MonadNine"`（MIP-8 之前）对比得出。从 MonadNine 到 MonadTen，部署少 16,400–16,500 gas，再部署少 8,400 gas。forward、step 和一局的 gas 不变。
-
 ### 基准测试
 
 根目录 README 的“Monad 网络实测”一节由 [benchmark/](../benchmark/README.md) 里的脚本测得。那里写明了每个脚本的步骤，以及 `anvil --network monad` 和 Monad 测试网的核对结果。

@@ -3,7 +3,7 @@
 
     python3 training/bundle_train.py --run-dir DIR        # reads DIR/bundle.json (+ DIR/tables.json, DIR/run.json), prints
                                                           # {"type":"progress",…} JSON lines, writes DIR/result.json
-    train_bundle(bundle, on_progress=None, is_cancelled=None, tables=None, bundle_hash=None) → {model, evaluation, provenance}
+    train_bundle(bundle, on_progress=None, tables=None, bundle_hash=None) → {model, evaluation, provenance}
 
 Every method runs the whole loop (ADR 0009 §2). Per step, the batched env gives the input bits of the loop. The loop
 executor (training/bundle_loop.py) runs every other network frozen with its accepted integer model. It intercepts the
@@ -79,10 +79,6 @@ RECIPE_DEFAULTS = {'epochs': 300, 'lr': 0.01, 'replicas': 8, 'seed': 1, 'evalEve
 
 class BundleError(ValueError):
     """The bundle cannot be trained: malformed, unmet method requirements, or programs that do not type-check."""
-
-
-class Cancelled(Exception):
-    """is_cancelled() returned true between epochs."""
 
 
 def now(): return datetime.now(timezone.utc).isoformat(timespec='seconds')
@@ -679,15 +675,12 @@ def init_threshold(model, seed):
 
 # ───────────────────────────── shared run machinery ─────────────────────────────
 class Run:
-    def __init__(self, epochs, on_progress, is_cancelled):
-        self.epochs, self.on_progress, self.is_cancelled = epochs, on_progress, is_cancelled
+    def __init__(self, epochs, on_progress):
+        self.epochs, self.on_progress = epochs, on_progress
         self.started_at, self.t0 = now(), time.perf_counter()
         self.every = max(1, math.ceil(epochs / PROGRESS_POINTS))
 
     def elapsed_ms(self): return int((time.perf_counter() - self.t0) * 1000)
-
-    def tick(self):
-        if self.is_cancelled is not None and self.is_cancelled(): raise Cancelled('training cancelled')
 
     def should_report(self, epoch, evaluated): return epoch % self.every == 0 or epoch == self.epochs or (evaluated and self.epochs <= PROGRESS_POINTS)
 
@@ -840,7 +833,6 @@ def _dense_setup(s, run):
         X = _calibration(s, np.random.default_rng([recipe['seed'], 1]))
         init_dense(model, recipe['seed'], recipe['initCurrent'], X, call=s.call, sample=torch.Generator().manual_seed(recipe['seed'] + 1))
     opt = torch.optim.Adam(model.parameters(), lr=recipe['lr'], **ADAM)
-    run.tick()
     return torch, model, opt
 
 
@@ -943,7 +935,6 @@ def train_reinforce(s, run, bundle_hash):
         if run.should_report(epoch + 1, evaluated):
             run.report(phase='eval' if evaluated else 'train', epoch=epoch + 1, loss=curves['loss'][-1], metric=best['metric'] if best else None, metricName=s.metric_name,
                        trainReturn=curves['trainReturn'][-1], trainSuccess=curves['trainSuccess'][-1], spikeRate=curves['spikeRate'][-1], gradNorm=gn, selectedEpoch=best['epoch'] + 1 if best else None)
-        run.tick()
     extra = {'selection': {'epoch': best['epoch'] + 1, 'rule': 'greedy integer loop on the validation partition; strict improvement'},
              'details': {'gamma': recipe['gamma'], 'baselineDecay': recipe['baselineDecay'], 'entropy': recipe['entropy'], 'surrogateWidth': recipe['surrogateWidth'], 'gradClip': recipe['gradClip'], 'initCurrent': recipe['initCurrent']}}
     return s.finish(run, best, curves, evaluations, bundle_hash, extra)
@@ -1008,7 +999,6 @@ def train_cross_entropy(s, run, bundle_hash):
         if run.should_report(epoch + 1, evaluated):
             run.report(phase='eval' if evaluated else 'train', epoch=epoch + 1, loss=curves['loss'][-1], metric=best['metric'] if best else None, metricName=s.metric_name,
                        agreement=curves['agreement'][-1], spikeRate=curves['spikeRate'][-1], gradNorm=gn, selectedEpoch=best['epoch'] + 1 if best else None)
-        run.tick()
     extra = {'selection': {'epoch': best['epoch'] + 1, 'rule': 'greedy integer loop accuracy on labelled validation decisions; strict improvement'},
              'details': {'exploration': recipe['exploration'], 'surrogateWidth': recipe['surrogateWidth'], 'gradClip': recipe['gradClip'], 'initCurrent': recipe['initCurrent']}}
     return s.finish(run, best, curves, evaluations, bundle_hash, extra)
@@ -1022,7 +1012,6 @@ def train_hinge(s, run, bundle_hash):
     if s.bundle.get('init') is not None: model.restore(s.bundle['init']['model'])   # the start of the run (ADR 0020)
     else: init_threshold(model, recipe['seed'])
     opt = torch.optim.Adam(model.parameters(), lr=recipe['lr'], **ADAM)
-    run.tick()
     episodes = episodes_of(s.bundle['partitions']['training'], s.rows)  # every episode once: the same rows every epoch
     if not episodes: raise BundleError('the partition has no episodes')
     xs, ys = [], []
@@ -1051,7 +1040,6 @@ def train_hinge(s, run, bundle_hash):
         if done or run.should_report(epoch + 1, evaluated):
             run.report(phase='eval' if evaluated else 'train', epoch=epoch + 1, loss=curves['loss'][-1], metric=best['metric'] if best else None, metricName=s.metric_name,
                        accuracy=acc, gradNorm=gn, selectedEpoch=best['epoch'] + 1 if best else None)
-        run.tick()
         if done: break
     extra = {'selection': {'epoch': best['epoch'] + 1, 'epochsRun': epochs_run, 'rule': 'threshold integer loop exact-bits accuracy on validation decisions; strict improvement; stops early once exact'},
              'details': {'margin': recipe['margin'], 'surrogateWidth': recipe['surrogateWidth'], 'gradClip': recipe['gradClip']}}
@@ -1061,11 +1049,11 @@ def train_hinge(s, run, bundle_hash):
 TRAINERS = {'reinforce': train_reinforce, 'cross-entropy': train_cross_entropy, 'hinge': train_hinge}
 
 
-def train_bundle(bundle, on_progress=None, is_cancelled=None, tables=None, bundle_hash=None):
-    """Train `bundle` (a trainer bundle) → {model, evaluation, provenance}. Raises BundleError (invalid bundle), RunnerError
-    (a program failed at run time) or Cancelled (is_cancelled() returned true)."""
+def train_bundle(bundle, on_progress=None, tables=None, bundle_hash=None):
+    """Train `bundle` (a trainer bundle) → {model, evaluation, provenance}. Raises BundleError (invalid bundle) or RunnerError
+    (a program failed at run time)."""
     s = Session(bundle, tables)
-    run = Run(s.recipe['epochs'], on_progress, is_cancelled)
+    run = Run(s.recipe['epochs'], on_progress)
     run.report(phase='init', epoch=0, loss=None, metric=None, metricName=s.metric_name)
     return TRAINERS[s.recipe['method']](s, run, bundle_hash)
 
