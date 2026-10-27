@@ -36,7 +36,7 @@
 # stopped. State.hits: the tanks hit in the last step. The replay views and the battlefield animate each step from them.
 format: neurom-template
 id: tank-battle
-revision: 11
+revision: 12
 name: 坦克大战
 kind: composite
 description: Botzone Tank2 规则的坦克对战。9×9 的固定地图有砖墙、钢墙和水，两端各有一个基地，中间只有两个通道。每方 1 辆坦克，2 条命。网络有“中”和“大”两种结构。阶段 1 用交叉熵模仿场景里的教师，教师用困难机器人的规则。阶段 2 从阶段 1 的权重开始，用强化学习和机器人对战。最后脚本模块让“中”和困难机器人对战，也可以让“中”和“大”对战。所有回路和对战共用一份场景和参数
@@ -306,19 +306,42 @@ modules:
           return y === ty ? BIT[tx + runs[1]] * 2 - BIT[tx - runs[3]] - BIT[tx] : y >= ty - runs[0] && y <= ty + runs[2] ? BIT[tx] : 0;
         }
         /**
-         * 坦克 (x, y) 向 4 个方向各走一格以后，到最近的瞄准格还要走几步（走不到是 99）。aim 是瞄准格（每行一个位掩码）。
+         * 坦克 (x, y) 向 4 个方向各走一格以后，到最近的瞄准格还要走几步（走不到是 99）。瞄准格在 tiers 里（每行一个位掩码）。
          * 坦克走空地，也走砖墙，因为它可以先开火打掉砖墙（这一步也算 1 步）。它不走 keep 里的砖墙，也不走另一辆坦克 (ox, oy) 的格。
          * 从瞄准格向外一圈一圈地扩展 30 次，更远的瞄准格算作走不到。
+         * slow 时，砖墙算 2 步（先开火打掉它，再走进去），所以从砖墙向外扩展晚一圈。
+         * tiers 是 4 组瞄准格（见 tiers），第 b 组从第 2b 圈开始算作瞄准格。
          */
-        function chase(cells, x, y, ox, oy, aim, keep) {
+        function chase(cells, x, y, ox, oy, tiers, keep, slow) {
           const open = range(9).map((r) => range(9).reduce((m, c) => m + ((cells[r * 9 + c] === 0 || (cells[r * 9 + c] === 1 && and32(keep[r], BIT[c]) === 0))
             && !(ox === c && oy === r) ? BIT[c] : 0), 0));
-          const start = range(9).map((r) => and32(open[r], aim[r]));
+          const bricks = range(9).map((r) => range(9).reduce((m, c) => m + (slow && cells[r * 9 + c] === 1 ? BIT[c] : 0), 0));
+          const start = range(9).map((r) => and32(open[r], tiers[0][r]));
           return range(30).reduce((acc, n) => {
-            const rows = range(9).map((r) => and32(open[r], or32(or32(acc.rows[r], or32(shl32(acc.rows[r], 1), shr32(acc.rows[r], 1))),
-              or32(r > 0 ? acc.rows[r - 1] : 0, r < 8 ? acc.rows[r + 1] : 0))));
-            return { rows, near: range(4).map((d) => (acc.near[d] < 99 ? acc.near[d] : nextTo(rows, x, y, d) ? n + 1 : 99)) };
-          }, { rows: start, near: range(4).map((d) => (nextTo(start, x, y, d) ? 0 : 99)) }).near;
+            const go = range(9).map((r) => and32(acc.rows[r], xor32(acc.late[r], 511)));
+            const grown = range(9).map((r) => and32(open[r], or32(or32(go[r], or32(shl32(go[r], 1), shr32(go[r], 1))), or32(r > 0 ? go[r - 1] : 0, r < 8 ? go[r + 1] : 0))));
+            const seed = range(9).map((r) => and32(open[r], n === 1 ? tiers[1][r] : n === 3 ? tiers[2][r] : n === 5 ? tiers[3][r] : 0));
+            const rows = range(9).map((r) => or32(acc.rows[r], or32(grown[r], seed[r])));
+            return { rows, late: range(9).map((r) => and32(and32(rows[r], xor32(acc.rows[r], 511)), bricks[r])),
+              near: range(4).map((d) => (acc.near[d] < 99 ? acc.near[d] : nextTo(rows, x, y, d) ? n + 1 : 99)) };
+          }, { rows: start, late: range(9).map((r) => and32(start[r], bricks[r])), near: range(4).map((d) => (nextTo(start, x, y, d) ? 0 : 99)) }).near;
+        }
+        /**
+         * 基地 (gx, gy) 的线（runs，见 lane）上每格到基地之间有几格砖墙。在这一格挖到基地，每格砖墙要 2 步（开火，再冷却 1 步）。
+         * 返回 { n, rows }：n 是每格的砖墙数（不在线上是 9。slow 是 false 时线上都是 0），rows 是砖墙数 0 到 3 的 4 组格（每行一个位掩码）。
+         */
+        function tiers(cells, gx, gy, runs, slow) {
+          // walls[d][j]：从基地朝方向 d 的第 1 到第 j + 1 格里有几格砖墙
+          const walls = range(4).map((d) => scan(range(8), 0, (s, j) => s + (inside(gx + (j + 1) * DX[d], gy + (j + 1) * DY[d])
+            && cells[(gy + (j + 1) * DY[d]) * 9 + gx + (j + 1) * DX[d]] === 1 ? 1 : 0)));
+          const n = range(81).map((c) => {
+            const x = c % 9;
+            const y = Math.floor(c / 9);
+            const far = Math.abs(x - gx) + Math.abs(y - gy);
+            const d = x === gx ? (y < gy ? 0 : 2) : x > gx ? 1 : 3;
+            return !seen(runs, gx, gy, x, y) ? 9 : slow && far > 1 ? walls[d][far - 2] : 0;
+          });
+          return { n, rows: range(4).map((b) => range(9).map((y) => range(9).reduce((m, x) => m + (n[y * 9 + x] === b ? BIT[x] : 0), 0))) };
         }
         /**
          * 机器人的规则：第 k 方在这一步同样好的动作（9 个布尔值，按世界的方向）。level 是难度：1 简单，2 中等，3 困难。
@@ -326,16 +349,19 @@ modules:
          * 1. 赢：开火能打到对方的基地时，开火。
          * 2. 打坦克：开火能打到对方的坦克时，开火。
          * 3. 挖：站在对方基地的线上（见 lane），朝基地的第一格是砖墙时，开火打掉它。
-         * 4. 走：沿最短路走向最近的瞄准格：能挖到对方基地的格，或者能直接打到对方坦克的格（见 chase）。
-         *    路上的下一格是砖墙时，开火打掉它。
+         * 4. 走：沿最短路走向最近的瞄准格（见 chase）。路上的下一格是砖墙时，开火打掉它。
          * 5. 都不行时等待。
          * 它从不朝自己基地的线（见 lane）开火，也不从这条线上的砖墙走，因为炮弹会打掉自己基地的砖墙或者基地。
-         * 中等另外有这些规则：
+         * 简单只追坦克：瞄准格是能直接打到对方坦克的格。它不看危险。
+         * 中等进攻：瞄准格是能挖到对方基地的格。另外有这些规则：
          * - 对方下一步能开火时，对方射线上的格（见 clear）不安全。它不走进不安全的格。
          * - 站在不安全的格里时，它先躲：走到安全的格，或者朝对方开火。对方也开火时，两发互相抵消（对射）。
          * - 它比较两方走到能挖对方基地的格要几步。对方的步数更少时，它防守：瞄准格是能打到对方坦克的格，并且不挖。
-         * 困难另外看自己的基地：对方下一步能直接打到我方基地时，它走进对方和基地之间挡住炮弹。
-         * 已经挡在中间时，它不躲开，而是朝对方开火，不能开火时等待。
+         * 困难另外有这些规则：
+         * - 它按真正要花的步数算路：砖墙算 2 步（开火，再走进去）。到基地之间每有一格砖墙，挖到基地多 2 步（开火，再冷却 1 步）。
+         *   所以它选更快的路和更快的线，两方的步数也比得更准。
+         * - 对方下一步能直接打到我方基地时，它走进对方和基地之间挡住炮弹。已经挡在中间时，它不躲开，而是朝对方开火，
+         *   不能开火时等待。
          */
         function good(state, k, level) {
           const smart = level > 1;
@@ -371,16 +397,21 @@ modules:
           const hold = range(9).map((a) => (any(kill) ? kill[a] : a === 8));
           // 中等和困难：站在不安全的格里时，走到安全的格，或者朝对方开火
           const dodge = range(9).map((a) => smart && exposed && ((a < 4 && free[a] && !hot[a]) || kill[a]));
-          // 两方走到能挖对方基地的格要几步。简单的瞄准格是两种都算，所以它走向最近的一种。
+          // 两方走到能挖对方基地的格要几步。
+          // 困难还算上在这一格挖到基地的步数（见 tiers），砖墙也算 2 步。
           const mine = range(9).map((y) => lineRow(hl, home.x, home.y, y));
           const theirs = range(9).map((y) => lineRow(gl, goal.x, goal.y, y));
-          const raid = chase(cells, me.x, me.y, foe.x, foe.y, theirs, mine);
-          const back = chase(cells, foe.x, foe.y, me.x, me.y, mine, theirs);
-          const ours = onLane ? 0 : minOf(raid) + 1;
-          const eta = seen(hl, home.x, home.y, foe.x, foe.y) ? 0 : minOf(back) + 1;
+          const gt = tiers(cells, goal.x, goal.y, gl, level > 2);
+          const ht = tiers(cells, home.x, home.y, hl, level > 2);
+          const none = range(9).map((y) => 0);
+          const raid = chase(cells, me.x, me.y, foe.x, foe.y, gt.rows, mine, level > 2);
+          const back = chase(cells, foe.x, foe.y, me.x, me.y, ht.rows, theirs, level > 2);
+          const ours = onLane ? 2 * gt.n[me.y * 9 + me.x] : minOf(raid) + 1;
+          const eta = seen(hl, home.x, home.y, foe.x, foe.y) ? 2 * ht.n[foe.y * 9 + foe.x] : minOf(back) + 1;
           const defend = smart && foe.on && eta < ours;
-          const hunt = chase(cells, me.x, me.y, foe.x, foe.y, range(9).map((y) => or32(lineRow(fr, foe.x, foe.y, y), smart ? 0 : theirs[y])), mine);
-          const near = !smart || defend ? hunt : raid;
+          const hunt = chase(cells, me.x, me.y, foe.x, foe.y, array(range(9).map((y) => lineRow(fr, foe.x, foe.y, y)), none, none, none), mine, level > 2);
+          // 困难按步数选方向：走进砖墙要多 1 步
+          const near = range(4).map((d) => (!smart || defend ? hunt[d] : raid[d]) + (level > 2 && brick[d] ? 1 : 0));
           // 走一格，或者开火打掉路上的砖墙
           const step = range(4).map((d) => (free[d] && !(smart && hot[d])) || (brick[d] && ready && !own[d]));
           const best = minOf(range(4).map((d) => (step[d] ? near[d] : 99)));
@@ -538,7 +569,7 @@ modules:
   # 阶段 1 · 模仿：训练器用交叉熵学教师 teacher 的目标位。“中”和“大”各有一个训练模块，里面是一个训练器和它的回路。
   # 每个结构有自己的候选、评估器、执行实例和回放。读出、报告和回放的配置相同，所以用 YAML 锚点（&）共用。
   # 评估器的奖励是场景的 agreement，所以“和教师一致的比例”是回报除以步数。
-  # 配置是按实测选的（训练器种子 1，200 个测试种子）：“中”1500 轮，和教师一致的比例 0.91。“大”900 轮，每轮 16 局，0.975。
+  # 配置是按实测选的（训练器种子 1，200 个测试种子）：“中”2500 轮，和教师一致的比例 0.89。“大”900 轮，每轮 16 局，0.946。
   # 模板按本地 id 的字母顺序保存。所以“中”的本地 id 用前缀 s1_a_，“大”用 s1_b_。
   s1_a_loop: { kind: loop, title: 回路（中） }
   s1_a_net:
@@ -549,7 +580,7 @@ modules:
   s1_a_trainer:
     kind: trainer
     title: 训练器（中）
-    config: { method: cross-entropy, epochs: 1500, lr: 0.005, replicas: 1, episodesPerEpoch: 16, calibrationEpisodes: 32, exploration: 0.1, evalEvery: 20, seed: 1, backend: browser }
+    config: { method: cross-entropy, epochs: 2500, lr: 0.005, replicas: 1, episodesPerEpoch: 16, calibrationEpisodes: 32, exploration: 0.1, evalEvery: 20, seed: 1, backend: browser }
   s1_a_cands: { kind: candidates, title: 候选（中） }
   s1_a_evaluator: { kind: evaluator, title: 评估器（中） }
   s1_a_report:
@@ -849,8 +880,8 @@ modules:
   # 阶段 2 · 对战训练：训练器用 REINFORCE 和机器人对战。回路和阶段 1 的相同，只有目标不同：奖励是场景的 reward。
   # 赢 1，输 −1，平局 0，击毁对方坦克一次 0.3，我方坦克被击毁一次 −0.3，每步减一点。奖励的数值在“奖励参数”里。
   # 每个训练器的 init 接阶段 1 同一结构的候选 weights。gate 接阶段 1 同一结构的评估器报告：和教师一致的比例至少是 0.85 时才能开始。
-  # “中”的阶段 1 只到 0.91 左右，所以门槛是 0.85，不是 0.9。
-  # 配置是按实测选的（训练器种子 1，200 个测试种子，困难机器人，随机动作概率 0.1）：胜率“中”从 0.685 到 0.875，“大”从 0.78 到 0.855。
+  # “中”的阶段 1 只到 0.89 左右，所以门槛是 0.85，不是 0.9。
+  # 配置是按实测选的（训练器种子 1，200 个测试种子，困难机器人，随机动作概率 0.1）：胜率“中”从 0.745 到 0.85，“大”从 0.775 到 0.835。
   # 本地 id 用前缀 s2_。
   s2_a_loop: { kind: loop, title: 回路（中，阶段 2） }
   s2_a_net: { kind: network, title: 中（阶段 2）, config: *mid }

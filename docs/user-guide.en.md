@@ -438,21 +438,21 @@ The rules of the bot are `good(state, k, level)` in the scene. It gives the acti
 
 The bot never fires along the line of its own base, and it does not walk through a brick on this line. Each level adds rules to the rules of the level below it:
 
-- Easy: the aim cells are the cells from which it can dig to the base of the other side, and the cells from which it can hit the tank of the other side directly. It goes to the nearest cell of either kind. It does not look at danger.
-- Medium: when the other side can fire in the next step, the cells on the ray of the other side are not safe. It does not go into an unsafe cell. When it stands in an unsafe cell, it dodges first: it moves to a safe cell, or it fires at the other side (when the other side also fires, the two shots clash and cancel). It compares the steps that each side needs to get to a cell from which it can dig to the base of the other side. If the other side needs fewer steps, it defends: the aim cells are the cells from which it can hit the tank of the other side, and it does not dig. If not, it attacks.
-- Hard: when the other side can hit our base directly in the next step, it moves between the other side and the base to block the shot. When it already blocks in the middle, it does not dodge. It fires at the other side, or it waits when it cannot fire.
+- Easy: it only hunts the tank. The aim cells are the cells from which it can hit the tank of the other side directly. It does not look at danger.
+- Medium: it attacks. The aim cells are the cells from which it can dig to the base of the other side. When the other side can fire in the next step, the cells on the ray of the other side are not safe. It does not go into an unsafe cell. When it stands in an unsafe cell, it dodges first: it moves to a safe cell, or it fires at the other side (when the other side also fires, the two shots clash and cancel). It compares the steps that each side needs to get to a cell from which it can dig to the base of the other side. If the other side needs fewer steps, it defends: the aim cells are the cells from which it can hit the tank of the other side, and it does not dig.
+- Hard: it counts the path by the steps that it really costs. A move into a brick counts as 2 steps (first fire to remove it, then move in). To dig to the base of the other side from a cell, each brick in between adds 2 steps (fire, then 1 step of cooldown). Thus it selects the faster path and the faster line, and it compares the steps of the two sides more exactly. Also, when the other side can hit our base directly in the next step, it moves between the other side and the base to block the shot. When it already blocks in the middle, it does not dodge. It fires at the other side, or it waits when it cannot fire.
 
 The bot `bot(state, 1, level)` selects one of the equally good actions at random. Then, with the random-action probability, it does a random action instead. The random numbers come from the episode seed, the step and the side.
 
-The 3 levels against each other on 200 test seeds (the rules of the training). Side 0 does no random action. The random-action probability of side 1 is 0.1, as in the training. Each cell is the win / loss rate of side 0:
+The 3 levels against each other on 200 test seeds (the rules of the training). The random-action probability of both sides is 0.1. Each cell is the win / loss rate of side 0:
 
 | Side 0 \ side 1 | Easy | Medium | Hard |
 | --- | --- | --- | --- |
-| Easy | 0.845 / 0.095 | 0.80 / 0.15 | 0.80 / 0.155 |
-| Medium | 0.785 / 0.175 | 0.76 / 0.185 | 0.76 / 0.19 |
-| Hard | 0.785 / 0.175 | 0.76 / 0.185 | 0.76 / 0.19 |
+| Easy | 0.495 / 0.505 | 0.42 / 0.57 | 0.355 / 0.635 |
+| Medium | 0.555 / 0.425 | 0.48 / 0.465 | 0.405 / 0.59 |
+| Hard | 0.615 / 0.37 | 0.575 / 0.395 | 0.505 / 0.48 |
 
-The difference between the 3 levels is small. The side without random actions wins about 80%, so the random actions have a much larger effect than the level. The easy tank is destroyed more often (0.48 times per episode, against 0.07 for medium and hard), but it also attacks harder. The block rule of the hard level almost never triggers on this map, so the results of medium and hard are the same. These methods were also tried, and none of them made the hard level stronger: a search of one simultaneous step (9 actions for each side, with the worst result for each action), defence also when the steps are equal, and no clash while it dodges.
+In each row, from left to right, side 0 wins less and less. In each column, from top to bottom, side 0 wins more and more. Thus each level is stronger than the level below it, in both seats. When neither side does random actions, hard against medium is 0.50 / 0.22 (side 0 is hard) and 0.24 / 0.455 (side 0 is medium), and the other episodes are draws. The main advantage of the hard level is the more exact path count. The block rule rarely triggers. These methods were also tried, and none of them made the hard level stronger: a search of one simultaneous step (9 actions for each side, with the worst result for each action), defence also when the steps are equal, and no clash while it dodges.
 
 #### Stage 1 · 模仿
 
@@ -465,7 +465,7 @@ Stage 1 · 模仿 has two training modules, for 中 and 大. Each frame has one 
 
 Both networks use `dense-policy` and int16 weights. The argmax readout maps the 9 slots to the actions 0 to 8. Both trainers use cross-entropy, the objective is the `teacher` of the scene, and exploration is 0.1. No metric connects to the trainers, so each trainer keeps the model with the highest greedy accuracy on the validation seeds. The other settings of the two trainers are different:
 
-- 中: 1500 epochs, 16 episodes per epoch, lr 0.005.
+- 中: 2500 epochs, 16 episodes per epoch, lr 0.005.
 - 大: 900 epochs, 16 episodes per epoch, lr 0.003.
 
 Each structure has its own candidates, evaluator, report, execution and replay. The reward of the evaluator is `agreement(transition)` of the scene: 1 when the action of the network is in the target bits of the teacher, and 0 if not. Thus the return of an episode is the number of steps that agree with the teacher. The evaluator reports 5 metrics on 256 fixed test seeds: 和教师一致的比例 (agreement with the teacher, the return divided by the steps), 胜率 (win rate), 击毁对方坦克的比例 (share with the tank of the bot destroyed), 我方坦克被击中的比例 (share with our tank hit) and 平局的比例 (share of draws). The destroyed and hit shares count the episodes with at least one destruction.
@@ -485,7 +485,7 @@ Stage 2 · 对战训练 (battle training) also has two training modules, for 中
 Two inputs of the trainer connect the stages:
 
 - `init` takes the `weights` of the stage 1 candidates of the same structure. The training starts from the weights that stage 1 accepted, and it does not calibrate the biases.
-- `gate` takes the report of the stage 1 evaluator of the same structure. The condition is `{ metric: 和教师一致的比例, min: 0.85 }`. Stage 1 of 中 only gets to about 0.91, so the threshold is not 0.9. If there is no report, if the report is stale, or if the value is too low, the trainer does not start and tells why.
+- `gate` takes the report of the stage 1 evaluator of the same structure. The condition is `{ metric: 和教师一致的比例, min: 0.85 }`. Stage 1 of 中 only gets to about 0.89, so the threshold is not 0.9. If there is no report, if the report is stale, or if the value is too low, the trainer does not start and tells why.
 
 The rewards are in a separate Params module, 奖励参数. Thus a change to a reward does not change the bundles of stage 1, and its artifacts stay compatible:
 
@@ -514,15 +514,15 @@ Results against the hard bot on 200 test seeds (node, trainer seed 1, the rules 
 | Network | Time | Agreement with the teacher | Random-action probability 0.1 | Random-action probability 0 |
 | --- | --- | --- | --- | --- |
 | Wait only | | | 0 / 1 / 0 | 0 / 1 / 0 |
-| 中, stage 1 | 243 s | 0.909 | 0.685 / 0.275 / 0.04 | 0.25 / 0.275 / 0.475 |
-| 大, stage 1 | 177 s | 0.975 | 0.78 / 0.175 / 0.045 | 0.19 / 0.24 / 0.57 |
-| 中, stage 2 | 376 s | 0.804 | 0.875 / 0.08 / 0.045 | 0.295 / 0.15 / 0.555 |
-| 大, stage 2 | 626 s | 0.686 | 0.855 / 0.075 / 0.07 | 0.07 / 0.035 / 0.895 |
+| 中, stage 1 | 726 s | 0.892 | 0.745 / 0.215 / 0.04 | 0.305 / 0.29 / 0.405 |
+| 大, stage 1 | 284 s | 0.946 | 0.775 / 0.2 / 0.025 | 0.26 / 0.275 / 0.465 |
+| 中, stage 2 | 589 s | 0.816 | 0.85 / 0.14 / 0.01 | 0.40 / 0.19 / 0.41 |
+| 大, stage 2 | 733 s | 0.772 | 0.835 / 0.125 / 0.04 | 0.24 / 0.19 / 0.57 |
 
 - When the network only waits, the hard bot wins every episode.
-- Stage 2 increases the win rate of both networks against the bot with random actions: 中 from 0.685 to 0.875, and 大 from 0.78 to 0.855.
-- When the bot does no random action, most episodes are draws. The stage 2 大 gets to step 100 in 89.5% of the episodes, so what it learned is mainly not to lose.
-- In node, the training of the two structures ran at the same time. The times are from node. In the browser, the time changes with the computer.
+- Stage 2 increases the win rate of both networks against the bot with random actions: 中 from 0.745 to 0.85, and 大 from 0.775 to 0.835.
+- When the bot does no random action, many episodes are draws. The stage 2 中 wins 0.40 and loses 0.19.
+- The times are from node, with 2 to 3 trainings at the same time. In the browser, the time changes with the computer. The hard teacher and bot count more paths, so a step is about 2 times slower than at the medium level.
 
 #### Battle
 
@@ -565,12 +565,12 @@ A headless script measured the battle on the seeds 1 to 200. It runs `game.js` o
 
 | Red | Random-action probability | Easy | Medium | Hard |
 | --- | --- | --- | --- | --- |
-| 中 | 0.1 | 80 / 112 / 8 | 101 / 93 / 6 | 99 / 95 / 6 |
-| 中 | 0 | 57 / 36 / 107 | 62 / 23 / 115 | 62 / 23 / 115 |
-| 大 | 0.1 | 88 / 107 / 5 | 82 / 109 / 9 | 82 / 109 / 9 |
-| 大 | 0 | 18 / 23 / 159 | 17 / 10 / 173 | 17 / 10 / 173 |
+| 中 | 0.1 | 87 / 112 / 1 | 96 / 84 / 20 | 100 / 92 / 8 |
+| 中 | 0 | 56 / 52 / 92 | 76 / 32 / 92 | 76 / 38 / 86 |
+| 大 | 0.1 | 110 / 89 / 1 | 81 / 93 / 26 | 90 / 101 / 9 |
+| 大 | 0 | 75 / 23 / 102 | 44 / 26 / 130 | 49 / 38 / 113 |
 
-These win rates are lower than in the training, because the network also does random actions, and in the training only the bot does. With the random-action probability 0, most battles get to step 100 and are draws.
+These win rates are lower than in the training, because the network also does random actions, and in the training only the bot does. With the random-action probability 0, many battles get to step 100 and are draws.
 
 `frontend/templates/artifacts/artifacts.test.js` pins the four-bit arithmetic and combiner numbers. Mining, the memory map and the tank battle have no pinned numbers. Scenarios run as interpreted IR, and the cost is training speed. [Section 11 of the design document](design.en.md#11-correctness-and-performance) shows the main work of each step.
 
@@ -589,7 +589,8 @@ The checks of the teacher and the bot are:
 
 - Each level fires when it can hit the base of the other side, digs bricks on the line of the base of the other side, and does not fire along the line of its own base.
 - The medium and the hard level do not go into the ray of an other tank that can fire. When they stand in the ray, they dodge or clash. The easy level goes into it.
-- When the other side is nearer to our base, the medium and the hard level stop it.
+- The easy level only hunts the tank. The medium and the hard level attack the base of the other side, and they stop the other side when it is nearer to our base.
+- The hard level counts the bricks and the cooldown of the dig into the steps: when the medium level finds two paths equally near, the hard level only takes the path that is really faster.
 - The hard level blocks a direct shot of the other side at our base, and it stays in the middle. The medium level does not block.
 - On the turned map, the action of the bot at each level is in the target bits of the teacher at the same level. When blue is a bot, each of its actions in the script is also in the target bits of the teacher at the same level.
 

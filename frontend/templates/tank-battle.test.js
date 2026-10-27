@@ -374,18 +374,21 @@ test('the medium and hard teachers do not step into the clear ray of an armed bo
   const [easy, medium, hard] = masks([tank([2, 3]), tank([3, 2])]);
   assert.deepEqual(easy, slots(UP, RIGHT), 'the easy teacher walks into the rays');
   assert.deepEqual([medium, hard].map(m => [m[UP], m[RIGHT]]), [[0, 0], [0, 0]]);
-  assert.deepEqual(masks([tank([2, 3]), tank([3, 2], { fired: true })]).map(m => m[RIGHT]), [1, 1, 1], 'a bot that cannot fire has no ray');
+  assert.deepEqual(masks([tank([2, 3]), tank([3, 2], { fired: true })]).map(m => m[UP] || m[RIGHT]), [1, 1, 1], 'a bot that cannot fire has no ray');
   // our tank at (3,3) is in the ray of the bot at (3,2): (2,3) to the left is safe
   assert.deepEqual(masks([tank([3, 3]), tank([3, 2])]), [slots(FIRE_UP), slots(LEFT, FIRE_UP), slots(LEFT, FIRE_UP)], 'dodge or counter-fire');
   assert.deepEqual(masks([tank([3, 3], { fired: true }), tank([3, 2])]).slice(1), [slots(LEFT), slots(LEFT)], 'only the dodge during the cooldown');
 });
 
-test('the medium and hard teachers hunt a bot that is nearer to our base than we are to its base', () => {
+test('the easy teacher hunts the tank, the medium and hard teachers attack the base and hunt a bot that is nearer to our base', () => {
   const masks = teachers();
   // the bot at (6,8) stands on the lane of our base (row 8). From (2,2), the way to its base is 2 steps.
-  assert.deepEqual(masks([tank([2, 2]), tank([6, 8])]), [slots(UP, RIGHT), slots(RIGHT, DOWN), slots(RIGHT, DOWN)]);
-  // the bot at (6,6) needs as many steps to our lane as we do, so every teacher attacks
-  assert.deepEqual(masks([tank([2, 2]), tank([6, 6])]), all(slots(UP, RIGHT)));
+  assert.deepEqual(masks([tank([2, 2]), tank([6, 8])]), all(slots(RIGHT, DOWN)));
+  // the bot at (6,6) needs as many steps to our lane as we do, so the medium and hard teachers attack. The easy teacher
+  // still hunts the tank. The medium teacher counts the brick lane cell (4,2) as 1 step, so up to (2,0) and right to
+  // (4,2) are equally near. The hard teacher counts the time to dig: (2,0) has 1 brick before the base, and (4,2) is a
+  // brick with 1 brick before the base, so it only goes up.
+  assert.deepEqual(masks([tank([2, 2]), tank([6, 6])]), [slots(RIGHT, DOWN), slots(UP, RIGHT), slots(UP)]);
 });
 
 test('the hard teacher blocks a direct shot at its base and holds there, while the medium teacher does not', () => {

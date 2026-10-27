@@ -29,7 +29,7 @@ The other rules of Tank2 stay: a shot is a ray that hits in the same step, a sho
 ## Consequences
 
 - The two passages make the tanks meet in the middle. Dodging, return fire and the 2 lives then matter.
-- The teacher and the bot of the scene follow the Tank2 rules. The hard level (block a shot at the base) rarely triggers on this map, so the medium and hard bots give the same results. The user guide records this.
+- The teacher and the bot of the scene follow the Tank2 rules. Blocking a shot at the base rarely triggers on this map. Thus the hard level gets its lead from the step count: a brick costs 2 steps, and each brick before the base costs 2 steps more to dig (template revision 12). The user guide records the results of the levels.
 - There is no random map, so the network can remember the map. The start cells are the only variation of a game. The start cell of each side comes from the hash `rand(seed, side)`, because the first draws of adjacent seeds are nearly the same.
 - The input is 572 bits: 7 channels of 81 cells (brick, steel, water, own base, enemy base, own tank, enemy tank) and 5 bits (each side fired in the last step, each side has 2 lives, bias). The step budget of the template is 100, as in Tank2.
 - The ray hits in the same step, so there is no bullet on the map and no bullet channel in the input. The replay and the battle view draw the trail of each shot from `trails`.
