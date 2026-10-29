@@ -1,0 +1,27 @@
+{
+  "_comment": "Chain id → the network of the ladder page. `factory` is the official ModuleFactory (frontend/chain.js). `ladder` is the TankLadder of the season. null = not deployed yet. 31337: the addresses that contracts/script/Deploy.s.sol (factory proxy, nonce 2 of account 0) and DeployLadder.s.sol run directly after it (nonce 9) create on a fresh `anvil --network monad`.",
+  "31337": {
+    "name": "Local dev",
+    "rpc": "http://127.0.0.1:18545",
+    "explorer": null,
+    "local": true,
+    "factory": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "ladder": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318"
+  },
+  "10143": {
+    "name": "Monad Testnet",
+    "rpc": "https://testnet-rpc.monad.xyz",
+    "explorer": "https://testnet.monadscan.com",
+    "local": false,
+    "factory": null,
+    "ladder": null
+  },
+  "143": {
+    "name": "Monad Mainnet",
+    "rpc": "https://rpc.monad.xyz",
+    "explorer": "https://monadscan.com",
+    "local": false,
+    "factory": null,
+    "ladder": null
+  }
+}

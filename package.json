@@ -7,6 +7,9 @@
     "url": "git+https://github.com/nishuzumi/neurom.git"
   },
   "type": "module",
+  "workspaces": [
+    "ladder"
+  ],
   "scripts": {
     "workspace": "python3 training/workspace.py",
     "test": "node --test",

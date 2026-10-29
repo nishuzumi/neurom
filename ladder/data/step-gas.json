@@ -1,0 +1,25 @@
+{
+  "_comment": "Measured gas of one referee step of TankLadder. The page estimates the cost of a challenge from these numbers and the weight bytes of the two entries: gas ≈ steps × (forward(challengerBytes) + forward(defenderBytes) + scenePerStep) + transactions × perTransaction. forward(B) is linear in weightBytes between the two measured points (forward.intercept + forward.perByte × B). Unit: gas. All numbers exclude the 21k base cost and the calldata.",
+  "source": "contracts/scripts/ladder-gas.mjs — TankLadder with the spec config on anvil 1.8.0 --network monad (30M block limit), with a 中 network of 39,840 B and a 大 network of 216,864 B. The gas of a step depends on the weight bytes and the active inputs, not on the training. stepsPerEpisode comes from networks of template revision 13. The networks in ladder/data/artifacts (revision 15) play about 38 steps per episode on average.",
+  "measuredAt": "2026-10-29",
+  "scenePerStep": 25000,
+  "perTransaction": 100000,
+  "forward": {
+    "intercept": 27000,
+    "perByte": 1.95,
+    "points": [
+      { "label": "mid", "weightBytes": 39840, "warm": 105000 },
+      { "label": "big", "weightBytes": 216864, "warm": 450000 }
+    ]
+  },
+  "playGas": 30000000,
+  "reserveGas": 2000000,
+  "stepsPerEpisode": { "min": 5, "median": 15, "mean": 26, "max": 100 },
+  "pairs": {
+    "_comment": "challenger-defender. loopStep: gas per step inside a full 30M play transaction. singleStep: one step alone in its own transaction (cold access, load, save, Steps event). stepsPerTransaction: steps that one 30M transaction plays with the 2M reserve. worstCaseTransactions: a 600-step challenge.",
+    "mid-mid": { "loopStep": { "median": 232360, "max": 236762 }, "singleStep": { "median": 311968, "max": 313807 }, "stepsPerTransaction": { "min": 119, "median": 121, "max": 122 }, "worstCaseTransactions": 5 },
+    "big-big": { "loopStep": { "median": 926843, "max": 940360 }, "singleStep": { "median": 983406, "max": 1017299 }, "stepsPerTransaction": { "min": 30, "median": 31, "max": 32 }, "worstCaseTransactions": 20 },
+    "mid-big": { "loopStep": { "median": 590448, "max": 607464 }, "singleStep": { "median": 676426, "max": 676426 }, "stepsPerTransaction": { "min": 47, "median": 48, "max": 49 }, "worstCaseTransactions": 13 },
+    "big-mid": { "loopStep": { "median": 572821, "max": 578936 }, "singleStep": { "median": 678551, "max": 687452 }, "stepsPerTransaction": { "min": 49, "median": 49, "max": 50 }, "worstCaseTransactions": 13 }
+  }
+}
