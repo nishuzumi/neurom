@@ -343,7 +343,7 @@ test('mutual fire cancels both shells and neither side counts as fired, the next
   assert.deepEqual([miss.hits, miss.tanks[0].fired, cellOf(miss, 3, 1), miss.trails[1]], [[false, true], true, 0, trail([3, 2], UP, 1, HIT_BRICK)], 'both fire, but only one ray hits a tank: both shells fly');
 });
 
-test('a hit costs a life and respawns the tank at its start cell; the second hit, a destroyed base or the steps end the battle', () => {
+test('a hit costs a life and respawns the tank at its start cell; the second hit, a destroyed base or the steps end the battle, and at the step limit the side with more lives wins', () => {
   const { at, step } = arena({ steps: 3 });
   const hit = step(at([tank([2, 2]), tank([3, 2], { sx: 6, sy: 1 })]), FIRE_RIGHT);
   assert.deepEqual([hit.hits, hit.tanks[1], hit.end], [[false, true], tank([6, 1], { d: DOWN, lives: 1, sx: 6, sy: 1 }), -1], 'the tank is back at its start cell with 1 life');
@@ -358,7 +358,21 @@ test('a hit costs a life and respawns the tank at its start cell; the second hit
   assert.deepEqual([both.bases, both.hits, both.tanks[1].on, both.end], [[false, true], [false, true], false, 2], 'both sides lose in one step: a draw');
   let s = at([tank([2, 2]), tank([6, 6])]);
   for (let k = 0; k < 3; k++) { assert.equal(s.end, -1, `step ${k}: running`); s = step(s, WAIT, WAIT); }
-  assert.deepEqual([s.t, s.end], [3, 2], 'out of steps: a draw');
+  assert.deepEqual([s.t, s.end], [3, 2], 'out of steps with equal lives: a draw');
+  const last = (tanks, cells) => ({ ...at(tanks, cells), t: 2 });
+  const more0 = step(last([tank([2, 2]), tank([6, 6], { lives: 1 })]), WAIT, WAIT);
+  assert.deepEqual([more0.t, more0.tanks.map(t => t.lives), more0.end], [3, [2, 1], 0], 'out of steps with more lives: side 0 wins');
+  const more1 = step(last([tank([2, 2], { lives: 1 }), tank([6, 6])]), WAIT, WAIT);
+  assert.deepEqual([more1.t, more1.tanks.map(t => t.lives), more1.end], [3, [1, 2], 1], 'out of steps with more lives: side 1 wins');
+  const equal = step(last([tank([2, 2], { lives: 1 }), tank([6, 6], { lives: 1 })]), WAIT, WAIT);
+  assert.deepEqual([equal.t, equal.end], [3, 2], 'out of steps with 1 life each: a draw');
+  const late = step(last([tank([2, 2]), tank([3, 2], { sx: 6, sy: 1 })]), FIRE_RIGHT);
+  assert.deepEqual([late.t, late.hits, late.tanks.map(t => t.lives), late.end], [3, [false, true], [2, 1], 0], 'a hit on the last step counts: side 0 wins');
+  assert.equal(step(at([tank([2, 2]), tank([6, 6], { lives: 1 })]), WAIT, WAIT).end, -1, 'before the last step, more lives do not end the battle');
+  const twice = step(last([tank([2, 6]), tank([2, 8], { lives: 1 })], { '3,8': 0 }), FIRE_DOWN, FIRE_RIGHT);
+  assert.deepEqual([twice.t, twice.bases, twice.tanks[1].lives, twice.end], [3, [false, true], 0, 2], 'both sides lose on the last step: a draw, not the lives');
+  const over = step(last([tank([2, 8]), tank([6, 1], { lives: 1 })], { '3,8': 0 }), FIRE_RIGHT);
+  assert.deepEqual([over.t, over.bases, over.end], [3, [false, true], 1], 'a lost base on the last step loses, with more lives too');
 });
 
 // ---------------------------------------------------------------------------------------------- the training step and the bot
@@ -482,7 +496,15 @@ test('in the training step, success is the base or the last life of the bot, a l
   at([tank([2, 2]), tank([6, 6])]);
   env.step(WAIT);
   const draw = env.step(WAIT);
-  assert.deepEqual([draw.next.t, draw.next.end, draw.done, draw.truncated, draw.success], [2, 2, true, false, false], 'out of steps: a draw, not a truncation');
+  assert.deepEqual([draw.next.t, draw.next.end, draw.done, draw.truncated, draw.success], [2, 2, true, false, false], 'out of steps with equal lives: a draw, not a truncation');
+  at([tank([2, 2]), tank([6, 6], { lives: 1 })]);
+  env.step(WAIT);
+  const ahead = env.step(WAIT);
+  assert.deepEqual([ahead.next.t, ahead.next.end, ahead.done, ahead.truncated, ahead.success], [2, 0, true, false, true], 'out of steps with more lives: a win');
+  at([tank([2, 2], { lives: 1 }), tank([6, 6])]);
+  env.step(WAIT);
+  const behind = env.step(WAIT);
+  assert.deepEqual([behind.next.t, behind.next.end, behind.done, behind.truncated, behind.success], [2, 1, true, false, false], 'out of steps with fewer lives: a loss');
   for (const level of LEVELS) {
     const { env } = scene({ botLevel: level, botRandom: 0 });
     for (let seed = 1; seed <= 10; seed++) {

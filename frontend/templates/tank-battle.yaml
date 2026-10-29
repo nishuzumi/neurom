@@ -26,7 +26,8 @@
 #                   mirrored left to right and turned 180°). The bot draws its random numbers from the seed.
 #   input(state)    the 572 bits that side 0 sees: view(state, 0).
 #   step(state, a)  the bot picks the action of side 1, then both sides act at the same time (move). The battle rules
-#                   decide: a base destroyed or no lives left is a loss, both at once or the end of the steps is a draw.
+#                   decide: a base destroyed or no lives left is a loss, both at once is a draw. On the last step the
+#                   side with more lives wins, equal lives is a draw (ADR 0024).
 #   teacher(state)  the 9 target bits of side 0.
 #   battle(start), view(state, k), play(state, a, b)  the battle without the bot, for the script module.
 #   botMove(state, k, level)  the action of the bot of a level for side k, on the map of that side, for the script module.
@@ -38,7 +39,7 @@
 # stopped. State.hits: the tanks hit in the last step. The replay views and the battlefield animate each step from them.
 format: neurom-template
 id: tank-battle
-revision: 15
+revision: 16
 name: 坦克大战
 kind: composite
 description: Botzone Tank2 规则的坦克对战。9×9 的地图有砖墙、钢墙和水，两端各有一个基地，中间只有两个通道。河两岸的砖墙、钢墙和水每局随机，地图左右对称，转 180° 也不变。每方 1 辆坦克，2 条命。网络有“中”和“大”两种结构。阶段 1 用交叉熵模仿场景里的教师，教师用困难机器人的规则。阶段 2 从阶段 1 的权重开始，用强化学习和机器人对战。最后脚本模块让“中”和困难机器人对战，也可以让“中”和“大”对战。所有回路和对战共用一份场景和参数
@@ -49,7 +50,7 @@ modules:
     title: 参数
     config:
       fields:
-        steps: { type: int, label: 回合步数（走满算平局）, min: 1, max: 400, default: 100 }
+        steps: { type: int, label: 回合步数（走满时命多的一方赢）, min: 1, max: 400, default: 100 }
         teacherLevel: { type: int, label: 教师的难度（1 简单，2 中等，3 困难）, min: 1, max: 3, default: 3 }
         botLevel: { type: int, label: 对战机器人的难度（1 简单，2 中等，3 困难）, min: 1, max: 3, default: 3 }
         botRandom: { type: number, label: 对战机器人的随机动作概率, min: 0, max: 1, default: 0.1 }
@@ -223,7 +224,7 @@ modules:
             acts: array(8, 8),
             /** 本步第 k 方的坦克是否被击中 */
             hits: [false, false],
-            /** 结果：-1 进行中，0 第 0 方赢，1 第 1 方赢，2 平局（同一步双方都输，或者步数用完） */
+            /** 结果：-1 进行中，0 第 0 方赢，1 第 1 方赢，2 平局（同一步双方都输，或者步数用完时两方的命一样多） */
             end: -1,
           };
         }
@@ -259,7 +260,8 @@ modules:
          * - 对射以后的一步：两方都不用自己的动作，而是各自从 4 个移动和等待里随机选一个，不能开火。随机数用回合种子、步数和这一方。
          *   这是对 Tank2 的改动：每方只有 1 辆坦克时，面对面的两辆坦克会一直对射到步数用完。随机的一步打破这种僵局。
          * - 坦克被击中时少 1 条命。还有命时，它在这一步的最后回到自己的出发格，下一步照常行动。没有命时，它离开地图。
-         * - 基地被毁或者没有命的一方输。两方同时输是平局，走满 params.steps 步也是平局。
+         * - 基地被毁或者没有命的一方输。两方同时输是平局。走满 params.steps 步时，命多的一方赢，命一样多是平局。
+         *   这也是对 Tank2 的改动（ADR 0024）：先击中对方一次的一方不再只能靠平局收场。
          * 每发炮弹在这一步的轨迹记在 trails 里。
          * @param state 对战的状态
          * @param a0 第 0 方的动作
@@ -302,7 +304,7 @@ modules:
             bases,
             acts,
             hits,
-            end: lost[0] && lost[1] ? 2 : lost[1] ? 0 : lost[0] ? 1 : t >= params.steps ? 2 : -1,
+            end: lost[0] && lost[1] ? 2 : lost[1] ? 0 : lost[0] ? 1 : t < params.steps ? -1 : tanks[0].lives > tanks[1].lives ? 0 : tanks[1].lives > tanks[0].lives ? 1 : 2,
           };
         }
         /**
@@ -603,7 +605,7 @@ modules:
     config:
       source: |-
         /**
-         * 平局为 1，否则为 0：走满回合步数还没有分出胜负，或者同一步双方都输。
+         * 平局为 1，否则为 0：走满回合步数时两方的命一样多，或者同一步双方都输。
          * @param episode 回合摘要
          * @returns 0 或 1
          */
@@ -1079,7 +1081,7 @@ modules:
               if (!now || now.end < 0) return { text: '进行中', color: 'var(--ink)' };
               const why = names.flatMap((name, k) => [...(now.tanks[k].lives > 0 ? [] : [`${name}坦克没有命了`]), ...(now.bases[k] ? [] : [`${name}基地被毁`])]);
               const text = now.end === 2 ? '平局' : `${names[now.end]}赢`;
-              return { text, why: why.length ? why.join('，') : '步数用完', color: COLOR[now.end] ?? 'var(--ink)' };
+              return { text, why: why.length ? why.join('，') : now.end === 2 ? '步数用完，命一样多' : '步数用完，命更多', color: COLOR[now.end] ?? 'var(--ink)' };
             }
 
             // 动画（训练模块的回放视图有同样的一段）：新的一步到达时，从上一帧播到这一帧。坦克按规则先行动，所以在前半步滑一格并转向。
