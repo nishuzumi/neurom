@@ -236,6 +236,33 @@ _Avoid_: high score, leaderboard entry.
 **Canary (暗桩)**: inputs that the scenario never produces, with answers that the author chose and committed to before deployment. The author uses a canary as evidence that a module copies the weights of the author.
 _Avoid_: watermark (a watermark in general may sit on reachable inputs), fingerprint (that is behaviour).
 
+### Ladder
+
+**Ladder (擂台榜)**: the ranked list of entries in the tank battle contest. The ranks change only when a challenge succeeds. Then the challenger takes the rank of the defender, and the defender and each entry between them move down by one rank. A new entry starts at the last rank.
+_Avoid_: leaderboard, ranking table, record (that is the mining game's).
+
+**Entry (出战模型)**: a deployed module with a name that an account enters on the ladder. An account can have several entries. An entry never changes its weights, and the rank belongs to the entry. To use other weights, the account enters a new entry, which starts at the last rank.
+_Avoid_: model (that is the model artifact), player, submission.
+
+**Challenge (挑战)**: a match that an entry starts against an entry 1 to 10 ranks above it. A challenge is 3 mirror pairs. It succeeds when the challenger wins more episodes than the defender. When both win the same number of episodes, the entry whose weight size is smaller by at least δ wins. All other results are a defense.
+_Avoid_: duel, battle (that is the interactive match of the script module), game.
+
+**Challenger (挑战者)**: the entry that starts a challenge.
+
+**Defender (擂主)**: the entry that a challenger challenges. It is always above the challenger on the ladder.
+_Avoid_: champion (only rank 1 is the champion), opponent (that is the other side in a scenario).
+
+**Mirror Pair (镜像对)**: two episodes with the same seed, in which the two entries change sides. The map stays the same after a turn of 180°. Thus a copy that plays the same actions as the original cannot win more episodes than the original in a mirror pair.
+_Avoid_: rematch, return game.
+
+**Defense (守擂成功)**: the result of a challenge that does not succeed. The ranks do not change.
+_Avoid_: draw (that is the result of one episode).
+
+**Weight Size (权重字节数)**: the number of bytes of the weights of an entry. It is the cost of an entry on the ladder. An entry above the maximum weight size cannot enter.
+_Avoid_: gas (the gas of a step changes with the input), parameter count.
+
+**Season (赛季)**: the period in which the ladder accepts challenges. It ends at a fixed block. After the end, the ranks are final.
+
 ### Templates and composites
 
 **Template (模板)**: a data file that records a set of modules, their configuration, wires and exposed ports. A template has three levels: single module, composite and canvas.
