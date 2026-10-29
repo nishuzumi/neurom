@@ -13,6 +13,7 @@ TARGETS = (
     ('modules/ModuleFactory.sol', 'ModuleFactory'),
     ('modules/NeuromModule.sol', 'NeuromModule'),
     ('modules/Roles.sol', 'Roles'),
+    ('ladder/TankLadder.sol', 'TankLadder'),
 )
 
 

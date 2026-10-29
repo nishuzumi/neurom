@@ -8,12 +8,17 @@
 |---|---|
 | `src/modules/` | 结构见下文（ADR 0014、0016、0017）。包含 `Roles`、`FactoryProxy`、`ModuleFactory`。包含引擎 `DensePolicyEngine` / `ThresholdLayersEngine`，两个引擎共用 `EngineBase`。包含模块实现 `NeuromModule` 和它的克隆 `ModuleClone`。包含接口 `INeuromModule` / `IEngine`。 |
 | `test/Modules.t.sol` | 46 个回归测试，覆盖下面这些内容。整数语义：手工模型、任意 I→H→O 宽度、多层 FF / LIF、FF / LIF 的工具层和末层工具层。这些测试都与 JS 整数执行器对照。权重在 int8 范围内的模型，weightBits 8 与 16 各跑一遍。阈值层的分数与激活。每个区域的移位 k 按 Σ·2^k + b 缩放。LIF 各层用自己的阈值。int8 的 −128 / 127 / 负权重与 40 行的内存路径。这几项是手算，或在测试内对照。跨两个权重块的网络。宽度超过 256 的网络（ADR 0021）：动作大于 255 的 FF 1020 → 300 → 300，以及阈值层 300 → 280 → 270。两种权重宽度各跑一遍，与测试内的参考循环对照。第 4 到 7 层在第二个布局词里。Σx 超过 65537 的 int16 求和分批计算。check 拒绝 65536 的宽度。一个 gas 检查确认只调用被选中的工具。网络工具：LIF 工具的电位在调用方会话的状态里。这些电位只在工具被选中时变化，随会话 reset 清零，在会话之间和调用者之间隔离。LIF 选择器自己的状态在前，工具的状态在后。自己带工具层的网络作工具时，它的工具的状态嵌套在内。选 LIF 工具与选 FF 工具的一步 gas，以及每多一层嵌套的 gas。权重块按内容寻址，已有的权重块跳过。一笔交易创建缺的权重块和模块，要么全成，要么全不成。同一块用两次时只发一次。Factory 拒绝没有最新版本的引擎 id、不在该引擎 id 版本列表里的版本和不存在的权重块。Factory 也拒绝坏形状（含 bits / shift / threshold）、不符的权重字节数和非官方工具。Factory 还拒绝嵌套超过 3 层的工具（`depth`）和连同工具超过 256 的状态（`state`）。引擎不能写状态。引擎版本只增不改，只属于一个引擎 id。最新版本必须是已添加的版本。最新版本变了以后，模块仍用自己的版本。部署时可以指定较早的版本。只有 ADMIN 能授予 / 撤销角色和管理版本。只有 UPGRADER 能升级 Factory。ADMIN 可以给自己 UPGRADER。Factory 升级后，`count`、`isModule`、`depthOf`、权重块、按产物的索引和模块实现都还在。所有模块的决策不变。initialize 只能跑一次。owner 是部署者，两步转让，没有别的权力。只有 Factory 创建的克隆是模块。实例 / 调用者 / 会话之间隔离。Monad 规则下两种权重宽度的部署 gas 与 step gas。 |
-| `scripts/export_abi.py` | 从 Solidity 生成 `frontend/abi/*.json`（ModuleFactory、NeuromModule、Roles）。支持 `--check` 与 `--out`。 |
+| `scripts/export_abi.py` | 从 Solidity 生成 `frontend/abi/*.json`（ModuleFactory、NeuromModule、Roles、TankLadder）。支持 `--check` 与 `--out`。 |
 | `script/Deploy.s.sol` | 部署 Roles，广播账户持有 ADMIN 和 UPGRADER。部署 ModuleFactory 实现和它的 FactoryProxy，在同一笔交易里初始化。再给每个引擎 id 部署一个版本，添加这个版本并设为最新。返回所有地址。 |
 | `script/EngineVersion.s.sol` | `add()`：把一个已部署的引擎版本添加进某个引擎 id（新的或已有的）的版本列表，并设为最新。`setLatest()`：把已添加的版本重新设为最新（见“添加引擎版本”）。 |
 | `script/HandOverRoles.s.sol` | `grant()` / `revoke()`：把两种协议角色从广播账户交给多签（见“角色与交接”）。 |
 | `scripts/engine-version-check.mjs` | 添加引擎版本前的逐位核对（见“添加引擎版本”）。固定输入集在 `scripts/engine-cases.mjs`。测试是 `scripts/engine-version-check.test.mjs`（`npm test`，候选版本在 `test/VersionCandidates.sol`）。 |
 | `scripts/list-roles.mjs` | 只读。列出某个网络上持有 ADMIN 和 UPGRADER 的账户（见“角色与交接”）。测试是 `scripts/list-roles.test.mjs`（`npm test`）。 |
+| `src/ladder/` | 坦克大战擂台赛（ADR 0026）。`TankScene` 是模板场景的 Solidity 移植。`TankLadder` 是擂台榜和裁判。见“擂台榜”。 |
+| `test/ladder/` | 擂台榜的测试：`TankParity.t.sol` 逐步重放 `test/fixtures/tank-episodes.json`，`TankLadder.t.sol` 测规则。见“擂台榜”。 |
+| `test/fixtures/tank-episodes.mjs` | 用浏览器端代码生成 parity 语料 `tank-episodes.json`。 |
+| `script/DeployLadder.s.sol` | 部署 TankLadder。配置来自环境变量（见“擂台榜”）。 |
+| `scripts/ladder-gas.mjs` | 在本地 anvil 上测擂台榜每步的 gas（见“擂台榜”）。 |
 
 ```sh
 forge test --network monad -vv          # -vv 打印 gas 测量
@@ -386,3 +391,59 @@ int8 让权重块小了约一半。计算上，一个 int8 列词按行号模 4 
 
 - 收据的 gasUsed 包含 21,000 的基础费和 calldata。
 - 训练出来的挖矿网络平均每个输入只有 14.3 个 1，合成输入约有 21 个。
+
+## 擂台榜（ADR 0026）
+
+`src/ladder/TankLadder.sol` 是坦克大战擂台赛的榜单和裁判。`src/ladder/TankScene.sol` 是模板 `tank-battle` 场景的 Solidity 移植：`battle`、`view`、`play` 逐位一样。规则改一次，就要在模板和 `TankScene` 里各改一次，然后重新生成 parity 语料。
+
+### 规则
+
+- 出战模型是官方 Factory 创建的模块。输入是 572 位，输出是 9 个分数。工具深度是 0。权重字节数是全部权重块的字节数之和（不算 STOP 字节），不超过 `maxWeightBytes`。权重块地址列表不能和已有出战模型相同。注册者是拥有者。新出战模型排在最后一名。
+- 只有没有代码的 EOA 能发起挑战：`msg.sender == tx.origin`，并且 `tx.origin.code.length == 0`。7702 账户的代码是 23 字节的委托标记，所以被拒绝。发起交易入口处的剩余 gas 不低于 `minStartGas`。交易的 gas limit 要用 30M。24M 的 gas limit 不够，因为基础费先扣掉了 21,000。
+- 只能挑战高 1 到 `range` 名的出战模型。一个出战模型同一时间只能发起一场挑战。一个擂主可以同时被几个人挑战。同一对“挑战者 + 擂主”在 `cooldownBlocks` 个块内不能再次发起。
+- 种子是 `keccak256(abi.encode(block.prevrandao, id))`。第 i 个镜像对的种子是 `uint32(keccak256(abi.encode(seed, i)))`。第 2i 局挑战者是第 0 方，第 2i + 1 局交换。
+- 发起交易一直打到剩余 gas 低于 `reserveGas`，然后保存局面。`advance(id)` 任何人都能调用。打完第 6 局的那笔交易结算。发起后 `timeoutBlocks` 个块内没打完，`advance` 回滚 `Expired`，任何人用 `expire(id)` 结算成守擂成功。
+- 结算：挑战者赢的局数多于擂主，挑战成功。局数相等时，挑战者的权重字节数不大于擂主的 (1 − δ) 倍才成功。成功时挑战者占擂主当时的名次，擂主和中间的出战模型各降 1 名。擂主在结算前一直排在挑战者上面，所以插入只看当时的名次。
+- 到了 `endBlock`，合约不再接受注册和新挑战。已经开始的挑战照常打完。
+- 事件：`EntryRegistered`、`ChallengeStarted`、`Steps`（每笔交易里每局的动作，每步一个字节 `a0 * 9 + a1`，两方在自己地图里选的动作，第 0 方在前）、`EpisodeEnded`、`ChallengeSettled`。页面用种子、动作和 JS 场景重建回放。
+- 拒绝原因是自定义错误，每种一个：`NotOfficialModule`、`WrongShape(inputs, outputs)`、`TooLarge(weightBytes, maxWeightBytes)`、`DuplicateWeights(entry)`、`HasTools`、`AlreadyEntered`、`NotEntered`、`NotEoa`、`LowGas(gasLeft, minStartGas)`、`NotOwner`、`OutOfRange`、`Busy`、`Cooldown(untilBlock)`、`SeasonOver`、`NotPlaying`、`Expired`、`NotExpired`、`BadRank`、`ForwardFailed(module)`。
+
+### 配置和部署
+
+构造函数收一个 `Config`：`factory`、`maxWeightBytes`（216,864）、`deltaBps`（1000）、`range`（10）、`timeoutBlocks`（400）、`cooldownBlocks`（6000）、`minStartGas`（24,000,000）、`reserveGas`（2,000,000）、`endBlock`。括号里是规格的默认值。`config()` 读出全部字段。
+
+```sh
+LADDER_FACTORY=<官方 Factory> LADDER_END_BLOCK=<赛季结束块> forge script script/DeployLadder.s.sol --rpc-url monad_testnet --private-key $PK --broadcast
+```
+
+其余字段用 `LADDER_MAX_WEIGHT_BYTES`、`LADDER_DELTA_BPS`、`LADDER_RANGE`、`LADDER_TIMEOUT_BLOCKS`、`LADDER_COOLDOWN_BLOCKS`、`LADDER_MIN_START_GAS`、`LADDER_RESERVE_GAS` 覆盖。本地测试用 `frontend/ladder.fixture.js` 的 `localLadder()`：它启动 anvil，部署协议和 TankLadder，`enter(artifact)` 部署并注册一个产物。在新启动的 anvil 上用账户 0 先跑 `Deploy.s.sol` 再跑 `DeployLadder.s.sol`，TankLadder 的地址是 `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318`。`localLadder()` 的部署顺序相同，地址也相同。
+
+### 裁判和 parity
+
+`TankScene` 把 81 格存成一个 word（每格 3 位），其余状态存成 96 位。一场挑战占 4 个存储槽。输入的 572 位用汇编直接写进 `forward(bytes)` 的调用缓冲区，每方约 4k gas。返回值只复制 9 个分数，合约自己取第一个最大值（和工作台的读出一样）。
+
+parity 语料 `test/fixtures/tank-episodes.json` 由 `test/fixtures/tank-episodes.mjs` 用浏览器端代码生成：模板场景加两个训练产物（中 39,840 字节，大 216,864 字节）的整数执行器。语料含两个产物的部署参数、26 局逐步记录（中中、大大、中大、大中，覆盖对射、复活、打掉基地和打满 100 步）和 3 场完整挑战。`TankParity.t.sol` 在 forge 里部署同样的模块，逐步重放每一局，比较双方选的动作、结算后的动作、81 格、两辆坦克、基地、对射标记和结果。然后通过 `challenge` / `advance` 打完 3 场挑战，比较 `Steps` 和 `EpisodeEnded` 事件。现在是 2,079 步加 1,800 步，0 处不一致。
+
+```sh
+node contracts/test/fixtures/tank-episodes.mjs <中.json> <大.json>   # 仓库根目录，重新生成语料
+cd contracts && forge test --network monad --match-path 'test/ladder/*'
+```
+
+`TankLadder.t.sol` 只通过外部函数测：注册的每种拒绝，EOA 检查（合约、`vm.etch` 的 7702 标记、`vm.signDelegation` 的真实委托），gas 门槛，范围，一个挑战者一场、一个擂主多场，并发挑战的插入顺序，δ，冷却，超时，赛季结束，任何人 `advance` 结果相同，以及模糊测试：任何种子、任何高于预留值的 gas limit 都不会让交易因为 gas 用完而回滚。
+
+### 每步的 gas
+
+`scripts/ladder-gas.mjs` 在 `anvil --network monad` 上测得（2026-10-29）。数字不含 21,000 基础费和 calldata。“循环”是一笔 30M 交易里每步的均摊。“单步”是一步单独一笔交易：含冷访问、读取、保存和事件，预留值要装得下它。
+
+```sh
+ANVIL=/tmp/foundry-1.8.0/anvil FORGE=/tmp/foundry-1.8.0/forge node contracts/scripts/ladder-gas.mjs
+```
+
+| 对局 | 循环每步（中位 / 最大） | 单步（中位 / 最大） | 每笔 30M 的步数 | 600 步的交易数 |
+|---|---|---|---|---|
+| 中 vs 中 | 232,360 / 236,762 | 311,968 / 313,807 | 121 | 5 |
+| 大 vs 大 | 926,843 / 940,360 | 983,406 / 1,017,299 | 31 | 20 |
+| 中 vs 大 | 590,448 / 607,464 | 676,426 / 676,426 | 48 | 13 |
+| 大 vs 中 | 572,821 / 578,936 | 678,551 / 687,452 | 49 | 13 |
+
+推算：一次热的 `forward` 中约 105k，大约 450k。场景、输入编码、argmax 和循环开销每步约 20k 到 25k。原型每步在输入编码上花约 100k，现在约 8k。单步最大 1,017,299，预留值 2,000,000 够一步加结算。结算每升一名约 5k。

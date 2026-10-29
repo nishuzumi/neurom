@@ -8,12 +8,17 @@ This project uses Foundry ≥ 1.8.0. `foundry.toml` sets `network = "monad"` (Mo
 |---|---|
 | `src/modules/` | The structure below (ADR 0014, 0016, 0017). It contains `Roles`, `FactoryProxy` and `ModuleFactory`. It contains the engines `DensePolicyEngine` / `ThresholdLayersEngine`, which share `EngineBase`. It contains the module implementation `NeuromModule` and its clone `ModuleClone`. It contains the interfaces `INeuromModule` / `IEngine`. |
 | `test/Modules.t.sol` | 46 regression tests, which cover these areas. Integer semantics: hand models, arbitrary I→H→O widths, multi-layer FF / LIF, tool layers in FF / LIF and a trailing tool layer. All of these tests compare with the JS integer executor. Every model whose weights fit int8 runs at weightBits 8 and 16. Threshold-layer scores and activations. A region's shift k scales as Σ·2^k + b. Each LIF layer uses its own threshold. int8 −128 / 127 / negative weights and the 40-row memory path. These items are hand-computed or checked in the test. A network across two weight chunks. Widths above 256 (ADR 0021): FF 1020 → 300 → 300 with an action above 255 and threshold layers 300 → 280 → 270, at both weight widths, against a reference loop in the test. Layers 4 to 7 in the second layout word. int16 sums with Σx above 65537, in batches. The check refuses a width of 65536. A gas check that only the chosen tool runs. Network tools: the potentials of a LIF tool are in the state of the calling session. These potentials change only when the tool is chosen, clear on the session's reset, and stay apart per session and per caller. A LIF selector's own state comes before the state of its tool. When a network with its own tool layer is a tool, the state of its tool is nested inside. The gas of a step that chooses a LIF tool vs an FF tool, and of each further nesting level. Weight chunks are content-addressed, and an existing chunk is skipped. One transaction creates the missing chunks and the module, all or nothing. A chunk used twice is sent once. The Factory refuses an engine id without a latest version, a version not listed for the engine id and a missing chunk. The Factory also refuses a bad shape (bits / shift / threshold included), wrong weight bytes and an unofficial tool. The Factory also refuses tools nested deeper than 3 (`depth`) and a state over 256 with the tools' states (`state`). The engine cannot write state. Engine versions are add-only and belong to one engine id. The latest version must be an added version. After the latest version moves, a module keeps its version. A deployment can name an older version. Only ADMIN grants / revokes roles and manages versions. Only UPGRADER upgrades the factory. ADMIN can grant itself UPGRADER. After a factory upgrade, `count`, `isModule`, `depthOf`, the chunks, the artifact index and the module implementation stay. The decisions of every module do not change. initialize runs only once. The owner is the deployer, moves in two steps and has no other power. Only the Factory's clones are modules. Isolation of instance / caller / session. Deployment gas and step gas at both weight widths on Monad rules. |
-| `scripts/export_abi.py` | Generates `frontend/abi/*.json` (ModuleFactory, NeuromModule, Roles) from Solidity. Supports `--check` and `--out`. |
+| `scripts/export_abi.py` | Generates `frontend/abi/*.json` (ModuleFactory, NeuromModule, Roles, TankLadder) from Solidity. Supports `--check` and `--out`. |
 | `script/Deploy.s.sol` | Deploys Roles, and the broadcasting account holds ADMIN and UPGRADER. Deploys the ModuleFactory implementation and its FactoryProxy, initialised in the same transaction. Then deploys one version of each engine id, adds it and sets it latest. Returns every address. |
 | `script/EngineVersion.s.sol` | `add()`: adds a deployed engine version to the versions of an engine id (new or existing) and sets it latest. `setLatest()`: makes an added version the latest again (see "Adding an engine version"). |
 | `script/HandOverRoles.s.sol` | `grant()` / `revoke()`: gives both protocol roles from the broadcasting account to a multisig (see "Roles and handover"). |
 | `scripts/engine-version-check.mjs` | The bit-for-bit check before you add an engine version (see "Adding an engine version"). The fixed input set is in `scripts/engine-cases.mjs`. The tests are `scripts/engine-version-check.test.mjs` (`npm test`, candidate versions in `test/VersionCandidates.sol`). |
 | `scripts/list-roles.mjs` | Read-only. Lists the accounts that hold ADMIN and UPGRADER on a network (see "Roles and handover"). The tests are `scripts/list-roles.test.mjs` (`npm test`). |
+| `src/ladder/` | The tank ladder contest (ADR 0026). `TankScene` is the Solidity port of the template scene. `TankLadder` is the ladder and the referee. See "Ladder". |
+| `test/ladder/` | The tests of the ladder: `TankParity.t.sol` replays `test/fixtures/tank-episodes.json` step by step, `TankLadder.t.sol` tests the rules. See "Ladder". |
+| `test/fixtures/tank-episodes.mjs` | Writes the parity corpus `tank-episodes.json` with the browser code. |
+| `script/DeployLadder.s.sol` | Deploys a TankLadder. The configuration comes from the environment (see "Ladder"). |
+| `scripts/ladder-gas.mjs` | Measures the gas of a ladder step on a local anvil (see "Ladder"). |
 
 ```sh
 forge test --network monad -vv          # -vv prints the gas measurements
@@ -386,3 +391,59 @@ The step in the benchmarks is smaller than the step in the table above, for two 
 
 - The gasUsed of a receipt includes the base fee of 21,000 and the calldata.
 - The trained mining network gets on average 14.3 ones per input. The synthetic input has about 21.
+
+## Ladder (ADR 0026)
+
+`src/ladder/TankLadder.sol` is the ladder and the referee of the tank battle contest. `src/ladder/TankScene.sol` is the Solidity port of the scene of the template `tank-battle`: `battle`, `view` and `play` agree bit for bit. A rule changes in the template and in `TankScene` at the same time. Then the parity corpus is written again.
+
+### Rules
+
+- An entry is a module of the official Factory. It has 572 input bits and 9 scores. Its tool depth is 0. Its weight size is the sum of the bytes of all its weight chunks (without the STOP byte), at most `maxWeightBytes`. Its chunk list differs from every other entry. The account that registers it is the owner. A new entry takes the last rank.
+- Only an EOA without code starts a challenge: `msg.sender == tx.origin` and `tx.origin.code.length == 0`. The code of a 7702 account is the 23-byte delegation designator, so it is refused. The gas left at the entry of the transaction is at least `minStartGas`. Send the transaction with a gas limit of 30M. A gas limit of 24M is not enough, because the base fee takes 21,000 first.
+- An entry challenges an entry 1 to `range` ranks above it. An entry has one active challenge at a time. A defender can have several challengers at the same time. The same pair of challenger and defender waits `cooldownBlocks` blocks before the next challenge.
+- The seed is `keccak256(abi.encode(block.prevrandao, id))`. The seed of mirror pair i is `uint32(keccak256(abi.encode(seed, i)))`. In episode 2i the challenger is side 0, in episode 2i + 1 the sides change.
+- The first transaction plays until less than `reserveGas` gas is left, then saves the position. Anyone calls `advance(id)`. The transaction that ends episode 6 settles. When the challenge is not settled `timeoutBlocks` blocks after its start, `advance` reverts `Expired`, and anyone settles it as a defense with `expire(id)`.
+- Settlement: the challenger wins with more episodes than the defender. With the same number of episodes, it wins only when its weight size is at most (1 − δ) of the defender's. Then it takes the rank of the defender, and the defender and every entry between them move down one rank. The defender stays above the challenger until the settlement, so the insertion reads the ranks of that moment.
+- From `endBlock` on, the ladder accepts no registration and no new challenge. A started challenge plays to its end.
+- Events: `EntryRegistered`, `ChallengeStarted`, `Steps` (the actions of each episode in each transaction, one byte per step `a0 * 9 + a1`, the actions that the two networks chose in their own maps, side 0 first), `EpisodeEnded`, `ChallengeSettled`. The page rebuilds a replay from the seed, the actions and the JS scene.
+- Every refusal is its own custom error: `NotOfficialModule`, `WrongShape(inputs, outputs)`, `TooLarge(weightBytes, maxWeightBytes)`, `DuplicateWeights(entry)`, `HasTools`, `AlreadyEntered`, `NotEntered`, `NotEoa`, `LowGas(gasLeft, minStartGas)`, `NotOwner`, `OutOfRange`, `Busy`, `Cooldown(untilBlock)`, `SeasonOver`, `NotPlaying`, `Expired`, `NotExpired`, `BadRank`, `ForwardFailed(module)`.
+
+### Configuration and deployment
+
+The constructor takes one `Config`: `factory`, `maxWeightBytes` (216,864), `deltaBps` (1000), `range` (10), `timeoutBlocks` (400), `cooldownBlocks` (6000), `minStartGas` (24,000,000), `reserveGas` (2,000,000), `endBlock`. The values in parentheses are the defaults of the spec. `config()` returns every field.
+
+```sh
+LADDER_FACTORY=<official Factory> LADDER_END_BLOCK=<last block of the season> forge script script/DeployLadder.s.sol --rpc-url monad_testnet --private-key $PK --broadcast
+```
+
+`LADDER_MAX_WEIGHT_BYTES`, `LADDER_DELTA_BPS`, `LADDER_RANGE`, `LADDER_TIMEOUT_BLOCKS`, `LADDER_COOLDOWN_BLOCKS`, `LADDER_MIN_START_GAS` and `LADDER_RESERVE_GAS` override the other fields. Local tests use `localLadder()` of `frontend/ladder.fixture.js`: it starts anvil, deploys the protocol and a TankLadder, and `enter(artifact)` deploys and registers an artifact. On a fresh anvil, account 0 runs `Deploy.s.sol` and then `DeployLadder.s.sol`, and the TankLadder is at `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318`. `localLadder()` deploys in the same order, so its address is the same.
+
+### Referee and parity
+
+`TankScene` keeps the 81 cells in one word (3 bits per cell) and the rest of the state in 96 bits. A challenge takes 4 storage slots. Assembly writes the 572 input bits into the call buffer of `forward(bytes)`, about 4k gas per side. The ladder copies only the 9 scores of the result and takes the first maximum itself (the readout of the workbench).
+
+`test/fixtures/tank-episodes.mjs` writes the parity corpus `test/fixtures/tank-episodes.json` with the browser code: the template scene and the integer executor of two trained artifacts (中 39,840 bytes, 大 216,864 bytes). The corpus holds the deployment parameters of both artifacts, 26 episodes step by step (中中, 大大, 中大, 大中, with a mutual shot, a respawn, a base kill and the step limit) and 3 whole challenges. `TankParity.t.sol` deploys the same modules in forge and replays every episode step by step. It compares the chosen actions, the actions made, the 81 cells, both tanks, the bases, the mutual-shot flag and the end. Then it plays the 3 challenges through `challenge` / `advance` and compares the `Steps` and `EpisodeEnded` events. Now: 2,079 steps plus 1,800 steps, 0 mismatches.
+
+```sh
+node contracts/test/fixtures/tank-episodes.mjs <中.json> <大.json>   # repository root, writes the corpus again
+cd contracts && forge test --network monad --match-path 'test/ladder/*'
+```
+
+`TankLadder.t.sol` tests through the external functions only: every refusal of a registration, the EOA check (a contract, a 7702 designator with `vm.etch`, a real delegation with `vm.signDelegation`), the gas threshold, the range, one challenge per challenger and several per defender, the insertion order of concurrent challenges, δ, the cooldown, the timeout, the end of the season, the same result for every caller of `advance`, and a fuzz test: no seed and no gas limit above the reserve makes a transaction run out of gas.
+
+### Gas per step
+
+`scripts/ladder-gas.mjs` measured on `anvil --network monad` (2026-10-29). The numbers exclude the 21,000 base fee and the calldata. "Loop" is the share of one step in a 30M transaction. "Single" is one step alone in its own transaction: with the cold accesses, the load, the save and the events. The reserve must hold it.
+
+```sh
+ANVIL=/tmp/foundry-1.8.0/anvil FORGE=/tmp/foundry-1.8.0/forge node contracts/scripts/ladder-gas.mjs
+```
+
+| Pair | Loop per step (median / max) | Single (median / max) | Steps per 30M transaction | Transactions for 600 steps |
+|---|---|---|---|---|
+| 中 vs 中 | 232,360 / 236,762 | 311,968 / 313,807 | 121 | 5 |
+| 大 vs 大 | 926,843 / 940,360 | 983,406 / 1,017,299 | 31 | 20 |
+| 中 vs 大 | 590,448 / 607,464 | 676,426 / 676,426 | 48 | 13 |
+| 大 vs 中 | 572,821 / 578,936 | 678,551 / 687,452 | 49 | 13 |
+
+Derived: one warm `forward` is about 105k for 中 and 450k for 大. The scene, the input encoding, the argmax and the loop take about 20k to 25k per step. The prototype spent about 100k per step on the input encoding, now it is about 8k. The largest single step is 1,017,299, and the reserve of 2,000,000 holds one step plus the settlement. The settlement costs about 5k per rank the challenger climbs.

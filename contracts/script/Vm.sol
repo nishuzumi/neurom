@@ -7,6 +7,7 @@ interface IVm {
     function stopBroadcast() external;
     function envString(string calldata name) external view returns (string memory);
     function envAddress(string calldata name) external view returns (address);
+    function envOr(string calldata name, uint256 defaultValue) external view returns (uint256);
     function readCallers() external returns (uint8 callerMode, address msgSender, address txOrigin);
 }
 
