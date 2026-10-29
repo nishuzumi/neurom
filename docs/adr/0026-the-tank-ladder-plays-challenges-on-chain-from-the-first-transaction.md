@@ -6,7 +6,9 @@ status: proposed
 
 ## Context
 
-The tank battle contest ranks entries on a ladder. An entry is a module that the official Factory deployed (ADR 0016). Thus its weights are public (ADR 0014). An episode between two entries is deterministic: both networks are feedforward with an argmax readout, and the map is fixed. The seed selects the start cells and the random move after a mutual shot (ADR 0024). A challenger who knows the seed can play the 6 episodes offline in less than a second. We measured 0.3 to 0.5 ms for each step in node (`.scratch/ladder/proto-draws.md`). Thus a challenger who knows the seed also knows the result of the challenge.
+The files under `.scratch/ladder/` that this ADR names are on the branch `prototype/tank-ladder` (commit `2b12472`). That branch is not merged.
+
+The tank battle contest ranks entries on a ladder. An entry is a module that the official Factory deployed (ADR 0016). Thus its weights are public (ADR 0014). An episode between two entries is deterministic: both networks are feedforward with an argmax readout. The seed selects the random part of the map, the start cells and the random move after a mutual shot (ADR 0024). The map stays the same after a turn of 180°, so the two episodes of a mirror pair are the same episode with the sides swapped. A challenger who knows the seed can play the 6 episodes offline in less than a second. We measured 0.3 to 0.5 ms for each step in node (`.scratch/ladder/proto-draws.md`). Thus a challenger who knows the seed also knows the result of the challenge.
 
 The workbench has no server for accounts or uploads. The chain runs only networks, not scenarios (ADR 0014). We measured on `anvil --network monad` with Foundry 1.8.0 (`.scratch/chain/gas.mjs`). A step transaction of 中 used about 141k gas, and a step transaction of 大 used about 473k gas. A challenge of 6 episodes of up to 100 steps does not fit in one transaction, which has a limit of 30M gas.
 
@@ -37,5 +39,6 @@ Monad has no randomness that validators cannot predict. `PREVRANDAO` is the hash
 - After the first transaction, the challenger knows the result. It can stop and keep the gas of the other transactions. The challenge then counts as a defense, and the cooldown applies.
 - Each rule change must occur two times: in the template and in the ladder contract. The parity tests must pass.
 - On `anvil --network monad` (Foundry 1.8.0), the EOA check refused a wrapper contract and an EIP-7702 account. The code of a delegated account is 23 bytes (`0xef0100` and the delegate address). We did not test this on a Monad network (`.scratch/ladder/proto-gas.md`).
-- A rough port of the referee used 0.4M gas for each step of 中 against 中 and 1.12M gas for 大 against 大 (median). The input bits for the two sides cost about 100k gas of each step. A challenge of 大 against 大 of 600 steps needs 24 transactions of 30M gas, about 73 MON at 102 gwei.
+- The ladder contract writes the input bits of each side directly into the call buffer. On `anvil --network monad`, one step used about 0.23M gas for 中 against 中 and 0.93M gas for 大 against 大 (median of the play loop, `contracts/scripts/ladder-gas.mjs`). A transaction of 30M gas plays about 121 steps of 中 against 中 and 31 steps of 大 against 大. A challenge of 大 against 大 of 600 steps needs about 20 transactions.
+- The start transaction must have a gas limit of 30M. With a limit of 24M, the gas that is left at entry is below the threshold.
 - The EOA check can also stop the wrapper attack on the mining game (ADR 0018). This ADR does not change ADR 0018.
