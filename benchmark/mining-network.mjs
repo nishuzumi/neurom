@@ -19,7 +19,7 @@ export async function trainMining() {
   return makeArtifact({ bundle, model: r.model, provenance: r.provenance, evaluation: r.evaluation });
 }
 
-/** Test episode 0 (seeds.test of mining-task.yaml) played by `artifact` → `{ inputs, scores, success }`, one entry per step. */
+/** Test episode 0 (seeds.test of mining-task.yaml) played by `artifact` → `{ input, scores, success }`, one entry per step. */
 export function testEpisode(artifact) {
   const tr = trainedOf(artifact.bundle.loop);
   const start = episodesOf({ kind: 'seed', seed: 300000000, count: 256 })[0];

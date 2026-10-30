@@ -125,7 +125,7 @@ onBeforeUnmount(() => { observer.disconnect(); if (frame) cancelAnimationFrame(f
       <div class="lb-col">
         <div class="lb-st fn opt lb-init" data-st="init" :class="{ absent: !contract.roles.init.present }">
           <h4>init(start) → State <small>{{ t('可选') }}</small></h4>
-          <button v-if="box.source && contract.roles.init.present" type="button" class="lb-fn nodrag" :title="fnTitle('init')" @click.stop="rt.revealCode(box.source.node, 'init')">{{ box.source.title }}.init</button>
+          <button v-if="box.source && contract.roles.init.present" type="button" class="lb-fn nodrag" :title="fnTitle('init')" @click.stop="rt.revealCode(box.source.node, contract.roles.init.name)">{{ box.source.title }}.{{ contract.roles.init.name }}</button>
           <p v-else class="lb-none">{{ box.source ? t('未导出') : t('未接场景') }}</p>
         </div>
         <div class="lb-st val lb-state" data-st="state">
@@ -134,7 +134,7 @@ onBeforeUnmount(() => { observer.disconnect(); if (frame) cancelAnimationFrame(f
         </div>
         <div class="lb-st fn lb-input" data-st="input">
           <h4>input(state) → bits[{{ contract.I ?? '?' }}]</h4>
-          <button v-if="box.source" type="button" class="lb-fn nodrag" :title="fnTitle('input')" @click.stop="rt.revealCode(box.source.node, 'input')">{{ box.source.title }}.input</button>
+          <button v-if="box.source" type="button" class="lb-fn nodrag" :title="fnTitle('input')" @click.stop="rt.revealCode(box.source.node, contract.roles.input.name)">{{ box.source.title }}.{{ contract.roles.input.name }}</button>
           <p v-else class="lb-none">{{ t('未接场景') }}</p>
           <p v-if="last?.input" class="lb-bits"><i v-for="(b, i) in last.input" :key="i" :class="{ on: b === 1 }" /></p>
           <Handle v-if="box.input" :id="box.input.id" type="source" :position="Position.Right" v-bind="slotAttrs(wiring, id, box.input, 'out')" />
@@ -150,7 +150,7 @@ onBeforeUnmount(() => { observer.disconnect(); if (frame) cancelAnimationFrame(f
 
       <div class="lb-st fn lb-step" data-st="step">
         <h4>step(state, action) → { state, done, success }</h4>
-        <button v-if="box.source" type="button" class="lb-fn nodrag" :title="fnTitle('step')" @click.stop="rt.revealCode(box.source.node, 'step')">{{ box.source.title }}.step</button>
+        <button v-if="box.source" type="button" class="lb-fn nodrag" :title="fnTitle('step')" @click.stop="rt.revealCode(box.source.node, contract.roles.step.name)">{{ box.source.title }}.{{ contract.roles.step.name }}</button>
         <p v-else class="lb-none">{{ t('未接场景') }}</p>
       </div>
       <div class="lb-st edge lb-end" data-st="end">

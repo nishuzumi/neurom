@@ -8,16 +8,19 @@
 //             first output.) Stored alphabetically, except that call wires into the same port keep their written
 //             order (a tool layer numbers its tools by it)
 //   expose:   ["module.port"…]     layout: { localId: {x, y} }
-//   groups:   { localId: { title?, members: [moduleLocalId | groupLocalId…], expose: ["module.port"…], loop? } }
+//   groups:   { localId: { title?, members: [moduleLocalId | groupLocalId…], expose: ["module.port"…], loop?, slots? } }
 //             nested composites inside the template's own group. Modules not listed stay directly in the top group.
-//             `loop: moduleLocalId` marks the group as that loop module's box
+//             `loop: moduleLocalId` marks the group as that loop module's box. `slots` (as below, on ports of its own
+//             members) makes the group a prefab of its own. So several training modules can share the modules of
+//             the top group, for example one environment
 //   slots:    [{ id, title?, port: "module.port", create?: [{ kind, title?, config?, ports?: { newPort: slotId } }] }]
 //             a prefab (core/prefab.js). Each slot is a declared port of a member the task fills. `create` lists the
 //             modules a click adds for it. `ports` names which of the new module's ports go to which slot (default:
 //             its one matching port → this slot). A code entry without config is written when it is added, from the
 //             slot port's contract (prefab.js stubSource). The instance's group records the slots. It also records,
 //             as expected wires, every template wire that is not slot content (into an input slot, or out of an
-//             output slot into a module of a kind the slot creates)
+//             output slot into a module of a kind the slot creates). A group's record holds only the wires with an
+//             end at its own members
 //   preset:   { label, accept?: { candidatesLocalId: builtinArtifactName } }   the palette's example (graph_app.js): the
 //             template placed with those builtin artifacts accepted
 import YAML from 'yaml';
@@ -108,20 +111,20 @@ function declaredPort(module, port) {
   return out ? { wire: out.wire, dir: 'out', decl: out } : inp ? { wire: inp.wire, dir: 'in', decl: inp } : null;
 }
 
-/** Normalise `slots`: ids unique, each on a declared port of a template module. Each create entry is a valid module
- *  whose `ports` (defaulted) are its own declared ports and name slots of this template. A code entry without config
- *  stays without (checked against the stub its slot port gives it). */
-function parseSlots(raw, modules) {
+/** Normalise `slots` (at `base`: `slots`, or `groups.<id>.slots`): ids unique, each on a declared port of a template
+ *  module. Each create entry is a valid module whose `ports` (defaulted) are its own declared ports and name slots of
+ *  this list. A code entry without config stays without (checked against the stub its slot port gives it). */
+function parseSlots(raw, modules, base = 'slots') {
   if (raw === undefined) return [];
-  if (!Array.isArray(raw)) fail(t('slots 必须是槽位数组'), 'slots');
+  if (!Array.isArray(raw)) fail(t('slots 必须是槽位数组'), base);
   const ids = new Set();
   for (const [i, entry] of raw.entries()) {
-    if (!plain(entry) || typeof entry.id !== 'string' || !LOCAL_ID.test(entry.id)) fail(t('槽位需要合法的 id'), `slots[${i}]`);
-    if (ids.has(entry.id)) fail(t('槽位 id 重复：{id}', { id: entry.id }), `slots[${i}]`);
+    if (!plain(entry) || typeof entry.id !== 'string' || !LOCAL_ID.test(entry.id)) fail(t('槽位需要合法的 id'), `${base}[${i}]`);
+    if (ids.has(entry.id)) fail(t('槽位 id 重复：{id}', { id: entry.id }), `${base}[${i}]`);
     ids.add(entry.id);
   }
   return raw.map((entry, i) => {
-    const where = `slots[${i}]`;
+    const where = `${base}[${i}]`;
     for (const key of Object.keys(entry)) if (!['id', 'title', 'port', 'create'].includes(key)) fail(t('槽位 {id} 含未知字段 {key}', { id: entry.id, key }), where);
     const title = entry.title === undefined ? entry.id : String(entry.title);
     if (!title.trim()) fail(t('槽位 {id} 的 title 不能为空', { id: entry.id }), where);
@@ -160,17 +163,26 @@ function parseSlots(raw, modules) {
   });
 }
 
-/** Is template wire `text` the content of a slot: into an input slot, or out of an output slot into a module of a kind
- *  the slot creates (any kind when it creates none)? Everything else the template wires is expected. */
-function slotContent(template, text) {
+/** Is template wire `text` the content of one of `slots`: into an input slot, or out of an output slot into a module of
+ *  a kind the slot creates (any kind when it creates none)? Everything else the template wires is expected. */
+function slotContent(template, slots, text) {
   const { from, to } = wireEnds(text);
-  return template.slots.some(s => s.port === `${to.module}.${to.port}`
+  return slots.some(s => s.port === `${to.module}.${to.port}`
     || (s.port === `${from.module}.${from.port}` && (!s.create.length || s.create.some(c => c.kind === template.modules[to.module].kind))));
 }
+/** The prefab record of `slots` in local ids: the slots, and as expected wires each template wire that `mine` accepts
+ *  and that is not slot content. */
+function prefabOf(template, slots, at, wireOf, mine = () => true) {
+  return {
+    slots: slots.map(s => ({ id: s.id, title: s.title, ...at(s.port), create: s.create })),
+    expect: ['value', 'call'].flatMap(kind => template.wires[kind].filter(text => mine(text) && !slotContent(template, slots, text)).map(text => wireOf(kind, text))),
+  };
+}
 
-/** Normalise `groups`: every member a module or another group, listed once. No group inside itself. Exposes on
- *  (transitive) member modules. Group ids live in their own namespace: a group `rules` may hold the module `rules`. A
- *  member name that is both resolves to the module, so such a group can only sit directly in the template's top group. */
+/** Normalise `groups`: every member a module or another group, listed once. No group inside itself. Exposes and slots
+ *  on (transitive) member modules. Group ids live in their own namespace: a group `rules` may hold the module `rules`.
+ *  A member name that is both resolves to the module, so such a group can only sit directly in the template's top
+ *  group. */
 function parseGroups(raw, modules) {
   if (raw === undefined) return {};
   if (!plain(raw)) fail(t('groups 必须是 { 组合: { title, members, expose } }'));
@@ -179,12 +191,12 @@ function parseGroups(raw, modules) {
     const where = `groups.${localId}`;
     if (!LOCAL_ID.test(localId)) fail(t('组合本地 id {id} 不合法', { id: localId }), where);
     if (!plain(entry)) fail(t('组合 {id} 必须是对象', { id: localId }), where);
-    for (const key of Object.keys(entry)) if (!['title', 'members', 'expose', 'loop'].includes(key)) fail(t('组合 {id} 含未知字段 {key}', { id: localId, key }), where);
+    for (const key of Object.keys(entry)) if (!['title', 'members', 'expose', 'loop', 'slots'].includes(key)) fail(t('组合 {id} 含未知字段 {key}', { id: localId, key }), where);
     if (!Array.isArray(entry.members) || !entry.members.length) fail(t('组合 {id} 需要至少一个成员', { id: localId }), where);
     const title = entry.title === undefined ? localId : String(entry.title);
     if (!title.trim()) fail(t('组合 {id} 的 title 不能为空', { id: localId }), where);
     if (entry.loop !== undefined && !(typeof entry.loop === 'string' && Object.hasOwn(modules, entry.loop) && modules[entry.loop].kind === 'loop')) fail(t('组合 {id} 的 loop 必须是模板里的回路模块', { id: localId }), where);
-    groups[localId] = { title, members: [...entry.members], expose: entry.expose ?? [], ...(entry.loop !== undefined ? { loop: entry.loop } : {}) };
+    groups[localId] = { title, members: [...entry.members], expose: entry.expose ?? [], ...(entry.loop !== undefined ? { loop: entry.loop } : {}), ...(entry.slots !== undefined ? { slots: entry.slots } : {}) };
   }
   for (const [localId, group] of Object.entries(groups)) {
     const where = `groups.${localId}`;
@@ -203,6 +215,10 @@ function parseGroups(raw, modules) {
     const members = new Set(inside(localId));
     group.expose = parseExpose(group.expose, modules, `groups.${localId}.expose`);
     for (const text of group.expose) if (!members.has(endpointOf(text).module)) fail(t('组合 {id} 暴露的 {text} 不属于它的成员', { id: localId, text }), `groups.${localId}.expose`);
+    if (group.slots === undefined) continue;
+    group.slots = parseSlots(group.slots, modules, `groups.${localId}.slots`);
+    for (const s of group.slots) if (!members.has(endpointOf(s.port).module)) fail(t('组合 {id} 的槽位 {slot} 不属于它的成员', { id: localId, slot: s.id }), `groups.${localId}.slots`);
+    if (!group.slots.length) delete group.slots;
   }
   return groups;
 }
@@ -286,7 +302,7 @@ export function parseTemplate(input) {
 export function templateToYAML(template) {
   const out = parseTemplate(template);
   for (const m of Object.values(out.modules)) if (m.kind === 'code') delete m.config.exports;
-  for (const s of out.slots) for (const c of s.create) if (c.kind === 'code' && c.config) delete c.config.exports;
+  for (const s of [...out.slots, ...Object.values(out.groups).flatMap(g => g.slots ?? [])]) for (const c of s.create) if (c.kind === 'code' && c.config) delete c.config.exports;
   if (!Object.keys(out.layout).length) delete out.layout;
   if (!Object.keys(out.groups).length) delete out.groups;
   if (!out.slots.length) delete out.slots;
@@ -311,9 +327,10 @@ const bbox = (nodes) => {
 
 /** Add a copy of the template to `graph` at (x, y) with fresh ids. Composite/canvas templates get a collapsed group
  *  that records `{ template:{id, revision} }`. The template's `groups` nest inside it (collapsed too). When the
- *  template declares slots, the group also gets its prefab record. The template becomes a graph description in its
- *  local ids that the graph admits strictly (fresh ids, all or nothing). Returns `{ nodes, group, ids, groupIds }`
- *  (ids: localId → node id, groupIds: group localId → group id). */
+ *  template declares slots, the group also gets its prefab record. A nested group that declares slots gets its own,
+ *  with the expected wires that have an end at its members. The template becomes a graph description in its local
+ *  ids that the graph admits strictly (fresh ids, all or nothing). Returns `{ nodes, group, ids, groupIds }` (ids:
+ *  localId → node id, groupIds: group localId → group id). */
 export function instantiateInto(graph, template, { x = 0, y = 0 } = {}) {
   const pos = positions(template), at = text => { const e = endpointOf(text); return { node: e.module, port: e.port }; };
   const nodes = Object.entries(template.modules).map(([localId, m]) => ({ id: localId, kind: m.kind, title: m.title ?? localId, ...pos[localId], config: m.config }));
@@ -327,14 +344,13 @@ export function instantiateInto(graph, template, { x = 0, y = 0 } = {}) {
     const memberId = m => (Object.hasOwn(template.modules, m) ? m : groupId(m));
     const inside = localId => template.groups[localId].members.flatMap(m => (Object.hasOwn(template.modules, m) ? [m] : inside(m)));
     for (const [localId, g] of Object.entries(template.groups)) {
-      groups.push({ id: groupId(localId), title: g.title, collapsed: true, ...bbox(inside(localId).map(m => pos[m])), members: g.members.map(memberId), expose: g.expose.map(at), ...(g.loop ? { loop: g.loop } : {}) });
+      const members = new Set(inside(localId)), mine = text => { const { from, to } = wireEnds(text); return members.has(from.module) || members.has(to.module); };
+      const prefab = g.slots ? prefabOf(template, g.slots, at, wireOf, mine) : null;
+      groups.push({ id: groupId(localId), title: g.title, collapsed: true, ...bbox([...members].map(m => pos[m])), members: g.members.map(memberId), expose: g.expose.map(at), ...(g.loop ? { loop: g.loop } : {}), ...(prefab ? { prefab } : {}) });
     }
     const nested = new Set(Object.values(template.groups).flatMap(g => g.members.map(memberId)));
     const top = [...Object.keys(template.modules), ...Object.keys(template.groups).map(groupId)].filter(id => !nested.has(id));
-    const prefab = template.slots.length ? {
-      slots: template.slots.map(s => ({ id: s.id, title: s.title, ...at(s.port), create: s.create })),
-      expect: ['value', 'call'].flatMap(kind => template.wires[kind].filter(text => !slotContent(template, text)).map(text => wireOf(kind, text))),
-    } : null;
+    const prefab = template.slots.length ? prefabOf(template, template.slots, at, wireOf) : null;
     groups.push({ id: TOP, title: template.name, template: { id: template.id, revision: template.revision }, collapsed: true, ...bbox(Object.values(pos)), members: top, expose: template.expose.map(at), ...(prefab ? { prefab } : {}) });
   }
   const admitted = graph.admit({ nodes, wires, groups }, { fresh: true, dx: x, dy: y }).ids;
@@ -348,7 +364,7 @@ const slug = text => text.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_
 /** Turn a selection of nodes into a template: inner wires are kept, wires crossing the boundary become exposed ports
  *  (plus the exposes of any group covering the whole selection). Groups strictly inside the selection are recorded as
  *  the template's nested `groups`. */
-export function fromSelection(graph, nodeIds, { id = freshId('tpl').toLowerCase().replace(/[^a-z0-9_-]/g, ''), name = id, revision = 1, kind = null, description } = {}) {
+export function fromSelection(graph, nodeIds, { id = freshId('tpl').toLowerCase().replace(/[^a-z0-9_-]/g, ''), name = id, revision = 1 } = {}) {
   const selected = [...new Set(nodeIds)];
   if (!selected.length) fail(t('请选择至少一个模块'));
   const set = new Set(selected), local = {}, used = new Set();
@@ -382,17 +398,20 @@ export function fromSelection(graph, nodeIds, { id = freshId('tpl').toLowerCase(
   for (const g of whole) for (const e of g.expose) expose.add(`${local[e.node]}.${e.port}`);
   const nested = inside.filter(g => !whole.includes(g)), groups = {};
   for (const g of nested) local[g.id] = localId(g.title, 'group');
+  // a prefab saved whole keeps its slots (its expected wires are the saved wires again: instantiation derives them). A
+  // nested prefab keeps them on its group.
+  const slotsOf = prefab => (prefab ? prefab.slots.filter(s => local[s.node]).map(s => ({ id: s.id, title: s.title, port: `${local[s.node]}.${s.port}`, create: s.create })) : []);
   for (const g of nested) {
+    const own = slotsOf(g.prefab);
     groups[local[g.id]] = {
       title: g.title || local[g.id],
       members: g.members.filter(m => local[m] !== undefined).map(m => local[m]),
       expose: g.expose.map(e => `${local[e.node]}.${e.port}`),
       ...(g.loop && local[g.loop] ? { loop: local[g.loop] } : {}),
+      ...(own.length ? { slots: own } : {}),
     };
   }
-  // a prefab saved whole keeps its slots (its expected wires are the saved wires again: instantiation derives them)
-  const prefab = whole.find(g => g.prefab)?.prefab ?? null;
-  const slots = prefab ? prefab.slots.filter(s => local[s.node]).map(s => ({ id: s.id, title: s.title, port: `${local[s.node]}.${s.port}`, create: s.create })) : [];
-  const template = { format: TEMPLATE_FORMAT, id, revision, name, kind: kind ?? (selected.length === 1 ? 'module' : 'composite'), ...(description ? { description } : {}), modules, wires, expose: [...expose], groups, ...(slots.length ? { slots } : {}), layout };
+  const slots = slotsOf(whole.find(g => g.prefab)?.prefab);
+  const template = { format: TEMPLATE_FORMAT, id, revision, name, kind: selected.length === 1 ? 'module' : 'composite', modules, wires, expose: [...expose], groups, ...(slots.length ? { slots } : {}), layout };
   return parseTemplate(template);
 }

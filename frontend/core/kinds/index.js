@@ -16,4 +16,5 @@ import './readout.js';
 import './network.js';
 import './trainer.js';
 import './view.js';
+import './script.js';
 import './bits.js';

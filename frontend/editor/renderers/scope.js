@@ -12,6 +12,7 @@
 // - a part that resolves in the scope → its value.
 // - anything else stays a literal string (colours, labels).
 import { staticPorts, staticValue } from '../../core/bundle.js';
+import { trainingModuleOf } from '../../core/resolve.js';
 
 const SEGMENT = /^[A-Za-z_]\w*$/;
 
@@ -87,9 +88,10 @@ export function reportScope(report) {
 
 /**
  * `ctx.modules` / `ctx.errors` of a view script (ADR 0013). `modules` holds every member node of the view's nearest
- * training module (the nearest group that carries a prefab record), keyed by title. Each node has the static value of
- * each of its static output ports (core/bundle.js staticValue). A static port that cannot be evaluated is listed in
- * `errors` instead. Outside a training module, both are empty.
+ * training module (the nearest group that carries a prefab record), keyed by title. It also holds the scenario module
+ * of each of its loops that sits outside it (an environment that several training modules share, core/resolve.js
+ * trainingModuleOf). Each node has the static value of each of its static output ports (core/bundle.js staticValue). A
+ * static port that cannot be evaluated is listed in `errors` instead. Outside a training module, both are empty.
  * @param {any} graph  @param {any} res  @param {string} viewId
  * @returns {{ modules: Record<string, Record<string, unknown>>, errors: { module: string, port: string, message: string }[] }}
  */
@@ -98,10 +100,9 @@ export function trainingModuleValues(graph, res, viewId) {
   const modules = {};
   /** @type {{ module: string, port: string, message: string }[]} */
   const errors = [];
-  let group = graph.parentOf(viewId);
-  while (group && !group.prefab) group = graph.parentOf(group.id);
-  if (!group) return { modules, errors };
-  for (const id of graph.memberNodes(group.id)) {
+  const tm = trainingModuleOf(graph, viewId);
+  if (!tm) return { modules, errors };
+  for (const id of tm.members) {
     const node = graph.node(id), values = /** @type {Record<string, unknown>} */ ({});
     for (const port of staticPorts(graph, id)) {
       try { values[port] = staticValue(graph, res, id, port); } catch (e) { errors.push({ module: node.title, port, message: /** @type {Error} */ (e).message }); }

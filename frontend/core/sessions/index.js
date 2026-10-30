@@ -10,4 +10,5 @@ export { createEvaluatorSession } from './evaluator.js';
 export { createExecutionSession } from './execution.js';
 export { createDeploymentSession } from './deployment.js';
 export { createDatasetStore, createDatasetSession, reclaimDatasets } from './dataset.js';
+export { createRunChain, CHAIN_KINDS } from './run-chain.js';
 export { WorkspaceClient } from './workspace-client.js';

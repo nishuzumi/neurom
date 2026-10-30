@@ -2,7 +2,7 @@
 // the node components. The domain is frontend/core (ModuleGraph inside a Workspace). The editor never makes it
 // reactive. draw() rebuilds plain view models and Vue Flow diffs them by id.
 import type { Ref } from 'vue';
-import type { DatasetStore, SessionKind, SessionOf, Workspace, WorkspaceClient } from './workbench-context';
+import type { SessionKind, SessionOf, Workspace, WorkspaceClient } from './workbench-context';
 import type { EdgePresentationState } from './edge-presentation';
 import type { PortSpec } from './wiring';
 import type { LoopContract } from './graph-view';
@@ -19,7 +19,6 @@ export interface EditorContext {
   changed(): void;
   status(text: string, tone?: 'ok' | 'warn' | 'bad'): void;
   session<K extends SessionKind>(kind: K, nodeId: string): SessionOf<K>;
-  datasets: DatasetStore;
   python: { client: WorkspaceClient | null; connected: Ref<boolean> };
 }
 
@@ -69,7 +68,7 @@ export interface ModuleNodeView {
   tools: ToolLayerView[];
 }
 /** A tool drawn inside a network card's tool layer: a module wired only into that tool port (`node`), or a frozen
- *  network (`node`) with the bits readout whose `run` is the tool (`readout`). `tool` is the module wired into the
+ *  network (`node`) with the readout whose `run` is the tool (`readout`). `tool` is the module wired into the
  *  port. Its unwired ports are slots `${module}/${port}` on the host network's flow node (the card inside the layer
  *  stands for its wired ones). */
 export interface ToolCardView {
@@ -189,7 +188,7 @@ export interface EditorRuntime {
   toggleToolLayer(node: string, port: string): void;
   /** a code tool `(bits) → bits` wired into tool port `port` of network `node`, one history entry */
   addCodeTool(node: string, port: string): void;
-  /** a frozen network running `artifactId` with its bits readout, `run` wired into `port` of network `node`. One entry. */
+  /** a frozen network running `artifactId` with its readout (bits or argmax), `run` wired into `port` of network `node`. One entry. */
   addNetworkTool(node: string, port: string, artifactId: string): void;
   /** select and show a module on the outer canvas (a tool drawn outside its network card) */
   jumpTo(node: string): void;

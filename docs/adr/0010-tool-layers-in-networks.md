@@ -32,7 +32,9 @@ Each tool layer declares one call input. The `tools` entry of the layer gives th
 A tool is one of these:
 
 - An export of a code module with that signature.
-- A frozen network, through the `run` output of the bits-mode readout that reads it. The network can be of any kind: FF, LIF, or a network with its own tool layers.
+- A frozen network, through the `run` output of the readout that reads it. The network can be of any kind: FF, LIF, or a network with its own tool layers.
+
+> **Note (ADR 0019):** First, only a bits-mode readout gave `run`. Now an argmax readout also gives `run`. It returns the one-hot bits of the first maximum, and its width is the length of the map. Such a tool runs in the workbench and in Python with the same bits. On chain, a tool layer reads the scores of a tool as bits (score ≥ 0, §11). Thus it is not possible to deploy a network that has an argmax tool.
 
 The signature of each tool gives the widths:
 

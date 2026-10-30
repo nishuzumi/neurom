@@ -20,6 +20,7 @@ const NATURAL: Record<string, { width: number; height: number | ((config: Record
   evaluator: { width: 420, height: 360 },
   execution: { width: 520, height: 520 },
   view: { width: 420, height: 360 },
+  script: { width: 480, height: 530 },
   deployment: { width: 480, height: 420 },
   bits: { width: 320, height: 220 },
   loop: { width: 340, height: 180 },

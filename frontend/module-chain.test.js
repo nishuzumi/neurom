@@ -19,20 +19,22 @@ import { readout } from './core/readout.js';
 import { builtinTemplate } from './templates/index.js';
 import { builtinArtifacts } from './templates/artifacts/index.js';
 import FactoryABI from './abi/ModuleFactory.json' with { type: 'json' };
-import { deploymentOf, taskIdOf, deployModule, planDeployment, verifyModule, inferModule, stepModule, resetModule, moduleState, sessionId, weightChunks, chunkAddress, CHUNK_BYTES } from './module-chain.js';
+import { deploymentOf, shapeOf, taskIdOf, deployModule, planDeployment, verifyModule, inferModule, stepModule, resetModule, moduleState, sessionId, weightChunks, chunkAddress, CHUNK_BYTES } from './module-chain.js';
 import { CHAINS } from './chain.js';
 
 /** An artifact that carries an I → H → O dense model (default 12 → 8 → 4) on the counter loop (the trained network and
  *  its readout widened to match). Weight k = ((29k + 13) mod 25) − 12 in row-major order times 10 (int8) or 2500
  *  (int16), or 0 everywhere (`zero`). `tail` is added to the output biases (the end of the weight blob). The hidden
- *  layer shifts its sums by `kHidden`, and the output by `kOut`. A LIF layer fires at `threshold`. */
-async function denseArtifact({ kind = 'lif', weightBits = 8, ticks = 3, leak = 2, threshold = 60, reset = -2, kHidden = 1, kOut = 2, I = 12, H = 8, O = 4, zero = false, tail = 0, provenance = { test: 'module-chain' } } = {}) {
+ *  layer shifts its sums by `kHidden`, and the output by `kOut`. A LIF layer fires at `threshold`. Output row `best`
+ *  (if given) holds the largest weight everywhere, so its score wins whenever a hidden unit is active. */
+async function denseArtifact({ kind = 'lif', weightBits = 8, ticks = 3, leak = 2, threshold = 60, reset = -2, kHidden = 1, kOut = 2, I = 12, H = 8, O = 4, zero = false, tail = 0, best = null, provenance = { test: 'module-chain' } } = {}) {
   const unit = weightBits === 8 ? 10 : 2500, weight = k => (zero ? 0 : (((k * 29 + 13) % 25) - 12) * unit);
   let k = 0;
   const W1 = Array.from({ length: H }, () => Array.from({ length: I }, () => weight(k++)));
   const b1 = Array.from({ length: H }, () => weight(k++));
   const W2 = Array.from({ length: O }, () => Array.from({ length: H }, () => weight(k++)));
   const b2 = Array.from({ length: O }, () => weight(k++) + tail);
+  if (best !== null) { W2[best].fill(12 * unit); b2[best] = 12 * unit; }
   const model = { format: 'dense-policy', kind, inputs: I, outputs: O, weightBits, ticks, leak_shift: leak, reset,
     layers: [{ hidden: H, W: W1, b: b1, scale: unit, k: kHidden, ...(kind === 'lif' ? { threshold: threshold * unit } : {}) }], output: { W: W2, b: b2, scale: unit, k: kOut } };
   const { graph, ids } = counterGraph();
@@ -47,7 +49,7 @@ test('deploymentOf: a dense artifact maps to Factory arguments; taskId is the en
   const a = await denseArtifact();
   const d = deploymentOf(await validateArtifact(JSON.parse(JSON.stringify(a))));
   assert.deepEqual({ ...d, weights: undefined }, { engine: 'dense-policy', kind: 'lif', inputs: 12, outputs: 4, stateWidth: 8, weights: undefined, tools: [],
-    shape: [7n, 1n | (3n << 8n) | (2n << 16n) | (8n << 24n) | (0xfffen << 32n) | (1n << 48n) | (2n << 128n), 600n] }, 'layout; layers, ticks, leak, int8, reset −2, k 1 (hidden) and 2 (output); the hidden layer\'s threshold');
+    shape: [7n, 0n, 1n | (3n << 8n) | (2n << 16n) | (8n << 24n) | (0xfffen << 32n) | (1n << 48n) | (2n << 128n), 600n] }, 'layout (two words); layers, ticks, leak, int8, reset −2, k 1 (hidden) and 2 (output); the hidden layer\'s threshold');
   assert.equal((d.weights.length - 2) / 2, denseWeightBytes(12, [{ hidden: 8 }], 4, 8));
   assert.equal(denseWeightBytes(12, [{ hidden: 8 }], 4, 8), 13 * 32 + 9 * 32, 'one 32-byte word per column (up to 32 int8 rows), the int16 bias column included');
   assert.equal(denseWeightBytes(40, [{ hidden: 40 }], 4, 8), 40 * 64 + 3 * 32 + 40 * 32 + 32, '40 rows: two int8 words per column, three int16 bias words');
@@ -56,14 +58,25 @@ test('deploymentOf: a dense artifact maps to Factory arguments; taskId is the en
   assert.equal(d.weights.slice(2 + 64 * 12, 2 + 64 * 12 + 8), '0064ff92', 'the bias column is int16: b1[0] = 10·10, b1[1] = −11·10');
   const wide = deploymentOf(await denseArtifact({ weightBits: 16 }));
   assert.equal(wide.weights.slice(2, 10), '09c4f63c', 'int16: W1[0][0] = 2500, W1[1][0] = −2500, two bytes each');
-  assert.equal(wide.shape[1] >> 24n & 0xffn, 16n);
+  assert.equal(wide.shape[2] >> 24n & 0xffn, 16n);
   const taskId = await taskIdOf(a);
   assert.match(taskId, /^0x[0-9a-f]{64}$/);
   assert.equal(taskId, await envHash(a.bundle));
   const other = await denseArtifact(FF);
   assert.notEqual(other.id, a.id);
   assert.equal(await taskIdOf(other), taskId, 'a different model on the same loop keeps the task identity');
-  assert.equal(deploymentOf(other).shape[2], 1n, 'an FF layer fires at 1');
+  assert.equal(deploymentOf(other).shape[3], 1n, 'an FF layer fires at 1');
+});
+
+test('the dense shape holds one 64-bit descriptor per layer with 16-bit widths, four layers per word (ADR 0021)', () => {
+  const plain = h => ({ hidden: h, W: [], b: [], scale: 1, k: 0 }), tool = (K, D, R) => ({ tools: 'tools', K, D, R, k_c: 1, k_d: 2 });
+  const shape = shapeOf({ format: 'dense-policy', kind: 'feedforward', ticks: 1, leak_shift: 0, reset: 0, weightBits: 8,
+    layers: [plain(300), tool(2, 1020, 65535), plain(1), plain(2), plain(65535)], output: { k: 3 } });
+  assert.deepEqual(shape.slice(0, 2), [299n | ((1n | (1019n << 16n) | (65534n << 32n) | (1n << 48n)) << 64n) | (0n << 128n) | (1n << 192n), 65534n],
+    'layer 0 at bit 0, the tool layer at 64 (K − 1, D − 1 at 16, R − 1 at 32, the flag at 48), layers 2 and 3, then layer 4 in the second word');
+  assert.equal(shape[2] & 0xffn, 5n, 'the parameters follow the layout');
+  assert.equal((shape[2] >> 58n) & 31n, 1n, 'the choice shift of layer 1');
+  assert.equal(shape[3], 1n | (1n << 64n) | (1n << 96n) | (1n << 128n), 'FF thresholds: 1 for each plain layer, 0 for the tool layer');
 });
 
 test('the threshold engine\'s shape carries the width and every layer\'s shift', async () => {
@@ -82,9 +95,12 @@ test('deploymentProblem mirrors the on-chain limits', () => {
   const dense = (inputs, hidden, outputs, kind = 'feedforward') => ({ engine: 'dense-policy', kind, inputs, layers: [hidden].flat().map(h => ({ hidden: h })), outputs });
   assert.equal(deploymentProblem(dense(12, 8, 4)), null);
   assert.equal(deploymentProblem(dense(240, 256, 240)), null, 'weights over one chunk deploy across several');
+  assert.equal(deploymentProblem(dense(1020, 300, 300)), null, 'ports and layers up to 65535 (ADR 0021)');
+  assert.equal(deploymentProblem(dense(65535, 65535, 65535)), null);
   assert.match(deploymentProblem(dense(0, 8, 4)), /inputs/);
-  assert.match(deploymentProblem(dense(12, 8, 257)), /outputs/);
-  assert.match(deploymentProblem(dense(12, 300, 4)), /hidden/);
+  assert.match(deploymentProblem(dense(65536, 8, 4)), /inputs/);
+  assert.match(deploymentProblem(dense(12, 8, 65536)), /outputs/);
+  assert.match(deploymentProblem(dense(12, 65536, 4)), /hidden/);
   assert.equal(deploymentProblem(dense(12, [8, 8], 4)), null, 'several plain layers deploy');
   assert.match(deploymentProblem(dense(12, [1, 1, 1, 1, 1, 1, 1, 1, 1], 4)), /1\.\.8/);
   assert.equal(deploymentProblem(dense(12, [128, 128], 4, 'lif')), null, '256 LIF neurons fill the state');
@@ -94,12 +110,13 @@ test('deploymentProblem mirrors the on-chain limits', () => {
   const net = { kind: 'net', artifactId: '0x' + '1'.repeat(64), structure: { engine: 'threshold-layers', kind: 'feedforward', inputs: 2, outputs: 1, layers: [2] } };
   assert.equal(deploymentProblem(toolLayer, [net, net]), null);
   assert.match(deploymentProblem(toolLayer, [net, { kind: 'program' }]), /代码工具不能部署/);
-  assert.match(deploymentProblem(toolLayer, [net, { ...net, structure: { ...net.structure, inputs: 300 } }]), /工具 2.*inputs/);
+  assert.match(deploymentProblem(toolLayer, [net, { ...net, structure: { ...net.structure, inputs: 65536 } }]), /工具 2.*inputs/);
   const threshold = (inputs, layers, outputs) => ({ engine: 'threshold-layers', inputs, layers, outputs });
   assert.equal(deploymentProblem(threshold(8, [16], 4)), null);
   assert.equal(deploymentProblem(threshold(8, [1, 1, 1, 1, 1, 1, 1], 4)), null, '7 hidden + output = 8 layers');
   assert.match(deploymentProblem(threshold(8, [1, 1, 1, 1, 1, 1, 1, 1], 4)), /1\.\.8/);
-  assert.equal(deploymentProblem(threshold(256, [256, 256], 256)), null);
+  assert.equal(deploymentProblem(threshold(1020, [300, 300], 300)), null);
+  assert.match(deploymentProblem(threshold(65536, [8], 4)), /inputs/);
   assert.match(deploymentProblem({ engine: 'other' }), /other/);
 });
 
@@ -317,6 +334,28 @@ test('identical chunks of one artifact are created once: all-zero weights over t
     assert.deepEqual(r.transactions.map(tx => tx.kind), ['chunk', 'module'], 'no transaction for the repeat');
     const want = browserExecutor(flat).step(Array(256).fill(1));
     assert.deepEqual((await inferModule(chain.provider, r.address, Array(256).fill(1))).scores, want.scores);
+  } finally { chain.stop(); }
+});
+
+test('networks wider than 256 decide on chain bit for bit as in the browser at both widths, actions above 255 included', { skip: NO_FOUNDRY, timeout: 600_000 }, async () => {
+  const chain = await localChain();
+  try {
+    const actions = new Set();
+    // FF 1020 → 300 → 300. int16 uses 300 inputs: the int16 blob of 1020 inputs takes 8 chunks, and the bridge's
+    // checkDeploy with all of them is over the 30M gas of one call. LIF keeps at most 256 potentials (MAX_STATE).
+    for (const [kind, weightBits, I, H] of [['feedforward', 8, 1020, 300], ['feedforward', 16, 300, 300], ['lif', 8, 1020, 200], ['lif', 16, 300, 200]]) {
+      const net = await denseArtifact({ ...(kind === 'feedforward' ? FF : {}), weightBits, I, H, O: 300, best: 287, provenance: { test: 'module-chain', wide: `${kind} ${weightBits}` } });
+      assert.equal(deploymentOf(net).shape[0], BigInt(H - 1), 'layer 0: hidden − 1 in 16 bits');
+      const { address } = await deployModule(chain.signer, chain.factory, net, { artifacts });
+      const local = browserExecutor(net);
+      for (let t = 0; t < 6; t++) {
+        const bits = Array.from({ length: I }, (_, i) => ((5 * t + 3 * i) % (t + 7) < 2 ? 1 : 0)), want = local.peek(bits);
+        const got = await inferModule(chain.provider, address, bits);
+        assert.deepEqual(got, { scores: want.scores, action: want.scores.indexOf(Math.max(...want.scores)), counts: want.counts, voltages: want.voltages }, `${kind} int${weightBits} input ${t}`);
+        actions.add(got.action);
+      }
+    }
+    assert.ok([...actions].some(a => a > 255), `some action is above 255: ${[...actions]}`);
   } finally { chain.stop(); }
 });
 

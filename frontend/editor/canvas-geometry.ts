@@ -197,13 +197,17 @@ export function canvasGeometry(env: { graph: () => ModuleGraph; measured: (id: s
   /** frames that choose their column count now. A frame is not a neighbour of the frames that it looks at during that
    *  time. */
   const framing = new Set<string>();
+  /** This set holds the levels that Arrange lays out now (layoutTree). A frame on such a level has no neighbours when
+   *  it splits its sections, because the layout places the other units of the level around the frame afterwards. */
+  const laying = new Set<string | null>();
   function frame(groupId: string): TrainingFrame {
-    const g = graph(), tm = training(groupId)!;
+    const g = graph(), tm = training(groupId)!, level = g.parentOf(groupId)?.id ?? null;
     return columns.frame(g, tm, {
       content: union(tm.canvas.filter(id => !toolHost(id)).map(rect)), corner: at(groupId), height: measured(groupId)?.h,
       neighbours: () => {
+        if (laying.has(level)) return [];
         framing.add(groupId);
-        try { return unitsOf(g.parentOf(groupId)?.id ?? null).filter(u => u !== groupId && !framing.has(u)).map(rect); } finally { framing.delete(groupId); }
+        try { return unitsOf(level).filter(u => u !== groupId && !framing.has(u)).map(rect); } finally { framing.delete(groupId); }
       },
     });
   }
@@ -304,16 +308,21 @@ export function canvasGeometry(env: { graph: () => ModuleGraph; measured: (id: s
     }
     for (const [a, b] of below) { const layer = layers.find(l => l.includes(b)); if (layer) layer.splice(layer.indexOf(b) + 1, 0, a); else layers.push([a]); }
     // wrap consecutive layers into bands. For every band count, take the split with the narrowest widest band
-    // (balanced rows). Then keep the count whose overall shape is closest to the viewport's aspect.
+    // (balanced rows). Then keep the count whose overall shape is closest to the viewport's aspect. A band never breaks
+    // between two layers that both hold a training module: such frames are stages that feed one another, and they
+    // read left to right in one row (ADR 0020).
     const n = layers.length;
     const colW = layers.map(layer => Math.max(...layer.map(u => rects.get(u)!.w)));
     const colH = layers.map(layer => layer.reduce((s, u) => s + rects.get(u)!.h, 0) + GAP.y * (layer.length - 1));
     const target = clamp(env.aspect(), 1.2, 2.2);
     const prefix = [0]; colW.forEach(w => prefix.push(prefix[prefix.length - 1] + w));
     const span = (from: number, to: number) => prefix[to] - prefix[from] + GAP.x * (to - from - 1);   // layers [from, to)
+    const framed = layers.map(layer => layer.some(u => g.groups.has(u) && !!training(u)));
+    const cost = (from: number, to: number) => (from > 0 && framed[from - 1] && framed[from] ? Infinity : span(from, to));
     let bands: number[][] = [layers.map((_, i) => i)], best = Infinity;
     for (let k = 1; k <= n; k++) {
-      const split = contiguousSplit(n, k, span), widest = Math.max(...split.map(band => span(band[0], band[band.length - 1] + 1)));
+      const split = contiguousSplit(n, k, cost), widest = Math.max(...split.map(band => cost(band[0], band[band.length - 1] + 1)));
+      if (!Number.isFinite(widest)) continue;
       const h = split.reduce((s, band) => s + Math.max(...band.map(i => colH[i])), 0) + GAP.band * (k - 1);
       const score = Math.abs(Math.log(widest / h / target));
       if (score < best - 1e-9) { best = score; bands = split; }
@@ -339,10 +348,14 @@ export function canvasGeometry(env: { graph: () => ModuleGraph; measured: (id: s
     }
   }
   const layoutLevel = (container: string | null) => layoutUnits(unitsOf(container), unitIn(container));
-  /** Lay out a whole composite: every nested group's interior first (collapsed ones too, so they open tidy), then the level. */
+  /** Lay out a whole composite: every nested group's interior first (collapsed ones too, so they open tidy), then the
+   *  level. While it runs, the frames on these levels split their sections without regard to their neighbours. */
   function layoutTree(container: string | null) {
-    for (const unit of unitsOf(container)) if (graph().groups.has(unit)) layoutTree(unit);
-    layoutLevel(container);
+    laying.add(container);
+    try {
+      for (const unit of unitsOf(container)) if (graph().groups.has(unit)) layoutTree(unit);
+      layoutLevel(container);
+    } finally { laying.delete(container); }
   }
   /** Does `unit` (or, without it, any member of the level) overlap another member of `container`? */
   function crowded(container: string | null, unit: string | null = null) {

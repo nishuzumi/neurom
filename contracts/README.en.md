@@ -7,7 +7,7 @@ This project uses Foundry ≥ 1.8.0. `foundry.toml` sets `network = "monad"` (Mo
 | File | Contents |
 |---|---|
 | `src/modules/` | The structure below (ADR 0014, 0016, 0017). It contains `Roles`, `FactoryProxy` and `ModuleFactory`. It contains the engines `DensePolicyEngine` / `ThresholdLayersEngine`, which share `EngineBase`. It contains the module implementation `NeuromModule` and its clone `ModuleClone`. It contains the interfaces `INeuromModule` / `IEngine`. |
-| `test/Modules.t.sol` | 40 regression tests, which cover these areas. Integer semantics: hand models, arbitrary I→H→O widths, multi-layer FF / LIF, tool layers in FF / LIF and a trailing tool layer. All of these tests compare with the JS integer executor. Every model whose weights fit int8 runs at weightBits 8 and 16. Threshold-layer scores and activations. A region's shift k scales as Σ·2^k + b. Each LIF layer uses its own threshold. int8 −128 / 127 / negative weights and the 40-row memory path. These items are hand-computed or checked in the test. A network across two weight chunks. A gas check that only the chosen tool runs. Network tools: the potentials of a LIF tool are in the state of the calling session. These potentials change only when the tool is chosen, clear on the session's reset, and stay apart per session and per caller. A LIF selector's own state comes before the state of its tool. When a network with its own tool layer is a tool, the state of its tool is nested inside. The gas of a step that chooses a LIF tool vs an FF tool, and of each further nesting level. Weight chunks are content-addressed, and an existing chunk is skipped. One transaction creates the missing chunks and the module, all or nothing. A chunk used twice is sent once. The Factory refuses an engine id without a latest version, a version not listed for the engine id and a missing chunk. The Factory also refuses a bad shape (bits / shift / threshold included), wrong weight bytes and an unofficial tool. The Factory also refuses tools nested deeper than 3 (`depth`) and a state over 256 with the tools' states (`state`). The engine cannot write state. Engine versions are add-only and belong to one engine id. The latest version must be an added version. After the latest version moves, a module keeps its version. A deployment can name an older version. Only ADMIN grants / revokes roles and manages versions. Only UPGRADER upgrades the factory. ADMIN can grant itself UPGRADER. After a factory upgrade, `count`, `isModule`, `depthOf`, the chunks, the artifact index and the module implementation stay. The decisions of every module do not change. initialize runs only once. The owner is the deployer, moves in two steps and has no other power. Only the Factory's clones are modules. Isolation of instance / caller / session. Deployment gas and step gas at both weight widths on Monad rules. |
+| `test/Modules.t.sol` | 46 regression tests, which cover these areas. Integer semantics: hand models, arbitrary I→H→O widths, multi-layer FF / LIF, tool layers in FF / LIF and a trailing tool layer. All of these tests compare with the JS integer executor. Every model whose weights fit int8 runs at weightBits 8 and 16. Threshold-layer scores and activations. A region's shift k scales as Σ·2^k + b. Each LIF layer uses its own threshold. int8 −128 / 127 / negative weights and the 40-row memory path. These items are hand-computed or checked in the test. A network across two weight chunks. Widths above 256 (ADR 0021): FF 1020 → 300 → 300 with an action above 255 and threshold layers 300 → 280 → 270, at both weight widths, against a reference loop in the test. Layers 4 to 7 in the second layout word. int16 sums with Σx above 65537, in batches. The check refuses a width of 65536. A gas check that only the chosen tool runs. Network tools: the potentials of a LIF tool are in the state of the calling session. These potentials change only when the tool is chosen, clear on the session's reset, and stay apart per session and per caller. A LIF selector's own state comes before the state of its tool. When a network with its own tool layer is a tool, the state of its tool is nested inside. The gas of a step that chooses a LIF tool vs an FF tool, and of each further nesting level. Weight chunks are content-addressed, and an existing chunk is skipped. One transaction creates the missing chunks and the module, all or nothing. A chunk used twice is sent once. The Factory refuses an engine id without a latest version, a version not listed for the engine id and a missing chunk. The Factory also refuses a bad shape (bits / shift / threshold included), wrong weight bytes and an unofficial tool. The Factory also refuses tools nested deeper than 3 (`depth`) and a state over 256 with the tools' states (`state`). The engine cannot write state. Engine versions are add-only and belong to one engine id. The latest version must be an added version. After the latest version moves, a module keeps its version. A deployment can name an older version. Only ADMIN grants / revokes roles and manages versions. Only UPGRADER upgrades the factory. ADMIN can grant itself UPGRADER. After a factory upgrade, `count`, `isModule`, `depthOf`, the chunks, the artifact index and the module implementation stay. The decisions of every module do not change. initialize runs only once. The owner is the deployer, moves in two steps and has no other power. Only the Factory's clones are modules. Isolation of instance / caller / session. Deployment gas and step gas at both weight widths on Monad rules. |
 | `scripts/export_abi.py` | Generates `frontend/abi/*.json` (ModuleFactory, NeuromModule, Roles) from Solidity. Supports `--check` and `--out`. |
 | `script/Deploy.s.sol` | Deploys Roles, and the broadcasting account holds ADMIN and UPGRADER. Deploys the ModuleFactory implementation and its FactoryProxy, initialised in the same transaction. Then deploys one version of each engine id, adds it and sets it latest. Returns every address. |
 | `script/EngineVersion.s.sol` | `add()`: adds a deployed engine version to the versions of an engine id (new or existing) and sets it latest. `setLatest()`: makes an added version the latest again (see "Adding an engine version"). |
@@ -123,20 +123,24 @@ The calculation in a step is:
 - int8: each word splits into four lane words by row mod 4, and a lane holds the weight + 128.
 - At the end, the offset is removed and the sums shift left by k.
 - Up to 32 rows, the lanes stay on the stack (one int8 word, one or two int16 words). For more rows, the lanes go through memory.
+- A lane holds at most 65535 · Σx at int16 and 255 · Σx at int8, so it stays below 2^32 while Σx ≤ 65537 (int16) or Σx ≤ 16,843,009 (int8). Σx is the sum of the inputs that a map reads.
+- int16: a larger Σx comes only after a tool layer (`result ‖ the layer before`). The engine then splits the inputs into batches of Σx ≤ 65537 and adds their sums. Only the first batch adds the biases. int8 needs no batches, because no shape gets near its bound.
 
 The numerics are equal to the integer executors in `frontend/runtime/`, bit for bit.
 
-`dense-policy` (`DensePolicyEngine`) has a shape of three words:
+`dense-policy` (`DensePolicyEngine`) has a shape of four words:
 
-- `shape[0]`: 32 bits per layer, which hold hidden − 1 or K − 1, D − 1, R − 1, and the tool-layer flag.
-- `shape[1]`:
+- `shape[0]`, `shape[1]`: the layer descriptors, 64 bits per layer. Layer l is at bits [64·(l % 4), 64·(l % 4) + 64) of `shape[l / 4]`.
+  - [0, 16) is hidden − 1 or K − 1, [16, 32) is D − 1, [32, 48) is R − 1, and bit 48 is the tool-layer flag.
+  - Bits 49..63 are zero. A plain layer has zero at [16, 48). The bits above the last layer are zero.
+- `shape[2]`:
   - [0, 8) is the layer count, [8, 16) is ticks, [16, 24) is leakShift.
   - [24, 32) is weightBits (8 or 16), [32, 48) is reset (int16).
   - Layer l has two shifts. The shift of the plain / choice region is at [48 + 10l, 53 + 10l).
   - The shift of the data region of layer l is at [53 + 10l, 58 + 10l), and it is 0 for a plain layer.
   - The shift of the output region is at [128, 133). When the last layer is a tool layer, this shift is 0.
   - Every k ≤ 20. The bits above the last layer and from bit 133 are zero.
-- `shape[2]`: 32 bits per layer, the threshold of a plain layer. The FF threshold is exactly 1, and the LIF threshold is 1..2^31 − 1. The bits for a tool layer and above the last layer are 0.
+- `shape[3]`: 32 bits per layer, the threshold of a plain layer. The FF threshold is exactly 1, and the LIF threshold is 1..2^31 − 1. The bits for a tool layer and above the last layer are 0.
 
 check() has three more refusals:
 
@@ -146,8 +150,8 @@ check() has three more refusals:
 
 The limits on layers and state are:
 
-- A network has 1..8 layers. A plain layer has hidden 1..256.
-- A tool layer has K / D / R 1..256. When the last layer is a tool layer, outputs = R.
+- A network has 1..8 layers. A plain layer has hidden 1..65535.
+- A tool layer has K / D / R 1..65535. When the last layer is a tool layer, outputs = R.
 - The total state is at most 256 (`state`). The state includes the plain LIF neurons and the state width of every tool.
 
 The weight regions are:
@@ -187,11 +191,11 @@ Below, `I[j] = (Σ_i W[j,i]·x[i]) · 2^k + b[j]`.
   - The next layer reads `result ‖ the layer before`. For FF, the part from the layer before is its activations / the bits it read. For LIF, that part is whether each neuron fired at least once in the segment / the segment input.
 - Output: `scores[a] = (Σ_j W[a,j]·x[j]) · 2^k + m·b[a]`. m = 1 for FF, and m = ticks for LIF. x is the activations / spike counts of the last layer.
   - When the last layer is a tool layer, its R result bits are the output, and the scores are +1 / −1.
-  - The action is the first maximum. counts are the activations / spike counts of every plain layer, in layer order.
+  - The action (uint16) is the first maximum. counts are the activations / spike counts of every plain layer, in layer order.
 
 `threshold-layers` (`ThresholdLayersEngine`) has a shape of two words:
 
-- `shape[0]`: `width_l` starts at bit 16·l. l = 0 is the inputs, l = L is the outputs, 1 ≤ L ≤ 8, and each width is 1..256.
+- `shape[0]`: `width_l` starts at bit 16·l. l = 0 is the inputs, l = L is the outputs, 1 ≤ L ≤ 8, and each width is 1..65535.
 - `shape[1]`: [0, 8) is weightBits (8 or 16). The shift k of map l (the map that produces width_{l+1}) is at [8 + 5l, 13 + 5l), with k ≤ 20. The bits above the last map are zero.
 
 Each layer has one region, with `th` in the int16 bias column. An activation is `Σ W·x · 2^k − th ≥ 0`. The values `Σ W·x · 2^k − th` of the last layer are the scores.
@@ -354,12 +358,14 @@ Do the handover in `contracts/`, with the deployer's key. `MULTISIG` is the addr
 
 | Network | weightBits | Deploy (chunk + module, one call) | Redeploy (module only) | forward | step | 63-step game |
 |---|---|---|---|---|---|---|
-| FF 185→32→7 | 8 | 1,996,410 | 337,236 | 91,000 | 116,689 | 3,258,388 |
-| FF 185→32→7 | 16 | 3,295,015 | 337,262 | 91,794 | 117,090 | 3,286,572 |
-| FF 185→64→32→7 | 8 | 3,825,933 | 338,491 | 145,575 | 170,244 | 6,573,514 |
-| FF 185→64→32→7 | 16 | 6,910,465 | 338,517 | 156,403 | 180,372 | 7,168,575 |
+| FF 185→32→7 | 8 | 2,003,125 | 343,950 | 90,549 | 116,239 | 3,167,972 |
+| FF 185→32→7 | 16 | 3,301,729 | 343,976 | 91,406 | 116,731 | 3,202,700 |
+| FF 185→64→32→7 | 8 | 3,832,660 | 345,219 | 145,892 | 170,562 | 6,410,525 |
+| FF 185→64→32→7 | 16 | 6,917,192 | 345,245 | 151,690 | 176,164 | 6,740,257 |
 
 int8 makes the chunk about half the size. In compute, one int8 column word splits into four lane words by row mod 4. This is about the same work as the four lane words from two int16 words. Thus up to 32 rows, a game costs about the same at both widths. Wider layers are slightly cheaper at int8, because int8 reads fewer words.
+
+`testDenseFeedforward1020x300x300Int8` / `Int16` measure a wide network: FF 1020 → 300 → 300, 437 ones per input, one cold call from a separate contract. One forward costs 2,029,018 at int8 and 2,472,908 at int16. One step costs 2,034,713 and 2,478,603. The weights are 4 chunks at int8 and 8 chunks at int16, and the engine copies all of them into memory for each call.
 
 A single step transaction pays for some cold account accesses: the engine version, the module implementation and the chunk, 10,100 each on Monad. A game of many steps in one transaction pays for them once.
 
@@ -371,8 +377,6 @@ The differences between the two chains come from the Monad price rules ([Opcode 
 
 - A cold account access costs 10,100 on Monad and 2,600 on Ethereum. The first write of a fresh storage slot in a page costs 27,900 on Monad and 22,100 on Ethereum. Thus a redeploy (module only) and a single step cost more on Monad.
 - Memory expansion is linear on Monad and quadratic on Ethereum. Thus calls that use much memory cost less on Monad, for example a 63-step game or a very large network (see the root README).
-
-A comparison with `hardfork = "monad:MonadNine"` (before MIP-8) gives the effect of MIP-8. From MonadNine to MonadTen, a deploy costs 16,400–16,500 gas less, and a redeploy costs 8,400 gas less. forward, step and the game do not change.
 
 ### Benchmarks
 

@@ -9,8 +9,8 @@ export type Problem = { node: string; port?: string; wire?: string; message: str
 
 /** frontend/core/graph.js ModuleGraph. */
 export interface GraphJSON { format: string; nodes: GraphNode[]; wires: Wire[]; groups: Group[] }
-export interface NodeSpec { id?: string; kind: string; title?: string; x?: number; y?: number; config?: Record<string, unknown>; uiSize?: { w?: number; h?: number } | null; uiCollapsed?: boolean; uiFolded?: string[] }
-export interface GroupSpec { id?: string; title?: string; members?: string[]; expose?: { node: string; port: string }[]; template?: { id: string; revision: number } | null; collapsed?: boolean; loop?: string | null; columns?: string[][] | null; x?: number; y?: number; w?: number; h?: number }
+interface NodeSpec { id?: string; kind: string; title?: string; x?: number; y?: number; config?: Record<string, unknown>; uiSize?: { w?: number; h?: number } | null; uiCollapsed?: boolean; uiFolded?: string[] }
+interface GroupSpec { id?: string; title?: string; members?: string[]; template?: { id: string; revision: number } | null; collapsed?: boolean; columns?: string[][] | null; x?: number; y?: number; w?: number; h?: number }
 export interface ModuleGraph {
   version: number;
   nodes: Map<string, GraphNode>;
@@ -56,7 +56,7 @@ export interface ModuleGraph {
 }
 /** `uiFolded`: the tool ports whose sub-canvas the network card folds */
 export interface GraphNode { id: string; kind: string; title: string; x: number; y: number; config: Record<string, unknown>; uiSize?: { w?: number; h?: number } | null; uiCollapsed?: boolean; uiFolded?: string[] }
-export type WireKind = 'value' | 'call';
+type WireKind = 'value' | 'call';
 export interface WireSpec { kind: WireKind; from: { node: string; port: string }; to: { node: string; port: string }; id?: string }
 export interface Wire extends WireSpec { id: string }
 /** `loop`: the loop node this group is the box of (its view, and the body itself follows the wires). */
@@ -108,21 +108,18 @@ export interface Workspace {
 
 /** Common session shape (frontend/core/sessions/*): cached snapshot + subscribe, plus kind-specific mutators. Snapshots
  *  are plain data. Bodies narrow them locally. */
-export interface Session<S = Record<string, unknown>> { snapshot(): S; subscribe(fn: (snap: S) => void): () => void; dispose(): void }
+interface Session<S = Record<string, unknown>> { snapshot(): S; subscribe(fn: (snap: S) => void): () => void; dispose(): void }
 export type Snap = Record<string, unknown>;
-export interface TrainerSession extends Session<Snap> { start(): Promise<string>; cancel(runId?: string): void; recover(): void; remove(runId: string): void }
-export interface CandidatesSession extends Session<Snap> { accept(id: string): void; clearAccepted(): void; preview(id: string | null): void; importArtifact(json: unknown): Promise<unknown>; exportArtifact(id: string): string; remove(id: string): void }
-export interface NetworkSession extends Session<Snap> { select(id: string | null): Promise<unknown>; adopt(id: string): Promise<unknown>; importArtifact(json: unknown): Promise<unknown> }
-export interface EvaluatorSession extends Session<Snap> { run(role?: string): Promise<unknown>; clear(): void }
-export interface ExecutionSession extends Session<Snap> { setEpisode(ep: unknown): void; reset(): void; step(action?: number | null): void; run(interval?: number): void; pause(): void; setInterval(ms: number): void }
-export interface DeploymentSession extends Session<Snap> { bind(artifactId: string | null): void; setChainId(id: unknown): void; setLabel(label: string): void; setEpisode(ep: unknown): void; setInputBits(bits: number[]): void; connect(): Promise<unknown>; plan(): Promise<unknown>; deploy(): Promise<unknown>; verify(): Promise<unknown>; readState(): Promise<unknown>; preview(): Promise<unknown>; reset(): Promise<unknown>; step(action?: number): Promise<unknown>; infer(): Promise<unknown>; refresh(): Promise<unknown> }
-export interface DatasetSession extends Session<Snap> { import(text: string, opts?: { format?: 'auto' | 'csv' | 'json'; name?: string | null }): Promise<unknown>; preview(n?: number): unknown }
-export interface SessionMap { trainer: TrainerSession; candidates: CandidatesSession; network: NetworkSession; evaluator: EvaluatorSession; execution: ExecutionSession; deployment: DeploymentSession; dataset: DatasetSession }
+interface TrainerSession extends Session<Snap> { start(): Promise<string>; cancel(runId?: string): void; recover(): void; remove(runId: string): void }
+interface CandidatesSession extends Session<Snap> { accept(id: string): void; clearAccepted(): void; preview(id: string | null): void; importArtifact(json: unknown): Promise<unknown>; exportArtifact(id: string): string; remove(id: string): void }
+interface NetworkSession extends Session<Snap> { select(id: string | null): Promise<unknown>; adopt(id: string): Promise<unknown>; importArtifact(json: unknown): Promise<unknown> }
+interface EvaluatorSession extends Session<Snap> { run(role?: string): Promise<unknown>; clear(): void }
+interface ExecutionSession extends Session<Snap> { setEpisode(ep: unknown): void; reset(): void; step(action?: number | null): void; run(interval?: number): void; pause(): void; setInterval(ms: number): void }
+interface DeploymentSession extends Session<Snap> { bind(artifactId: string | null): void; setChainId(id: unknown): void; setLabel(label: string): void; setEpisode(ep: unknown): void; setInputBits(bits: number[]): void; connect(): Promise<unknown>; plan(): Promise<unknown>; deploy(): Promise<unknown>; verify(): Promise<unknown>; readState(): Promise<unknown>; preview(): Promise<unknown>; reset(): Promise<unknown>; step(action?: number): Promise<unknown>; infer(): Promise<unknown>; refresh(): Promise<unknown> }
+interface DatasetSession extends Session<Snap> { import(text: string, opts?: { format?: 'auto' | 'csv' | 'json'; name?: string | null }): Promise<unknown>; preview(n?: number): unknown }
+interface SessionMap { trainer: TrainerSession; candidates: CandidatesSession; network: NetworkSession; evaluator: EvaluatorSession; execution: ExecutionSession; deployment: DeploymentSession; dataset: DatasetSession }
 export type SessionKind = keyof SessionMap;
 export type SessionOf<K extends SessionKind> = SessionMap[K];
-
-/** frontend/core/sessions/dataset.js createDatasetStore(). */
-export interface DatasetStore { put(id: string, value: unknown): Promise<void>; get(id: string): Promise<unknown>; remove(id: string): Promise<void>; ids(): Promise<string[]> }
 
 /** Python Workspace client (frontend/core/sessions/workspace-client.js). */
 export interface WorkspaceClient { connect(): Promise<unknown>; submit(run: unknown): Promise<unknown>; list(): Promise<unknown[]>; get(id: string): Promise<unknown>; cancel(id: string): Promise<unknown>; postArtifact(a: unknown): Promise<unknown>; follow(id: string, onUpdate: (snap: unknown) => void, opts?: unknown): { promise: Promise<unknown>; stop(): void } }
@@ -135,13 +132,17 @@ export interface Workbench {
   resolution(): Resolution;
   /** Created lazily per (kind, node), and disposed when the node is removed. Throws if the node is not of that kind. */
   session<K extends SessionKind>(kind: K, nodeId: string): SessionOf<K>;
-  datasets: DatasetStore;
   /** History-recorded mutation. Bodies wrap every graph mutation (config, title) in this. */
   edit(label: string, fn: () => void): void;
   status(message: string, tone?: 'ok' | 'warn' | 'bad'): void;
   python: { client: WorkspaceClient | null; connected: Ref<boolean> };
   /** the latest request to show an export's code (EditorRuntime.revealCode). A code body owning `node` answers it. */
   reveal: ShallowRef<{ node: string; name: string; seq: number } | null>;
+  /** 「运行到这里」 (ADR 0023, core/sessions/run-chain.js): the module that the chain runs for and its step now (null
+   *  when no chain runs). `run` starts a chain. It reports through `status` and never throws. */
+  chain: { target: ShallowRef<string | null>; step: ShallowRef<string | null>; run(nodeId: string): void };
+  /** the latest request of the chain to play a script module. The script body of `node` answers it. */
+  play: ShallowRef<{ node: string; seq: number } | null>;
 }
 
 export const WORKBENCH: InjectionKey<Workbench> = Symbol('neurom.workbench');

@@ -5,12 +5,12 @@
 // is declared `loop`: net.structure → trainer → candidates → net.weights is the normal cycle (an earlier run's accepted
 // weights). `structure` is the handle a trainer trains and `scores` is what the deployed module computes on chain.
 // A dense network's `layers` may hold tool layers `{ tools: <port>, data? }` (ADR 0010). Each declares the call input
-// `<port>`, which takes any number of tools `(bits) → bits`: a code export, or a bits readout's `run` (a frozen network
-// of any kind, its own tool layers included, ADR 0014). Per tool layer the kind publishes `{ K, D, R }` in its refs
-// (`tools.<port>`). K is the tools in wire order. D is the data bits: `data` when declared, else the widest network
-// tool's input. Code tools are typed at bits[D]. R is the result bits (the widest tool result). When the last entry is
-// a tool layer its R result bits are the network's output: the readout must be a bits readout of width R. Tools nest
-// at most MAX_TOOL_DEPTH deep (toolDepth), the Factory's limit.
+// `<port>`, which takes any number of tools `(bits) → bits`: a code export, or a readout's `run` (bits or argmax, ADR
+// 0019; a frozen network of any kind, its own tool layers included, ADR 0014). Per tool layer the kind publishes
+// `{ K, D, R }` in its refs (`tools.<port>`). K is the tools in wire order. D is the data bits: `data` when declared,
+// else the widest network tool's input. Code tools are typed at bits[D]. R is the result bits (the widest tool result).
+// When the last entry is a tool layer its R result bits are the network's output: the readout must be a bits readout
+// of width R. Tools nest at most MAX_TOOL_DEPTH deep (toolDepth), the Factory's limit.
 import { registerKind } from '../registry.js';
 import { valueIn, valueOut, callIn } from './common.js';
 import { vector, bits, binaryVector, handle, MAX_BITS } from '../types.js';
@@ -21,12 +21,13 @@ import { regionBytes, WEIGHT_BITS } from '../../runtime/dense-policy.js';
 import { t } from '../../i18n.js';
 
 export const ENGINES = Object.freeze(['dense-policy', 'threshold-layers']);
-/** On-chain limits: ports (ModuleFactory), layer widths / count, ticks, leak shift (DensePolicyEngine / ThresholdLayersEngine). */
-export const MAX_PORT = 256, MAX_WIDTH = 256, MAX_LAYERS = 8, MAX_TICKS = 64, MAX_LEAK_SHIFT = 10;
+/** On-chain limits: ports (ModuleFactory), layer widths / count, ticks (DensePolicyEngine / ThresholdLayersEngine).
+ *  Ports and layer widths share the one bit-width limit MAX_BITS (ADR 0021). */
+export const MAX_PORT = MAX_BITS, MAX_WIDTH = MAX_BITS, MAX_LAYERS = 8, MAX_TICKS = 64;
 /** ModuleFactory.MAX_TOOL_DEPTH: how deep tools may nest (toolDepth), so a step's gas stays bounded. */
 export const MAX_TOOL_DEPTH = 3;
 /** The most int32 a module keeps per session (DensePolicyEngine MAX_STATE): its own LIF potentials and its tools' states. */
-const MAX_STATE = 256;
+export const MAX_STATE = 256;
 const PORT_NAME = '^[A-Za-z_][A-Za-z0-9_]*$';
 /** Input ports a tool layer cannot take the name of. */
 const RESERVED_PORTS = new Set(['in', 'weights']);
@@ -99,12 +100,13 @@ export function moduleStateWidth(spec, tools = []) {
 
 /**
  * Why a derived spec (core/store.js artifactSpec, or networkStructure) cannot be deployed under the on-chain limits,
- * or null when the Factory would accept it. It mirrors ModuleFactory.deploy and the engines' checks. Ports: 1..256. Dense:
- * 1..8 layers, plain hidden and tool K / D / R 1..256, at most 256 int32 of state per session (its LIF potentials and
+ * or null when the Factory would accept it. It mirrors ModuleFactory.deploy and the engines' checks. Ports: 1..65535.
+ * Dense: 1..8 layers, plain hidden and tool K / D / R 1..65535, at most 256 int32 of state per session (its LIF potentials and
  * its tools' states), tools nested at most MAX_TOOL_DEPTH deep. Threshold: layers ≤ 8 including the output layer. The
  * weights have no size limit: they span as many chunks as they need. `spec.layers` are the hidden layers (dense
  * `{ hidden }` / `{ tools, K, D, R }` entries, threshold widths). `tools` = the trained network's Tool entries (core/
- * loop.js trainedTools): a code tool cannot be deployed, a network tool must be deployable itself with its own tools.
+ * loop.js trainedTools): a code tool cannot be deployed. A network tool must be deployable itself with its own tools,
+ * and read through a bits readout: on chain a tool layer reads its tool's scores as bits (score ≥ 0), not as argmax.
  */
 export function deploymentProblem(spec, tools = []) {
   const port = (v, name) => Number.isInteger(v) && v >= 1 && v <= MAX_PORT ? null : t('链上模块 {name} 必须是 1..{max} 位，当前 {value}', { name, max: MAX_PORT, value: v });
@@ -124,6 +126,7 @@ export function deploymentProblem(spec, tools = []) {
     if (state > MAX_STATE) return t('链上模块每个会话的状态共 {value} 个 int32（自己的 LIF 电位加工具的状态），超过上限 {max}', { value: state, max: MAX_STATE });
     for (const [k, tool] of tools.entries()) {
       if (tool.kind !== 'net') return t('代码工具不能部署');
+      if (tool.readout?.mode === 'argmax') return t('工具 {index}：argmax 读出的网络工具不能部署（链上工具层按位读出工具的分数）', { index: k + 1 });
       const own = deploymentProblem(tool.structure, ownTools(tool));
       if (own) return t('工具 {index}：{problem}', { index: k + 1, problem: own });
     }
@@ -176,7 +179,7 @@ function dataWidth(node, layer, ctx) {
   const widths = ctx.callWidths(node.id, layer.tools);
   return widths.length ? Math.max(...widths) : null;
 }
-/** Why network `net` cannot be called as a tool by network `caller` (a bits readout's `run`, kinds/readout.js). `title`
+/** Why network `net` cannot be called as a tool by network `caller` (a readout's `run`, kinds/readout.js). `title`
  *  names the tool. A tool is a frozen network of any kind: not in training, not its caller. '' when it can. */
 export function toolNetworkProblem(net, caller, title, ctx) {
   if (net.id === caller) return t('网络不能把自己当工具');
@@ -184,7 +187,7 @@ export function toolNetworkProblem(net, caller, title, ctx) {
   return '';
 }
 /** How deep network `node`'s tools nest on the canvas (ModuleFactory depthOf): 0 without tool layers, else 1 + its
- *  deepest network tool's. A network tool is the network behind a bits readout whose `run` is wired into a tool port. A
+ *  deepest network tool's. A network tool is the network behind a readout whose `run` is wired into a tool port. A
  *  code tool counts 0. It stops counting past MAX_TOOL_DEPTH + 1 (enough to report it). */
 function toolDepth(node, ctx, level = 0) {
   const layers = toolLayers(node.config);
@@ -220,9 +223,9 @@ registerKind({
       engine: { type: 'enum', values: ENGINES }, kind: { type: 'enum', values: ['feedforward', 'lif'] }, inputs: { type: 'int', min: 1, max: MAX_BITS },
       weightBits: { type: 'enum', values: WEIGHT_BITS },
       layers: { type: 'list', min: 1, max: 8, of: { type: 'oneOf', of: [
-        { type: 'int', min: 1, max: 256 },
+        { type: 'int', min: 1, max: MAX_WIDTH },
         { type: 'object', fields: {
-          hidden: { type: 'int', min: 1, max: 256, optional: true }, tools: { type: 'string', pattern: PORT_NAME, max: 32, optional: true },
+          hidden: { type: 'int', min: 1, max: MAX_WIDTH, optional: true }, tools: { type: 'string', pattern: PORT_NAME, max: 32, optional: true },
           data: { type: 'int', min: 1, max: MAX_BITS, optional: true },
         } },
       ] } },

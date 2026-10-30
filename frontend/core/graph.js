@@ -134,7 +134,7 @@ export class ModuleGraph {
       if (problem) throw new GraphError(problem, { node: target.id, port: to.port });
     }
     if (!inp.loop && this._reaches(target.id, source.id, kind, res)) {
-      throw new GraphError(kind === 'call' ? t('调用线不能形成环路（禁止递归）') : t('值线不能形成环路（只有回路的 action 与网络的 weights 可以闭合回路）'));
+      throw new GraphError(kind === 'call' ? t('调用线不能形成环路（禁止递归）') : t('值线不能形成环路（只有回路的 action、网络的 weights 与训练器的 init 可以闭合回路）'));
     }
     return { id, kind, from: { node: from.node, port: from.port }, to: { node: to.node, port: to.port } };
   }
@@ -159,12 +159,12 @@ export class ModuleGraph {
   group(id) { const group = this.groups.get(id); if (!group) throw new GraphError(t('组合不存在：{id}', { id: String(id) })); return group; }
   parentOf(id) { const p = this._parent.get(id); return p ? this.groups.get(p) : null; }
 
-  createGroup({ title = '', members = [], expose = [], template = null, loop = null, columns = null, collapsed = true, x = 0, y = 0, w = 320, h = 200, id = freshId('g') }) {
+  createGroup({ title = '', members = [], template = null, columns = null, collapsed = true, x = 0, y = 0, w = 320, h = 200, id = freshId('g') }) {
     if (this.nodes.has(id) || this.groups.has(id)) throw new GraphError(t('id 已存在：{id}', { id }));
     if (template !== null && !(plain(template) && typeof template.id === 'string' && Number.isInteger(template.revision))) throw new GraphError(t('组合的 template 必须是 {id, revision}'));
     const group = { id, title: String(title), template: template ? { id: template.id, revision: template.revision } : null, loop: null, prefab: null, columns: checkColumns(columns), members: [], expose: [], collapsed: collapsed === true, x, y, w, h };
     this.groups.set(id, group);
-    try { for (const member of members) this.addToGroup(id, member); this.setExpose(id, expose); this._setLoop(group, loop); }
+    try { for (const member of members) this.addToGroup(id, member); }
     catch (error) { for (const member of group.members) this._parent.delete(member); this.groups.delete(id); throw error; }
     this._changed();
     return group;

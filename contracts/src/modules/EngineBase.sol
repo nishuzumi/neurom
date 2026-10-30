@@ -13,11 +13,17 @@ import "./INeuromModule.sol";
 ///         A region with shift k computes z[j] = (Σ_i W[j,i]·x[i]) · 2^k + factor·b[j].
 abstract contract EngineBase is IEngine {
     /// @notice A vector that a layer reads: `width` entries. `nz` lists only the nonzero entries, each as
-    ///         index | value << 16, in no specified order. A layer pays only for its active inputs.
+    ///         index | value << 32, in no specified order. `sum` is the sum of all values. A layer pays only for its
+    ///         active inputs. The index has 32 bits because a tool layer adds R entries to the width it reads, so a
+    ///         width can be above 65535.
     struct Vec {
         uint256 width;
+        uint256 sum;
         uint256[] nz;
     }
+
+    /// @dev The largest Σx of one int16 pass: a lane holds at most 65535 · Σx, which is below 2^32 while Σx ≤ 65537.
+    uint256 private constant MAX_SUM16 = 65537;
 
     /// @dev 0x8000 in every 16-bit position: XOR turns an int16 w into the unsigned w + 32768.
     uint256 private constant FLIP = 0x8000800080008000800080008000800080008000800080008000800080008000;
@@ -59,18 +65,19 @@ abstract contract EngineBase is IEngine {
 
     /// @dev The input (one 0 / 1 byte per bit) as a Vec. Reverts "obs" on a wrong length and "bit" on another byte.
     ///      Reads 32 input bytes per word. A zero word costs nothing more. A nonzero word becomes 32 bits, and the
-    ///      function visits only its set bits.
+    ///      function visits only its set bits. The list takes memory only for the set bits.
     function _input(bytes calldata input, uint256 n) internal pure returns (Vec memory v) {
         require(input.length == n, "obs");
         v.width = n;
-        uint256[] memory nz = new uint256[](n);
+        uint256[] memory nz;
+        uint256 count;
         bool bad;
         assembly ("memory-safe") {
+            nz := mload(0x40)
             let ones := not(ONES)
             let gather := GATHER
             let table := DEBRUIJN
             let pn := add(nz, 0x20)
-            let count := 0
             for { let w := 0 } lt(shl(5, w), n) { w := add(w, 1) } {
                 let word := calldataload(add(input.offset, shl(5, w)))
                 let rem := sub(n, shl(5, w))
@@ -86,15 +93,17 @@ abstract contract EngineBase is IEngine {
                     for { } mask { } {
                         let p := and(mask, sub(0, mask))
                         let bit := byte(shr(27, and(mul(p, 0x077CB531), 0xffffffff)), table)
-                        mstore(add(pn, shl(5, count)), or(add(first, sub(31, bit)), 0x10000))
+                        mstore(add(pn, shl(5, count)), or(add(first, sub(31, bit)), 0x100000000))
                         count := add(count, 1)
                         mask := xor(mask, p)
                     }
                 }
             }
             mstore(nz, count)
+            mstore(0x40, add(pn, shl(5, count)))
         }
         require(!bad, "bit");
+        v.sum = count;
         v.nz = nz;
     }
 
@@ -102,17 +111,21 @@ abstract contract EngineBase is IEngine {
     function _vec(uint256[] memory x) internal pure returns (Vec memory v) {
         uint256 n = x.length;
         v.width = n;
-        uint256[] memory nz = new uint256[](n);
+        uint256[] memory nz;
+        uint256 sum;
         assembly ("memory-safe") {
+            nz := mload(0x40)
             let px := add(x, 0x20)
             let pn := add(nz, 0x20)
             let count := 0
             for { let i := 0 } lt(i, n) { i := add(i, 1) } {
                 let xi := mload(add(px, shl(5, i)))
-                if xi { mstore(add(pn, shl(5, count)), or(i, shl(16, xi))) count := add(count, 1) }
+                if xi { mstore(add(pn, shl(5, count)), or(i, shl(32, xi))) count := add(count, 1) sum := add(sum, xi) }
             }
             mstore(nz, count)
+            mstore(0x40, add(pn, shl(5, count)))
         }
+        v.sum = sum;
         v.nz = nz;
     }
 
@@ -120,27 +133,31 @@ abstract contract EngineBase is IEngine {
     function _fire(int256[] memory z, int256 min, uint8[] memory counts, uint256 at) internal pure returns (Vec memory v) {
         uint256 n = z.length;
         v.width = n;
-        uint256[] memory nz = new uint256[](n);
+        uint256[] memory nz;
+        uint256 fired;
         assembly ("memory-safe") {
+            nz := mload(0x40)
             let pz := add(z, 0x20)
             let pn := add(nz, 0x20)
             let pk := add(add(counts, 0x20), shl(5, at))
-            let fired := 0
             for { let j := 0 } lt(j, n) { j := add(j, 1) } {
                 if iszero(slt(mload(add(pz, shl(5, j))), min)) {
-                    mstore(add(pn, shl(5, fired)), or(j, 0x10000))
+                    mstore(add(pn, shl(5, fired)), or(j, 0x100000000))
                     fired := add(fired, 1)
                     mstore(add(pk, shl(5, j)), 1)
                 }
             }
             mstore(nz, fired)
+            mstore(0x40, add(pn, shl(5, fired)))
         }
+        v.sum = fired;
         v.nz = nz;
     }
 
     /// @dev `a` ‖ `b`: b's indices move up by a.width.
     function _concat(Vec memory a, Vec memory b) internal pure returns (Vec memory v) {
         v.width = a.width + b.width;
+        v.sum = a.sum + b.sum;
         uint256 na = a.nz.length;
         uint256 nb = b.nz.length;
         v.nz = new uint256[](na + nb);
@@ -153,10 +170,13 @@ abstract contract EngineBase is IEngine {
     ///      x.width columns, weights of `bits` = 8 or 16). Each nonzero x[i] adds its whole column in one step into
     ///      32-bit lanes. The lanes hold the weight made unsigned, scaled by x[i]. The offset is removed at the end:
     ///        int16: a column word spreads into two words of eight lanes (even rows, odd rows) that hold w + 32768.
-    ///               The offset is 32768·Σx. Lanes stay below 2^32 while Σx·65535 does (Σx ≤ 2048 bits or 256 spike
-    ///               counts of at most 64 each). Up to 32 rows (one or two words per column), the lanes stay on the stack.
+    ///               The offset is 32768·Σx. Lanes stay below 2^32 while Σx·65535 does, that is Σx ≤ 65537. A larger
+    ///               Σx (only after a tool layer) goes in batches of Σx ≤ 65537, and their sums are added. Up to 32
+    ///               rows (one or two words per column), the lanes stay on the stack.
     ///        int8:  a column word spreads into four words of eight lanes (rows ≡ 0, 1, 2, 3 mod 4) that hold w + 128.
-    ///               The offset is 128·Σx. Up to 32 rows (one word per column), the lanes stay on the stack.
+    ///               The offset is 128·Σx. Lanes stay below 2^32 while Σx·255 does, that is Σx ≤ 16843009. No shape
+    ///               gets near it: Σx ≤ 9 · 65535 bits, or 256 · 64 spike counts. Up to 32 rows (one word per column),
+    ///               the lanes stay on the stack.
     function _affine(bytes memory blob, uint256 at, uint256 rows, Vec memory x, int256 factor, uint256 bits, uint256 k) internal pure returns (int256[] memory) {
         uint256 base;
         assembly ("memory-safe") { base := add(add(blob, 0x20), at) }
@@ -170,11 +190,39 @@ abstract contract EngineBase is IEngine {
         return bits == 8 ? _affine8(base, rows, regionRows, x, factor, k) : _affine16(base, rows, regionRows, x, factor, k);
     }
 
-    /// @dev _affineRows over int16 weights, the region at memory `base`.
+    /// @dev _affineRows over int16 weights, the region at memory `base`. One pass when Σx ≤ MAX_SUM16. Else the entries
+    ///      go in batches whose Σx is at most MAX_SUM16 (each entry is a bit or a spike count, so it fits alone, and
+    ///      "sum" reverts if one does not). Only the first batch adds the bias.
     function _affine16(uint256 base, uint256 rows, uint256 regionRows, Vec memory x, int256 factor, uint256 k) private pure returns (int256[] memory out) {
-        out = new int256[](rows);
-        uint256 cols = x.width;
         uint256[] memory nz = x.nz;
+        uint256 from;
+        uint256 end;
+        assembly ("memory-safe") {
+            from := add(nz, 0x20)
+            end := add(from, shl(5, mload(nz)))
+        }
+        if (x.sum <= MAX_SUM16) return _pass16(base, rows, regionRows, x.width, from, end, factor, k);
+        out = new int256[](rows);
+        while (from < end) {
+            uint256 to = from;
+            uint256 sum;
+            for (; to < end; to += 32) {
+                uint256 xi;
+                assembly ("memory-safe") { xi := shr(32, mload(to)) }
+                if (sum + xi > MAX_SUM16) break;
+                sum += xi;
+            }
+            require(to > from, "sum");
+            int256[] memory part = _pass16(base, rows, regionRows, x.width, from, to, factor, k);
+            for (uint256 j; j < rows; j++) out[j] += part[j];
+            factor = 0;
+            from = to;
+        }
+    }
+
+    /// @dev One int16 pass over the entries in memory [pnz, end), whose Σx is at most MAX_SUM16.
+    function _pass16(uint256 base, uint256 rows, uint256 regionRows, uint256 cols, uint256 pnz, uint256 end, int256 factor, uint256 k) private pure returns (int256[] memory out) {
+        out = new int256[](rows);
         assembly ("memory-safe") {
             /// rows [16c, 16c + n) of `out` from one column word's lanes (`ev` even rows, `od` odd rows) and bias word `bw`
             function emit(ev, od, bw, n, po, off, f, s) {
@@ -187,24 +235,24 @@ abstract contract EngineBase is IEngine {
                 }
                 if and(n, 1) { mstore(po, add(shl(s, sub(and(shr(sh, ev), 0xffffffff), off)), mul(f, signextend(1, shr(add(sh, 16), bw))))) }
             }
-            /// the lane words of one-word columns over the entries [e, end), and Σx
-            function one(base_, e, end) -> a0, a1, sum {
-                for { } lt(e, end) { e := add(e, 0x20) } {
+            /// the lane words of one-word columns over the entries [e, end_), and Σx
+            function one(base_, e, end_) -> a0, a1, sum {
+                for { } lt(e, end_) { e := add(e, 0x20) } {
                     let entry := mload(e)
-                    let xi := shr(16, entry)
+                    let xi := shr(32, entry)
                     sum := add(sum, xi)
-                    let v := xor(mload(add(base_, shl(5, and(entry, 0xffff)))), FLIP)
+                    let v := xor(mload(add(base_, shl(5, and(entry, 0xffffffff)))), FLIP)
                     a0 := add(a0, mul(and(shr(16, v), LO), xi))
                     a1 := add(a1, mul(and(v, LO), xi))
                 }
             }
-            /// the lane words of two-word columns over the entries [e, end), and Σx
-            function two(base_, e, end) -> a0, a1, a2, a3, sum {
-                for { } lt(e, end) { e := add(e, 0x20) } {
+            /// the lane words of two-word columns over the entries [e, end_), and Σx
+            function two(base_, e, end_) -> a0, a1, a2, a3, sum {
+                for { } lt(e, end_) { e := add(e, 0x20) } {
                     let entry := mload(e)
-                    let xi := shr(16, entry)
+                    let xi := shr(32, entry)
                     sum := add(sum, xi)
-                    let col := add(base_, shl(6, and(entry, 0xffff)))
+                    let col := add(base_, shl(6, and(entry, 0xffffffff)))
                     let v := xor(mload(col), FLIP)
                     a0 := add(a0, mul(and(shr(16, v), LO), xi))
                     a1 := add(a1, mul(and(v, LO), xi))
@@ -215,8 +263,6 @@ abstract contract EngineBase is IEngine {
             }
             let words := shr(4, add(rows, 15))
             let stride := shr(4, add(regionRows, 15))
-            let pnz := add(nz, 0x20)
-            let end := add(pnz, shl(5, mload(nz)))
             let po := add(out, 0x20)
             switch mul(words, eq(words, stride))                     // the stack paths read whole columns, else default
             case 1 {
@@ -238,9 +284,9 @@ abstract contract EngineBase is IEngine {
                 let sum := 0
                 for { let e := pnz } lt(e, end) { e := add(e, 0x20) } {
                     let entry := mload(e)
-                    let xi := shr(16, entry)
+                    let xi := shr(32, entry)
                     sum := add(sum, xi)
-                    let col := add(base, mul(and(entry, 0xffff), colBytes))
+                    let col := add(base, mul(and(entry, 0xffffffff), colBytes))
                     for { let c := 0 } lt(c, words) { c := add(c, 1) } {
                         let v := xor(mload(add(col, shl(5, c))), FLIP)
                         let pa := add(pacc, shl(6, c))
@@ -261,11 +307,21 @@ abstract contract EngineBase is IEngine {
     }
 
     /// @dev _affineRows over int8 weights, the region at memory `base`: 32 rows per column word, the bias column still
-    ///      int16 (two words per 32 rows).
-    function _affine8(uint256 base, uint256 rows, uint256 regionRows, Vec memory x, int256 factor, uint256 k) private pure returns (int256[] memory out) {
-        out = new int256[](rows);
-        uint256 cols = x.width;
+    ///      int16 (two words per 32 rows). One pass always: Σx stays far below 16843009 (see _affine).
+    function _affine8(uint256 base, uint256 rows, uint256 regionRows, Vec memory x, int256 factor, uint256 k) private pure returns (int256[] memory) {
         uint256[] memory nz = x.nz;
+        uint256 from;
+        uint256 end;
+        assembly ("memory-safe") {
+            from := add(nz, 0x20)
+            end := add(from, shl(5, mload(nz)))
+        }
+        return _pass8(base, rows, regionRows, x.width, from, end, factor, k);
+    }
+
+    /// @dev One int8 pass over the entries in memory [pnz, end).
+    function _pass8(uint256 base, uint256 rows, uint256 regionRows, uint256 cols, uint256 pnz, uint256 end, int256 factor, uint256 k) private pure returns (int256[] memory out) {
+        out = new int256[](rows);
         assembly ("memory-safe") {
             /// rows [32c, 32c + n) of `out` from one column word's lanes (`a0`..`a3`: rows ≡ 0..3 mod 4) and the bias
             /// words at `pb` (rows 32c .. 32c + 15, then 32c + 16 .. 32c + 31)
@@ -290,13 +346,13 @@ abstract contract EngineBase is IEngine {
                     if gt(and(n, 3), 2) { mstore(add(po, 0x40), add(shl(s, sub(and(shr(sh, a2), 0xffffffff), off)), mul(f, signextend(1, shr(sub(bs, 32), bw))))) }
                 }
             }
-            /// the four lane words of one-word columns over the entries [e, end), and Σx
-            function one(base_, e, end) -> a0, a1, a2, a3, sum {
-                for { } lt(e, end) { e := add(e, 0x20) } {
+            /// the four lane words of one-word columns over the entries [e, end_), and Σx
+            function one(base_, e, end_) -> a0, a1, a2, a3, sum {
+                for { } lt(e, end_) { e := add(e, 0x20) } {
                     let entry := mload(e)
-                    let xi := shr(16, entry)
+                    let xi := shr(32, entry)
                     sum := add(sum, xi)
-                    let v := xor(mload(add(base_, shl(5, and(entry, 0xffff)))), FLIP8)
+                    let v := xor(mload(add(base_, shl(5, and(entry, 0xffffffff)))), FLIP8)
                     a0 := add(a0, mul(and(shr(24, v), LO8), xi))
                     a1 := add(a1, mul(and(shr(16, v), LO8), xi))
                     a2 := add(a2, mul(and(shr(8, v), LO8), xi))
@@ -305,8 +361,6 @@ abstract contract EngineBase is IEngine {
             }
             let words := shr(5, add(rows, 31))
             let stride := shr(5, add(regionRows, 31))
-            let pnz := add(nz, 0x20)
-            let end := add(pnz, shl(5, mload(nz)))
             switch mul(words, eq(words, stride))                     // the stack path reads whole columns, else default
             case 1 {
                 let a0, a1, a2, a3, sum := one(base, pnz, end)
@@ -320,9 +374,9 @@ abstract contract EngineBase is IEngine {
                 let sum := 0
                 for { let e := pnz } lt(e, end) { e := add(e, 0x20) } {
                     let entry := mload(e)
-                    let xi := shr(16, entry)
+                    let xi := shr(32, entry)
                     sum := add(sum, xi)
-                    let col := add(base, mul(and(entry, 0xffff), colBytes))
+                    let col := add(base, mul(and(entry, 0xffffffff), colBytes))
                     for { let c := 0 } lt(c, words) { c := add(c, 1) } {
                         let v := xor(mload(add(col, shl(5, c))), FLIP8)
                         let pa := add(pacc, shl(7, c))
@@ -345,9 +399,9 @@ abstract contract EngineBase is IEngine {
     }
 
     /// @dev First maximum.
-    function _argmax(int256[] memory s) internal pure returns (uint8) {
+    function _argmax(int256[] memory s) internal pure returns (uint16) {
         uint256 best;
         unchecked { for (uint256 a = 1; a < s.length; a++) if (s[a] > s[best]) best = a; }
-        return uint8(best);
+        return uint16(best);
     }
 }

@@ -1,16 +1,14 @@
-// frontend/build.mjs — single-file distribution. vite builds each page (with the same vite.config.ts as `npm run dev`).
+// frontend/build.mjs — single-file distribution. vite builds the page (with the same vite.config.ts as `npm run dev`).
 // Then this script puts every emitted chunk / stylesheet / asset back into the HTML. So the result works from file://
 // with no sibling files, ethers included.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
 import { build } from 'vite';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const configFile = resolve(here, '..', 'vite.config.ts');
-const { values } = parseArgs({ options: { out: { type: 'string' } } });
-const out = values.out ? resolve(values.out) : resolve(here, 'dist');
+const out = resolve(here, 'dist');
 const PAGE = 'index.html', OUTPUT = 'neurom-studio.html';
 const WORKER_GLOBAL = '__NEUROM_WORKER_SOURCE__';
 

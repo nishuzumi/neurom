@@ -119,10 +119,10 @@ export function createMemoryDatasetStore({ now = Date.now } = {}) {
 }
 
 /** IndexedDB-backed store (object store `datasets`, key = id, value = `{ id, columns:{name:number[]}, hash, rows, writtenAt }`). */
-function createIndexedDatasetStore(indexedDB = globalThis.indexedDB, name = 'neurom-datasets', now = Date.now) {
-  if (!indexedDB) return createMemoryDatasetStore({ now });
+function createIndexedDatasetStore() {
+  const indexedDB = globalThis.indexedDB, now = Date.now;
   const open = () => new Promise((resolve, reject) => {
-    const req = indexedDB.open(name, 1);
+    const req = indexedDB.open('neurom-datasets', 1);
     req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('datasets')) req.result.createObjectStore('datasets', { keyPath: 'id' }); };
     req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
   });
@@ -145,7 +145,7 @@ function createIndexedDatasetStore(indexedDB = globalThis.indexedDB, name = 'neu
   };
 }
 
-export const createDatasetStore = (options = {}) => (options.indexedDB ?? globalThis.indexedDB ? createIndexedDatasetStore(options.indexedDB, options.name, options.now) : createMemoryDatasetStore({ now: options.now }));
+export const createDatasetStore = () => (globalThis.indexedDB ? createIndexedDatasetStore() : createMemoryDatasetStore());
 
 /**
  * Import `text` into the dataset node `nodeId`. Rows go to `store` under the content id `ds-<hash>`. Metadata goes to

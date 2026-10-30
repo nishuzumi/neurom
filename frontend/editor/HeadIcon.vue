@@ -3,7 +3,7 @@
 // their ink at different heights (math axis, baseline, a fallback font's metrics), so side by side they never align.
 // These icons share one 24×24 stroked viewBox, geometrically centred, and sit on the same line in every font.
 // The gear path is Lucide's `settings` (ISC licence).
-defineProps<{ name: 'gear' | 'minus' | 'plus' | 'close' }>();
+defineProps<{ name: 'gear' | 'minus' | 'plus' | 'close' | 'play' }>();
 </script>
 
 <template>
@@ -14,6 +14,7 @@ defineProps<{ name: 'gear' | 'minus' | 'plus' | 'close' }>();
     </template>
     <path v-else-if="name === 'minus'" d="M5 12h14" />
     <path v-else-if="name === 'plus'" d="M5 12h14M12 5v14" />
+    <path v-else-if="name === 'play'" d="M8 5.5v13l10.5-6.5z" />
     <path v-else d="M6 6l12 12M18 6 6 18" />
   </svg>
 </template>

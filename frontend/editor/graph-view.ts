@@ -8,6 +8,7 @@ import type { PortSpec } from './wiring';
 import { typeName } from '../core/types.js';
 import { kindOf } from '../core/registry.js';
 import { loopBody, loopDrivers } from '../core/kinds/loop.js';
+import { roleExports } from '../core/kinds/scenario.js';
 import { moduleOf, docOf } from '../core/kinds/code.js';
 import { partitionEpisodes } from '../core/kinds/partition.js';
 import { envBundle } from '../core/bundle.js';
@@ -22,21 +23,23 @@ export function loopSummary(graph: ModuleGraph, loopId: string): string {
 }
 
 /** What an expanded loop box draws besides its members. All of it comes from the graph:
- *  - which scenario roles the scenario module exports, with their JSDoc (shown on hover)
+ *  - which scenario roles the scenario module exports, each with the export that fills it in this loop (its `roles`
+ *    config) and that export's JSDoc (shown on hover)
  *  - the evaluated `budget` / `actions` as the bundle has them (null while the bundle does not build)
  *  - the input width `I`
  *  - each driver with the partitions it runs the loop on */
 export interface LoopContract {
-  roles: Record<'init' | 'input' | 'step', { present: boolean; doc: string }>;
+  roles: Record<'init' | 'input' | 'step', { present: boolean; name: string; doc: string }>;
   budget: number | null; actions: string[] | null; I: number | null;
   drivers: { node: string; title: string; partitions: { role: string; count: number | null }[] }[];
 }
 export function loopContract(graph: ModuleGraph, res: Resolution, loopId: string): LoopContract {
   const scene = graph.producers(loopId, 'scenario')[0]?.node ?? null;
   const mod = scene ? moduleOf(graph.node(scene).config) : null;
-  const role = (name: string) => {
-    const fn = mod?.functions[name];
-    return { present: !!fn, doc: fn ? (docOf(fn.doc).summary ?? '').split('\n').map((l: string) => l.trim()).filter(Boolean).join(' ') : '' };
+  const exports = roleExports(graph.node(loopId)) as Record<'init' | 'input' | 'step', string>;
+  const role = (name: 'init' | 'input' | 'step') => {
+    const fn = mod?.functions[exports[name]];
+    return { present: !!fn, name: exports[name], doc: fn ? (docOf(fn.doc).summary ?? '').split('\n').map((l: string) => l.trim()).filter(Boolean).join(' ') : '' };
   };
   let budget: number | null = null, actions: string[] | null = null;
   if (scene) try { const env = envBundle(graph, loopId, res); budget = env.budget; actions = env.actions; } catch { /* the loop's problems say why */ }

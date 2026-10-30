@@ -8,8 +8,8 @@ import { toolLayers as declaredLayers } from '../core/kinds/network.js';
 /** @typedef {import('./workbench-context').ModuleGraph} ModuleGraph */
 /**
  * @typedef {object} ToolUnit
- * @property {string} node      the card's module: the tool itself, or the frozen network of a bits readout tool
- * @property {string|null} readout the bits readout whose `run` is the tool (a frozen network's unit), else null
+ * @property {string} node      the card's module: the tool itself, or the frozen network of a readout tool
+ * @property {string|null} readout the readout (bits or argmax) whose `run` is the tool (a frozen network's unit), else null
  * @property {string} tool      the module wired into the tool port (a code module, or that readout)
  */
 /**
@@ -22,7 +22,7 @@ import { toolLayers as declaredLayers } from '../core/kinds/network.js';
 /**
  * The tool layers of network `networkId`, in layer order (the first entry of each valid port, and none unless dense).
  * One rule decides what goes inside. A module goes inside when every wire of it goes into this network's tool port
- * `port`. A frozen network with its bits readout also goes inside as one unit. The readout's wires must be its
+ * `port`. A frozen network with its readout also goes inside as one unit. The readout's wires must be its
  * `scores` from that network and its `run` into `port`. The network's only wires must feed that readout. Any other
  * tool stays outside. `drawn(id)` says whether a module can be drawn inside at all (the editor: not held in a
  * collapsed group). A module that it rejects stays outside.
@@ -52,7 +52,7 @@ function unitOf(/** @type {ModuleGraph} */ graph, /** @type {string} */ host, /*
   const wires = graph.wiresOf(tool);
   if (wires.every(w => w.from.node === tool && here(w))) return { node: tool, readout: null, tool };
   const node = graph.node(tool);
-  if (node.kind !== 'readout' || node.config.mode !== 'bits') return null;
+  if (node.kind !== 'readout') return null;
   const feeds = wires.filter(w => w.to.node === tool);
   const source = feeds.length === 1 && feeds[0].to.port === 'scores' ? feeds[0].from.node : null;
   if (!source || source === host || graph.node(source).kind !== 'network') return null;

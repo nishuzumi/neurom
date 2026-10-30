@@ -1,12 +1,13 @@
 // core/kinds/readout.js — the readout module: scores[O] → action (number) + bits[O] for downstream modules. The bundle's
-// loop section carries its spec (core/loop.js). See core/readout.js for the runtime semantics. A bits
-// readout also offers the function `run` (ADR 0010 §3): `(bits[I]) → bits[width]`, its network's forward pass then
-// this readout — how a frozen network becomes a tool of a tool layer (core/kinds/network.js). Its call sites are
+// loop section carries its spec (core/loop.js). See core/readout.js for the runtime semantics. A readout of either mode
+// also offers the function `run` (ADR 0010 §3, ADR 0019): `(bits[I]) → bits[O]`, its network's forward pass then this
+// readout's bits. A bits readout gives score ≥ 0 per output. An argmax readout gives the one-hot of the first maximum
+// (O = map length). It is how a frozen network becomes a tool of a tool layer (core/kinds/network.js). Its call sites are
 // typed here (`callee`): one bit vector at least I wide, the network fit to be a tool. A bundle carries the network
 // (frozen on its accepted weights, core/loop.js) and this readout's spec.
 import { registerKind } from '../registry.js';
 import { valueIn, valueOut, fnOut } from './common.js';
-import { NUMBER, vector, bits, typeName } from '../types.js';
+import { NUMBER, vector, bits, typeName, MAX_BITS } from '../types.js';
 import { readoutProblem, readoutWidth } from '../readout.js';
 import { toolNetworkProblem } from './network.js';
 import { t } from '../../i18n.js';
@@ -30,8 +31,8 @@ registerKind({
     defaults: { mode: 'argmax', map: [0, 1, 2, 3], width: 4, decode: 'lsb-int' },
     schema: {
       mode: { type: 'enum', values: ['argmax', 'bits'] },
-      map: { type: 'list', of: { type: 'json' }, min: 1, max: 256 },
-      width: { type: 'int', min: 1, max: 256 }, decode: { type: 'enum', values: ['lsb-int'] },
+      map: { type: 'list', of: { type: 'json' }, min: 1, max: MAX_BITS },
+      width: { type: 'int', min: 1, max: MAX_BITS }, decode: { type: 'enum', values: ['lsb-int'] },
     },
   },
   ports(node) {
@@ -39,16 +40,16 @@ registerKind({
     return {
       inputs: [valueIn('scores', vector(O), { required: true }), valueIn('actions', null)],
       outputs: [valueOut('action', NUMBER), valueOut('bits', bits(O)),
-        ...(spec.mode === 'bits' ? [{ ...fnOut('run'), doc: t('函数 (bits[I]) → bits[width]：它的网络前向，再按位读出。它可以作为工具层的工具') }] : [])],
+        { ...fnOut('run'), doc: spec.mode === 'argmax' ? t('函数 (bits[I]) → bits[O]：它的网络前向，再取 argmax 的 one-hot 位（并列时取最小下标）。它可以作为工具层的工具') : t('函数 (bits[I]) → bits[width]：它的网络前向，再按位读出。它可以作为工具层的工具') }],
     };
   },
   infer(node) {
     const spec = readoutSpec(node.config);
     return { action: NUMBER, bits: bits(readoutWidth(spec)) };
   },
-  /** `run` of a bits readout: reads the first I bits of its one bit-vector argument (I: its network's inputs). */
+  /** `run`: reads the first I bits of its one bit-vector argument (I: its network's inputs). */
   callee(node, port, ctx) {
-    if (port !== 'run' || node.config.mode !== 'bits') return null;
+    if (port !== 'run') return null;
     const net = networkOf(node, ctx);
     return {
       width: net ? net.config.inputs : null,
@@ -60,7 +61,8 @@ registerKind({
         const [arg] = argTypes, I = net.config.inputs;
         if (argTypes.length !== 1 || arg?.type !== 'vector') return fail(t('{title} 的 run 只收一个位向量参数', { title: node.title }));
         if (arg.width < I) return fail(t('{title} 的 run 需要 {width} 位输入，调用方只给 {given} 位', { title: node.title, width: I, given: arg.width }));
-        return { result: bits(node.config.width), error: null, paramTypes: [bits(I)], carries: { kind: 'net', network: net, readout: readoutEntry(node.config) } };
+        const readout = readoutEntry(node.config);
+        return { result: bits(readout.width), error: null, paramTypes: [bits(I)], carries: { kind: 'net', network: net, readout } };
       },
     };
   },

@@ -6,13 +6,13 @@
 import { t } from '../../i18n.js';
 
 export interface Descriptor {
-  type: 'int' | 'number' | 'boolean' | 'string' | 'enum' | 'list' | 'object' | 'map' | 'json' | 'oneOf';
+  type: 'int' | 'number' | 'string' | 'enum' | 'list' | 'object' | 'map' | 'json' | 'oneOf';
   label?: string; optional?: boolean; min?: number; max?: number; pattern?: string; values?: (string | number)[];
   of?: Descriptor | Descriptor[]; fields?: Record<string, Descriptor>;
 }
 
-const SCALAR = new Set(['int', 'number', 'boolean', 'string', 'enum']);
-const isScalarList = (d: Descriptor) => d.type === 'list' && !!d.of && !Array.isArray(d.of) && SCALAR.has(d.of.type) && d.of.type !== 'boolean';
+const SCALAR = new Set(['int', 'number', 'string', 'enum']);
+const isScalarList = (d: Descriptor) => d.type === 'list' && !!d.of && !Array.isArray(d.of) && SCALAR.has(d.of.type);
 
 /** Why `v` violates a scalar descriptor, or '' when it fits (mirrors registry.js checkField for the UI). */
 function scalarProblem(d: Descriptor, v: unknown): string {
@@ -20,7 +20,6 @@ function scalarProblem(d: Descriptor, v: unknown): string {
   switch (d.type) {
     case 'int': if (!Number.isSafeInteger(v)) return t('必须是整数'); break;
     case 'number': if (typeof v !== 'number' || !Number.isFinite(v)) return t('必须是有限数'); break;
-    case 'boolean': return typeof v === 'boolean' ? '' : t('必须是布尔值');
     case 'string':
       if (typeof v !== 'string') return t('必须是字符串');
       if (d.pattern && !new RegExp(d.pattern).test(v)) return t('格式不正确');
@@ -114,10 +113,9 @@ const range = computed(() => {
     <ConfigField v-for="[k, d] in objectFields" :key="k" :name="k" :desc="d" :value="objectValue[k]" :disabled="disabled" @change="childChange(k, $event)" />
     <div v-if="shown" class="cf-error" role="alert">{{ shown }}</div>
   </fieldset>
-  <div v-else class="cf-row" :class="{ bad: !!shown, bool: desc.type === 'boolean', 'cf-block': desc.type === 'map' || desc.type === 'json' || (desc.type === 'list' && !isScalarList(desc)) }" :style="range ? { '--rn': range.length } : undefined">
+  <div v-else class="cf-row" :class="{ bad: !!shown, 'cf-block': desc.type === 'map' || desc.type === 'json' || (desc.type === 'list' && !isScalarList(desc)) }" :style="range ? { '--rn': range.length } : undefined">
     <label class="cf-label" :for="inputId" :title="name">{{ label }}</label>
-    <input v-if="desc.type === 'boolean'" :id="inputId" type="checkbox" :checked="value === true" :disabled="disabled" @change="emit('change', ($event.target as HTMLInputElement).checked)" />
-    <select v-else-if="desc.type === 'enum'" :id="inputId" :value="value ?? ''" :disabled="disabled" @change="commitScalar(($event.target as HTMLSelectElement).value)">
+    <select v-if="desc.type === 'enum'" :id="inputId" :value="value ?? ''" :disabled="disabled" @change="commitScalar(($event.target as HTMLSelectElement).value)">
       <option v-if="desc.optional" value="">—</option>
       <option v-for="v in desc.values" :key="v" :value="v">{{ v }}</option>
     </select>

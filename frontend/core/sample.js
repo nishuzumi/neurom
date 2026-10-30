@@ -121,13 +121,14 @@ function runExample(sample, args, run) {
   catch (e) { return deepFreeze({ label: sample.label, args, error: messageOf(e) }); }
 }
 
-/** Example of scenario role `fn` on `sample` (of the loop the scene is wired into). */
-function scenarioExample(sample, fn) {
+/** Example of scenario role `role` (init / input / step) on `sample` (of the loop the scene is wired into). The
+ *  bundle keys its programs by role, whatever export fills it. */
+function scenarioExample(sample, role) {
   if (!sample.ok) return runExample(sample, [], null);
   const { programs, types } = sample.bundle, { Start, State } = sample.values;
-  if (!programs[fn]) return null;
-  if (fn === 'init') return runExample(sample, [Start], () => compileEntry(programs.init, [types.Start], 'init')(Start));
-  if (fn === 'input') return runExample(sample, [State], () => Array.from(compileEntry(programs.input, [types.State], 'input')(State)));
+  if (!programs[role]) return null;
+  if (role === 'init') return runExample(sample, [Start], () => compileEntry(programs.init, [types.Start], 'init')(Start));
+  if (role === 'input') return runExample(sample, [State], () => Array.from(compileEntry(programs.input, [types.State], 'input')(State)));
   return runExample(sample, [State, sample.action], () => compileEntry(programs.step, [types.State, NUMBER], 'step')(State, sample.action));
 }
 
@@ -156,7 +157,7 @@ function callSite(graph, res, first, signature) {
 function exampleSite(graph, res, codeId, fn) {
   const role = rolesOf(graph, res, codeId).role(fn), first = role?.kind === 'function' ? role.callers[0] : null;
   if (!first) return null;
-  if (first.via === 'scenario') return { loopId: first.node, run: sample => scenarioExample(sample, fn) };
+  if (first.via === 'scenario') return { loopId: first.node, run: sample => scenarioExample(sample, first.role) };
   return callSite(graph, res, first, role.signature);
 }
 

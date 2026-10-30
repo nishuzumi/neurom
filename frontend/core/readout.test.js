@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readout, readoutBits, decodeBits, readoutProblem, INVALID_ACTION } from './readout.js';
+import { toolCaller } from './loop.js';
 
 test('argmax: first maximum wins ties, bits are one-hot, the map picks the physical action', () => {
   const spec = { mode: 'argmax', map: [3, 1, 1, null] };
@@ -8,6 +9,17 @@ test('argmax: first maximum wins ties, bits are one-hot, the map picks the physi
   assert.deepEqual(readout(spec, [-2, 7, 7, 0]), { action: 1, bits: [0, 1, 0, 0], slot: 1 });
   assert.deepEqual(readout(spec, [-9, -9, -9, -1]), { action: INVALID_ACTION, bits: [0, 0, 0, 1], slot: 3 });
   assert.throws(() => readoutBits(spec, [1, 2]), /4 个分数/);
+});
+
+test('argmax run: its network forward, then the one-hot of the first maximum — the same rule as the chain\'s argmax', () => {
+  // threshold layers 2 → 3, scores [a, a, b]: ties between slots 0 and 1, or all three
+  const model = { format: 'threshold-layers', inputs: 2, outputs: 3, weightBits: 8, layers: [{ W: [[1, 0], [1, 0], [0, 1]], th: [0, 0, 0], scale: 1, k: 0 }] };
+  const tool = { kind: 'net', structure: { engine: 'threshold-layers', inputs: 2, outputs: 3, layers: [], weightBits: 8 }, model, readout: { mode: 'argmax', map: [null, 4, 1], width: 3 } };
+  const run = data => toolCaller('host', { structure: { layers: [{ tools: 't', K: 1, D: 2, R: 3 }] }, tools: { t: [tool] } }).call('t', 0, data, []);
+  assert.deepEqual(run([0, 0]), [1, 0, 0], 'scores [0, 0, 0]: the lowest index');
+  assert.deepEqual(run([1, 0]), [1, 0, 0], 'scores [1, 1, 0]: the lowest index');
+  assert.deepEqual(run([0, 1]), [0, 0, 1], 'scores [0, 0, 1]');
+  assert.deepEqual(run([1, 1]), [1, 0, 0], 'the map does not change the bits: a null slot is still one of them');
 });
 
 test('bits: score ≥ 0 → 1 (zero counts), lsb-int decode', () => {

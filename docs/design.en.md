@@ -18,7 +18,7 @@ Trainers, evaluators and executions do not connect to the scenario directly. The
 
 A trainer trains one network of the loop. Every other network runs frozen on its accepted weights. This is whole-loop training. A network can also use other modules as tools. On each step, a **tool layer** in the network's `layers` picks one of the tools wired into it. It also picks the data bits to give to that tool, and then runs only that tool (ADR 0010).
 
-A tool is a code function, or a frozen network through the `run` of its bits readout. The frozen network can be of any kind: FF, LIF, or a network with tool layers of its own (ADR 0010 §3). The state of a network tool belongs to the calling session. This state includes the potentials of a LIF tool and the states of the tool's own tools. It is after the caller's own state, in tool-layer order and then wire order, nested level by level. The state of a tool advances only on the steps where the tool layer chooses the tool, and it resets with the session.
+A tool is a code function, or a frozen network through the `run` of its readout (a bits readout or an argmax readout, ADR 0019). The frozen network can be of any kind: FF, LIF, or a network with tool layers of its own (ADR 0010 §3). It is not possible to deploy a network tool with an argmax readout, because on chain a tool layer reads the scores of a tool as bits. The state of a network tool belongs to the calling session. This state includes the potentials of a LIF tool and the states of the tool's own tools. It is after the caller's own state, in tool-layer order and then wire order, nested level by level. The state of a tool advances only on the steps where the tool layer chooses the tool, and it resets with the session.
 
 Tools nest at most 3 levels deep (`MAX_TOOL_DEPTH`), so the gas of a step has a limit. When tools nest deeper than 3 levels, the canvas shows a network problem and the Factory on chain refuses. The policy network of the combiner is one tool layer that picks one of the frozen ADD4 / SUB4 / MUL4 networks to run.
 
@@ -63,9 +63,9 @@ A record-typed output is one whole-object port. Its fields have path addresses, 
 | Module | Inputs | Outputs | Role |
 |---|---|---|---|
 | **Loop** `loop` | Call `scenario` (the scenario module's `module`, required). Value `action: number` (required, declared `loop`: it takes effect on the next step) | `input: bits[I]` (this step's input bits), `loop` (handle the drivers connect to) | The per-step boundary of the episode runner (ADR 0009). The loop body is every module on a value path from `input` to `action`, derived from the wires. The loop body can hold only networks, readouts and bit wires. Static values from outside the body can be wired in, for example a network's `weights` and a readout's `actions`. `Start` is the episode kind of every partition that its drivers run it on. If these kinds do not agree, the `loop` port shows a problem. If `action` is not on a path from `input`, the loop shows "loop not closed" |
-| **Network** `network` | Values `in: bits[I]`, `weights` (declared `loop`). One call port per tool layer, named by the layer's `tools`, which takes any number of `(bits) → bits` tools | `scores: vector[O]`, `structure` | Integer network. The engine is `dense-policy` (FF / LIF) or `threshold-layers` (list of threshold layers). The layer list `layers` of `dense-policy` has plain layers `{ hidden }` and tool layers `{ tools, data? }` (ADR 0010), and the output layer is implicit. I is the hand-declared config `inputs` (1..256), and the bits wired into `in` must have exactly the width I. O comes from the readout that consumes `scores`, and there must be exactly one such readout. `weights` is declared `loop`, so `net.structure → trainer → candidates → net.weights` is the normal cycle. Config `weightBits` is the weight width: 8 (default) or 16 (ADR 0015). The trainer picks the scale of each layer, and the config has no scale. Config `artifact` (optional content hash): a network that no trainer trains selects with it the artifact it runs (ADR 0010 §8). If a network has an `artifact` and also a `weights` wire or a trainer, this is a problem |
-| **Readout** `readout` | Values `scores: vector[O]`, `actions` (optional) | `action: number`, `bits: bits[O]`. In `bits` mode also the call output `run`: the forward pass of its network, then the bits readout, usable as a tool | `argmax` mode has a map, and `null` is the explicit invalid action −1. `bits` mode has a width and `lsb-int` decoding |
-| **Bit wire** `bits` | one `bits[n]` input per `parts` port | `bits` (concatenation) | Slices and concatenates bit vectors (`parts: [{port, offset, width}]`), total ≤ 256 |
+| **Network** `network` | Values `in: bits[I]`, `weights` (declared `loop`). One call port per tool layer, named by the layer's `tools`, which takes any number of `(bits) → bits` tools | `scores: vector[O]`, `structure` | Integer network. The engine is `dense-policy` (FF / LIF) or `threshold-layers` (list of threshold layers). The layer list `layers` of `dense-policy` has plain layers `{ hidden }` and tool layers `{ tools, data? }` (ADR 0010), and the output layer is implicit. I is the hand-declared config `inputs` (1..65535), and the bits wired into `in` must have exactly the width I. O comes from the readout that consumes `scores`, and there must be exactly one such readout. `weights` is declared `loop`, so `net.structure → trainer → candidates → net.weights` is the normal cycle. Config `weightBits` is the weight width: 8 (default) or 16 (ADR 0015). The trainer picks the scale of each layer, and the config has no scale. Config `artifact` (optional content hash): a network that no trainer trains selects with it the artifact it runs (ADR 0010 §8). If a network has an `artifact` and also a `weights` wire or a trainer, this is a problem |
+| **Readout** `readout` | Values `scores: vector[O]`, `actions` (optional) | `action: number`, `bits: bits[O]`. Both modes also have the call output `run`: the forward pass of its network, then the readout bits, usable as a tool. `bits` mode gives the bits of the bits readout. `argmax` mode gives the one-hot bits of the argmax (a tie gives the lowest index, and the width is the length of the map) | `argmax` mode has a map, and `null` is the explicit invalid action −1. `bits` mode has a width and `lsb-int` decoding |
+| **Bit wire** `bits` | one `bits[n]` input per `parts` port | `bits` (concatenation) | Slices and concatenates bit vectors (`parts: [{port, offset, width}]`), total ≤ 65535 |
 | **Random** `random` | — | `rng: { mul: number[draws], add: number[draws] }` | Jump-ahead tables of the 32-bit linear congruential generator. The generator is s' = (multiplier · s + increment) mod 2^32. The config is `multiplier / increment / draws`, defaults 1664525 / 1013904223 / 512. From seed s, the (k+1)-th output is `add32(imul32(rng.mul[k], u32(s)), rng.add[k])`. The tables are computed once per config. They go as a static value into an input of the scenario module (`rng.rng → scene.rng`, with `rng` in the scenario module's `inputs`) |
 
 A network sees only the loop's input bits, that is, what the scenario's `input` returns. Scenario parameters (the scenario module's inputs) never go into the network.
@@ -84,6 +84,7 @@ A network sees only the loop's input bits, that is, what the scenario's `input` 
 | Module | Inputs | Outputs | Role |
 |---|---|---|---|
 | **View** `view` | values `execution` or `report` | — | There are two types of renderer. The first type is `grid / series / table / kv`, configured with a state path and marks, for example `state.map` + agent / base coordinates and tile colours. The second type is `script`: a view script (ADR 0013). The view script draws itself in a network-less sandboxed iframe, with a Vue component (`props: ['ctx']`) or `render(ctx, el)`. `ctx` holds the wired run data (at the step that the history slider selects). It also holds the static values of every member of its training module (`ctx.modules[title][port]`) |
+| **Script module** `script` | declared function inputs (call, one per name) and value inputs (value, one per name) | — | Runs JavaScript files in the sandbox of a view script (ADR 0019). It does inference only, and no bundle contains it. The script calls a function input with `await ctx.call.<name>(…)` and reads a value input with `ctx.values.<name>`. The page runs the calls outside the sandbox (`core/script-calls.js`): a network through the `run` of its readout, on its accepted weights, from a zero state at each call; a code function by its program. The argument types come from the values at the time of the call. Problems: a function input without a wire, a name declared two times, a network that a trainer trains (the tool-layer rule) |
 | **Deployment** `deployment` | value `artifact` | `deployment` | Deploys one artifact through ModuleFactory, then verifies it, reads state, resets, and steps it by transaction. The local mirror uses the same environment from the artifact's bundle and the integer executor |
 
 ### Code modules
@@ -128,7 +129,7 @@ There is no "environment" module. The scenario module is the code module wired i
 | Export | | Runner call | Returns |
 |---|---|---|---|
 | `init(start)` | optional | once per episode | `State`. Without `init`, `State` is the `Start` record itself |
-| `input(state[, table])` | required | before every step | `bits[1..256]`: the loop's input bits |
+| `input(state[, table])` | required | before every step | `bits[1..65535]`: the loop's input bits |
 | `step(state, action[, table])` | required | every step | `{ state: State, done: boolean, success: boolean }`, exactly these three fields |
 | `budget` | required const | | positive integer: max steps per episode |
 | `actions` | optional const | | string array: action names, wired separately `scene.actions → readout.actions` |
@@ -243,15 +244,15 @@ slots:                                # the prefab's slots: a declared port of a
 
 The main points of templates are:
 
-- **Training-module groups**: every builtin template is itself the training module. The instantiated composite has the template name as its title. It directly holds the partitions, datasets, objective / reward and its parameters, metrics, trainer, candidates, evaluator, report view, execution and map view. It also directly holds the scenario module with its parameters and random tables. It also holds the nested group `box`, that is, the loop box (`loop: <loop module>`), whose members are exactly the loop module plus its body. Frozen networks run their own `artifact` and have no candidates module. The networks that tool layers call, and their readouts, are not part of the body and stay outside the box.
+- **Training-module groups**: every builtin template except the tank battle is itself the training module. The instantiated composite has the template name as its title. It directly holds the partitions, datasets, objective / reward and its parameters, metrics, trainer, candidates, evaluator, report view, execution and map view. It also directly holds the scenario module with its parameters and random tables. It also holds the nested group `box`, that is, the loop box (`loop: <loop module>`), whose members are exactly the loop module plus its body. Frozen networks run their own `artifact` and have no candidates module. The networks that tool layers call, and their readouts, are not part of the body and stay outside the box.
 
   When the composite is expanded, the first set of members shows as the sections of the left column. The scenario is the environment section, immediately after the data. The nested groups are in the sub-canvas on the right (ADR 0011).
-- **Slots**: `slots` make the instance a prefab ([CONTEXT](../CONTEXT.md) Prefab, ADR 0011). When a code create entry has no `config`, a click on its + writes stub code from the contract of the slot port (`core/prefab.js stubSource`). For a call port, the stub follows the port's signature. For a loop's `scenario`, the stub follows the scenario roles, and `input` returns as many bits as the network that reads the loop's input declares.
+- **Slots**: `slots` make the instance a prefab ([CONTEXT](../CONTEXT.md) Prefab, ADR 0011). When a code create entry has no `config`, a click on its + writes stub code from the contract of the slot port (`core/prefab.js stubSource`). For a call port, the stub follows the port's signature. For a loop's `scenario`, the stub follows the scenario roles, and `input` returns as many bits as the network that reads the loop's input declares. A nested group can also have `slots`, on its own members. Such a group is a prefab of its own, and its expected wires are only the wires with an end at its members. Thus several training modules can share the modules of the top level, for example the scene, params, random tables and metrics of the tank battle.
 - **Preset**: `preset` lists the template among the palette's examples. `label` is the button text. `accept` names the builtin artifact that each candidates module accepts. An `accepted` that the template pins is imported as usual.
 - **Wire order**: the canonical form sorts wires alphabetically. Only call wires into the same call port keep their written order, because a tool layer numbers its tools in this order.
 - **Loop box**: the `loop` field of a group marks the group as the box of a loop. The loop box is only a view: the body comes from the wires. If the members of the box are different from the body, the loop shows a problem (ADR 0003, 0009).
 - **Groups**: nested groups in a template are created with the instance, collapsed. Members that are not in a group stay at the top level. Groups can contain groups. "Save as template" records the nested groups in the selection, with their `loop` marks. Group ids have their own namespace: a group `box` can contain a module named `box`, and member names resolve to modules first.
-- **Instantiation**: instantiation copies the template's modules onto the canvas with fresh ids, and expands them into a flat module graph. Then it wraps these modules in one composite. This composite shows only the ports in `expose`. `instantiateInto` creates the composite collapsed. When the workbench places a template with slots (palette, template library, examples), it expands the composite and its nested groups. Thus the slots show immediately (ADR 0011). Execution, bundles and deployment always see the flat graph (ADR 0003).
+- **Instantiation**: instantiation copies the template's modules onto the canvas with fresh ids, and expands them into a flat module graph. Then it wraps these modules in one composite. This composite shows only the ports in `expose`. `instantiateInto` creates the composite collapsed. When the workbench places a template with slots (palette, template library, examples), it expands the composite and its nested groups. Slots on the top level or on a nested group both count. Thus the slots show immediately (ADR 0011). Execution, bundles and deployment always see the flat graph (ADR 0003).
 
   Composites nest: a composite on the canvas (including a template instance) can be packed into another composite, to any depth. A template file can declare nested groups but never references other templates (ADR 0003).
 - **Instances do not follow templates**: an instance is a copy that records only its origin `template id@revision`. Later changes to the template do not change existing instances.
@@ -269,7 +270,7 @@ The main points of templates are:
   env:   { programs: { init?, input, step }, budget, actions, start: 'seed'|'enumerate'|'window',
            types: { Start, State, Transition, I, table? }, tables? }
   loop:  { I, action: Ref, nodes: { <id>: loop node }, trained: <network id> | null }
-  trainer    objective: { kind: 'reward'|'target', program, bound, boundTypes }, selection, partitions: { training, validation? }, recipe
+  trainer    objective: { kind: 'reward'|'target', program, bound, boundTypes }, selection, partitions: { training, validation? }, recipe, init?
   evaluator  partitions: { test }, metrics: [{ name, program, … }], objective?, groupBy?
   execution  partitions: { test }
   ```
@@ -282,6 +283,10 @@ The main points of templates are:
     `model` is the integer model of the network's accepted artifact. This artifact is the network's own `artifact`. Without an `artifact`, it is the accepted artifact in the candidates wired into the network's `weights` (`core/loop.js acceptedArtifactId`). The trained network in the artifact must have the structure and readout of this network, otherwise bundling fails ("the artifact of network … does not fit"). Only the network that `trained` names has a `model` of `null`.
 
     In a trainer bundle, every other network needs accepted weights. In evaluator and execution bundles (`trained: null`), every network needs accepted weights. Otherwise bundling fails ("network … has no accepted weights"). Per-step inputs of the body can only come from the loop's `input` or the body itself.
+
+    A trainer bundle has `init: { artifactId, model }` when the trainer's `init` has a wire (ADR 0020). `model` is the integer model of the accepted artifact in the candidates wired into `init` (`core/loop.js initModel`). The check is the same as for a frozen network: the trained network in the artifact must have the structure and readout of the trained network. Otherwise bundling fails ("the init artifact of trainer … does not fit"). If the candidates have no accepted artifact, bundling fails too. Without the wire, the bundle has no `init`, so its hash does not change.
+
+    The trainer's `gate` and the condition `gate` in its configuration are not in the bundle. The workbench checks the condition before a run starts (`sessions/trainer.js`), so a `gate` wire does not change the bundle hash (ADR 0020).
   - A deployment builds no `env / loop` of its own. It deploys one artifact and uses the bundle in that artifact.
 - **Hashes**: `bundleHash = sha256(canonical bundle)`. `envHash = sha256(canonical env)` looks only at `env`, so drivers with different objectives and different bodies can share one environment. The on-chain `taskId` is this hash.
 - **Artifact (`neurom-module`)**: `{ bundle, model, provenance, evaluation, id }`. `id` is the SHA-256 of the canonical JSON of the rest. `bundle` is the trainer bundle that trained the artifact. `model` is the integer model of the trained network (`bundle.loop.trained`): `dense-policy` (FF / LIF) or `threshold-layers`. The widths and `weightBits` of the model agree with the network structure in the bundle. When an artifact is stored or imported, it is validated against its network.
@@ -310,7 +315,7 @@ The main points of templates are:
 All parts that run a scenario run the loop through one loop executor. The loop executor is `frontend/core/loop.js`. The Python twin is `training/bundle_loop.py`, batched over lanes, with the same semantics. The main points are:
 
 - **`loopSection(graph, res, loopId, { trained, artifacts })`** builds the `loop` section of the bundle. If the loop or its body has problems, it throws `BundleError`.
-- **`createLoop(loop, { models })`** → `{ reset(), step(bits) → { action, values, ran, tools }, states() }`. Every network runs its own model. `models` replaces network models by id, for example the candidate model of the trained network during validation and evaluation.
+- **`createLoop(loop)`** → `{ reset(), step(bits) → { action, values, ran, tools }, states() }`. Every network runs its own model from the loop section. To replace a model (for example the candidate model of the trained network during validation and evaluation), use the `models` of the lockstep runner and the greedy runner. It replaces network models by id.
 - **Demand-driven**: the executor works back from `action`, and evaluates each node at most once per step. A tool layer runs only the tool that it chose. `ran` is the set of nodes evaluated in this step. `values` is every evaluated output (`'<node>.<port>'` → bits, number or scores). `tools` is the `{ choice, data, result }` of each tool layer in this step. Executions and views show these values.
 
   Networks keep their executor state across steps. The state is first the network's own LIF potentials, then the state of each of its network tools. The tool states are in tool-layer order and then wire order, nested level by level (`toolCaller`'s `width`). The state of a tool advances only when the tool layer chooses the tool. `states()` gives the whole state of every network, and `reset()` sets all of it to zero. During REINFORCE training, each lane also has its own tool state, which goes to zero with the potentials when the episode of the lane starts.
@@ -358,8 +363,8 @@ All parts that run a scenario run the loop through one loop executor. The loop e
 
   A region of `rows` rows over `cols` columns takes cols · ⌈rows · w / 256⌉ · 32 + ⌈rows / 16⌉ · 32 bytes. A tool layer is two regions: K choice rows and D data rows. Each region has its own shift k (0..20): z = (Σ W·x) · 2^k + f · b. FF fires at z ≥ 1. A LIF plain layer fires at its own threshold. Threshold layers compute (Σ W·h) · 2^k − th.
 
-  Shapes: dense uses three words, and threshold layers use two words. The three dense words hold, in sequence:
-  - The layer layout.
+  Shapes: dense uses four words, and threshold layers use two words. The four dense words hold, in sequence:
+  - The layer layout, in two words. Each layer has a 64-bit descriptor with 16-bit widths.
   - The layer count, ticks, leakShift, weightBits, reset and the k of every region.
   - The threshold of each plain layer (exactly 1 for FF).
 
@@ -381,8 +386,8 @@ All parts that run a scenario run the loop through one loop executor. The loop e
   A code tool cannot be deployed (`代码工具不能部署`). Each module is deployed in one transaction together with its weight chunks that are not yet on chain. If the gas estimate (+ 10%) is more than the per-transaction limit (30M on Monad), the missing chunks go first, one `createChunk` transaction each. This continues until the module and the remaining chunks fit in the last transaction. Chunks already on chain are never sent again.
 
   The pre-deployment checks (`core/kinds/network.js deploymentProblem`) are:
-  - Input and output widths are in 1..256.
-  - Dense has 1..8 layers. Plain hidden and tool-layer K / D / R are in 1..256.
+  - Input and output widths are in 1..65535.
+  - Dense has 1..8 layers. Plain hidden and tool-layer K / D / R are in 1..65535.
   - The state per session (plain LIF neurons plus the tools' states) is at most 256 int32.
   - Tools nest at most 3 deep.
   - Every network tool is deployable itself.
@@ -484,15 +489,10 @@ All parts that run a scenario run the loop through one loop executor. The loop e
 
 ### Performance
 
-There is no CPU profile of the mining template yet. The main work of each step is:
+There is no CPU profile. The main work of each step is:
 
 - **The mining input program.** On every step, it gets the 9×9 view window around the agent (81 cells) with IR `range(81).map`. Then it encodes coal and gold as 81 bits each, and adds the base offset, the bag and the steps left.
 - **LIF training** in JS goes through the BPTT path of `dense-core.js`, which is not related to the IR.
-
-The next work has two items:
-
-- Measure the JS and generated-Python profiles on the mining template. Do this first.
-- Make the BPTT path of `dense-core.js` faster.
 
 ## 12. Known limits
 

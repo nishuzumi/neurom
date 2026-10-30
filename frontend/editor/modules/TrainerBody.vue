@@ -1,16 +1,18 @@
 <script setup lang="ts">
 // TrainerBody.vue — the trainer module. It shows method + backend + hyper-parameters (ConfigForm over the kind
 // schema, only the fields the chosen method reads). It shows which network of the loop it trains: the one wired into
-// `structure`. Every other network runs frozen. It also shows the Python workspace connection state, start / cancel,
-// and the active run's progress with live loss / metric curves (accumulated from progress messages). Last comes the
-// run list with each run's candidate.
+// `structure`. Every other network runs frozen. When `init` has a wire, it shows the candidates whose accepted artifact
+// is the start of the next run (ADR 0020). When `gate` has a wire, it shows the condition (a metric of that evaluator,
+// a minimum and a maximum) and, below start / cancel, whether the current report meets it. It also shows the Python
+// workspace connection state, start / cancel, and the active run's progress with live loss / metric curves
+// (accumulated from progress messages). Last comes the run list with each run's candidate.
 import { computed, shallowRef, watch } from 'vue';
 import { useWorkbench } from '../workbench-context';
 import { useSession, useAct, fmt, shortId, duration, when } from './body-utils';
 import { useNode } from './common';
 import ConfigForm from './ConfigForm.vue';
 import SeriesRenderer from '../renderers/series.vue';
-import { METHODS, COMMON_FIELDS } from '../../core/kinds/trainer.js';
+import { METHODS, COMMON_FIELDS, gateEvaluatorOf, metricNamesOf } from '../../core/kinds/trainer.js';
 import { t } from '../../i18n.js';
 import './bodies-a.css';
 import './bodies-b.css';
@@ -25,7 +27,33 @@ type Progress = { phase?: string; epoch?: number; epochs?: number; loss?: number
 type Run = { id: string; status: string; method?: string; backend?: string; startedAt?: number; finishedAt?: number; progress?: Progress | null; error?: string | null; metric?: number | null; metricName?: string | null; candidates: string[] };
 const method = computed(() => String(node.value?.config.method ?? 'reinforce'));
 const trained = computed(() => { void wb.version.value; const p = wb.graph.producers(props.nodeId, 'structure')[0]; return p ? wb.graph.nodes.get(p.node)?.title ?? p.node : null; });
+/** The candidates wired into `init` and its accepted artifact: the start of the next run (ADR 0020). */
+const start = computed(() => {
+  void wb.version.value;
+  const p = wb.graph.producers(props.nodeId, 'init')[0], cands = p ? wb.graph.nodes.get(p.node) : null;
+  return cands ? { title: cands.title, accepted: (cands.config.accepted as string | null | undefined) ?? null } : null;
+});
 const fields = computed(() => [...COMMON_FIELDS, ...((METHODS as Record<string, { fields: readonly string[] } | undefined>)[method.value]?.fields ?? [])]);
+/** The evaluator wired into `gate` and the metrics of its report: the choices of the condition (ADR 0020). */
+const gateSource = computed(() => {
+  void wb.version.value;
+  const n = wb.graph.nodes.get(props.nodeId), evaluator = n ? gateEvaluatorOf(wb.graph, n) : null;
+  return evaluator ? { title: evaluator.title, metrics: metricNamesOf(wb.graph, evaluator.id) as string[] } : null;
+});
+type Gate = { metric?: string; min?: number | null; max?: number | null };
+const condition = computed(() => (node.value?.config.gate ?? {}) as Gate);
+/** The wired metrics, plus the configured one when it is not wired any more (the graph problem tells why). */
+const metricChoices = computed(() => {
+  const metrics = gateSource.value?.metrics ?? [], chosen = condition.value.metric;
+  return chosen && !metrics.includes(chosen) ? [...metrics, chosen] : metrics;
+});
+const gate = computed(() => snap.value.gate as { passed: boolean; reason: string } | null);
+function setCondition(patch: Gate) {
+  const next = { metric: '', ...condition.value, ...patch };
+  wb.edit(t('修改 gate 条件'), () => wb.graph.patchConfig(props.nodeId, { gate: next }));
+}
+/** An empty bound field is no bound. */
+const boundOf = (e: Event) => { const text = (e.target as HTMLInputElement).value.trim(); return text === '' ? null : Number(text); };
 const runs = computed(() => (snap.value.runs as Run[]) ?? []);
 const active = computed(() => snap.value.active as { id: string; status: string; progress: Progress | null; backend: string } | null);
 const can = computed(() => (snap.value.can as { start: boolean; cancel: boolean }) ?? { start: false, cancel: false });
@@ -47,8 +75,10 @@ const live = shallowRef<{ id: string; loss: number[]; metric: number[]; epochs: 
 watch(() => active.value?.progress, p => {
   const a = active.value; if (!a || !p) return;
   const cur = live.value?.id === a.id ? live.value : { id: a.id, loss: [], metric: [], epochs: [] };
-  if (cur.epochs.at(-1) === (p.epoch ?? 0) && cur.epochs.length) return;
-  cur.epochs.push(p.epoch ?? 0); cur.loss.push(p.loss ?? NaN); cur.metric.push(p.metric ?? NaN);
+  if (cur.epochs.length && cur.epochs.at(-1) === (p.epoch ?? 0)) {
+    if (!Number.isNaN(cur.metric.at(-1)) || p.metric == null) return;
+    cur.metric[cur.metric.length - 1] = p.metric;                                // a run from init: the start evaluation fills the epoch 0 point
+  } else { cur.epochs.push(p.epoch ?? 0); cur.loss.push(p.loss ?? NaN); cur.metric.push(p.metric ?? NaN); }
   live.value = { ...cur };
 });
 const liveScope = computed(() => (live.value && active.value?.id === live.value.id ? { loss: live.value.loss, metric: live.value.metric, epochs: live.value.epochs.map(String) } : null));
@@ -76,15 +106,26 @@ function remove(run: Run) { act(() => session.remove(run.id)); }
     <ConfigForm :node-id="nodeId" :fields="fields" :disabled="!!active" />
     <div v-if="pythonState" class="bhint tpy" :class="pythonState.tone">{{ pythonState.text }}</div>
     <div v-if="trained" class="bhint">{{ t('训练 {net}。回路里其余网络用已接受的权重冻结运行', { net: trained }) }}</div>
+    <div v-if="start?.accepted" class="brow bhint"><span>{{ t('从 {cands} 已接受的产物开始训练', { cands: start.title }) }}</span><span class="pin" :title="start.accepted">{{ shortId(start.accepted) }}</span></div>
+    <div v-if="gateSource" class="bhint">{{ t('gate：{title} 的报告', { title: gateSource.title }) }}</div>
+    <div v-if="gateSource" class="brow bhint tgate-form">
+      <label>{{ t('指标') }} <select :value="condition.metric ?? ''" :aria-label="t('gate 指标')" :disabled="!!active" @change="act(() => setCondition({ metric: ($event.target as HTMLSelectElement).value }))">
+        <option value="" disabled>{{ t('选择指标') }}</option>
+        <option v-for="m in metricChoices" :key="m" :value="m">{{ m }}</option>
+      </select></label>
+      <label>≥ <input type="number" step="any" :value="condition.min ?? ''" :aria-label="t('gate 最小值')" :disabled="!!active" @change="act(() => setCondition({ min: boundOf($event) }))"></label>
+      <label>≤ <input type="number" step="any" :value="condition.max ?? ''" :aria-label="t('gate 最大值')" :disabled="!!active" @change="act(() => setCondition({ max: boundOf($event) }))"></label>
+    </div>
     <div v-if="snap.dead" class="bproblem">{{ snap.dead }}</div>
     <div v-else-if="snap.problem" class="bproblem" :class="{ incomplete: !active }">{{ snap.problem }}</div>
 
     <div class="brow">
-      <button type="button" :disabled="!can.start" :title="String(snap.problem ?? '')" @click="act(() => session.start())">{{ t('开始训练') }}</button>
+      <button type="button" :disabled="!can.start" :title="String(snap.problem ?? (gate && !gate.passed ? gate.reason : ''))" @click="act(() => session.start())">{{ t('开始训练') }}</button>
       <button type="button" class="mini" :disabled="!can.cancel" @click="act(() => session.cancel())">{{ t('取消') }}</button>
       <span class="bgrow"></span>
       <span class="bhint">{{ backend === 'python' ? 'Python' : t('浏览器 Worker') }} · {{ method }}</span>
     </div>
+    <div v-if="gate" class="bhint tgate" :class="gate.passed ? 'ok' : 'bad'">{{ gate.passed ? t('gate 已通过：{reason}', { reason: gate.reason }) : t('gate 未通过：{reason}', { reason: gate.reason }) }}</div>
     <div v-if="error" class="bproblem">{{ error }}</div>
 
     <div v-if="active" class="trun active">

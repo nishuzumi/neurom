@@ -15,7 +15,7 @@ contract GameTx {
     uint256 public last;
 
     function play(INeuromModule m, bytes[] calldata inputs) external returns (uint256 sum) {
-        for (uint256 i; i < inputs.length; i++) { (, uint8 a,,) = m.forward(inputs[i]); sum += a; }
+        for (uint256 i; i < inputs.length; i++) { (, uint16 a,,) = m.forward(inputs[i]); sum += a; }
         last = sum;
     }
 }

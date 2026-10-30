@@ -56,7 +56,7 @@ _Avoid_: bare "参数" (that is the Params module), function parameter (a caller
 **Doc Comment (注释)**: the JSDoc-style text above an exported function. It contains a summary, one `@param name` or `@param name.field` for each parameter, and `@returns`. Its texts go with the ports. The system ignores `{Type}`s in tags, because types come from call sites and wires. The `/** … */` above a record key inside a literal documents that field. The State doc is the doc of `init`.
 _Avoid_: annotation (type annotations are rejected in the source, and types come from the caller), docstring.
 
-**Role (角色)**: an export that a module calls by protocol. The export goes through a call wire into a call port, or as a scenario role through `module` into the `scenario` of a loop. The consumer kind declares the contract of the role. The contract gives the parameter count and types, when the module calls the role, what the result means and a stub body (ADR 0012). The parameter names belong to the implementation, and the contract only gives defaults for stubs.
+**Role (角色)**: an export that a module calls by protocol. The export goes through a call wire into a call port, or as a scenario role through `module` into the `scenario` of a loop. The consumer kind declares the contract of the role. The contract gives the parameter count and types, when the module calls the role, what the result means and a stub body (ADR 0012). The parameter names belong to the implementation, and the contract only gives defaults for stubs. A loop names the export that fills each of its function roles (**role export**, ADR 0022). Without a name, the export of the role's own name fills it.
 _Avoid_: slot, hook, interface.
 
 **Role Tab (角色页)**: the tab of a code module for one role (CodeTabs). The editor shows only that role. When the role has the parameter count of the protocol, the header is locked, but you can change the parameter names. Grey types follow the parameters and the result. A `?` opens the help window of the role.
@@ -80,6 +80,8 @@ _Avoid_: code input (that is a value input of a code module), options slot.
 **Loop (回路)**: the module that is the per-step boundary of an episode runner. Its `scenario` call input takes the scenario module. Its `input` output carries the bits that the `input` of the scenario returns. Its `action` loop input takes the action of the step back. Drivers run the loop through its `loop` handle.
 
 The loop has no partition of its own. Its Start is the episode kind of each partition that its drivers run it on. If the drivers do not agree, that is a problem on the loop (ADR 0009).
+
+The `roles` config of the loop maps a function role (`init`, `input`, `step`) to an export of the scenario, for example `roles: { init: duelInit, input: duelInput, step: duelStep }`. A role that the config does not map uses the export of its own name. The const roles `budget` and `actions` are not mapped. The bundle keys the programs by role, so the runner, the trainers and the hash of an unmapped loop do not change (ADR 0022).
 _Avoid_: runner node, environment (the loop runs an environment, but it is not one).
 
 **Loop Body (回路体)**: every module on a value path from the `input` of a loop to its `action`. The system derives the body from the wires. Only networks, readouts and bit wires can be in the body, and they run once per step. Static values wired into the body from outside are not part of it. Examples are the `weights` of a network and the `actions` of a readout. The tools that the tool layers of a network call are also not part of it.
@@ -94,8 +96,11 @@ _Avoid_: treating the box as the source of truth for the body.
 
 **Training Module (训练模块)**: a prefab drawn expanded as one frame (ADR 0011). The left column shows the slots of the prefab on top, then the **sections**. The sections show their items natively, not as cards. The items are the trainers and their partitions, the datasets, the environment, the objective, the metrics and the candidates. Other items are the evaluator, the execution and the views that they feed. The environment is the code module wired into the `scenario` of the loop, with the params and random that feed only it.
 
-On the right, a recessed sub-canvas holds only per-step computation: the loop box (its run drawn around the body: ADR 0011 §4). Wires between a section and the sub-canvas end at handles on the left edge of the sub-canvas. Each builtin task template declares slots and instantiates as a training module. The number of trainers in a prefab does not decide whether it is a training module.
+On the right, a recessed sub-canvas holds only per-step computation: the loop box (its run drawn around the body: ADR 0011 §4). Wires between a section and the sub-canvas end at handles on the left edge of the sub-canvas. Each builtin task template declares slots and instantiates as a training module. The number of trainers in a prefab does not decide whether it is a training module. A builtin training module trains one network: one trainer and its loop box (ADR 0020).
 _Avoid_: environment / learning sub-composites.
+
+**Run Up To Here (运行到这里)**: the header action that makes everything above a module ready, then runs that module (ADR 0023). An accepted artifact that is compatible with the current graph is the cache of everything above it. The chain trains only where a candidates module is not ready, and it accepts the candidate that the run selected. It evaluates only where a gate needs a report that is missing or stale.
+_Avoid_: run all, pipeline run, auto-train.
 
 **Whole-loop Training (整回路训练)**: training one network inside a loop while every other network of the loop runs frozen on its accepted weights. On each step, the executor first evaluates the values that the input of the trained network depends on. Then the trainer supplies the readout result of that network: a sampled slot, the slot of the teacher or the target bits. Then the executor completes the step up to the action of the loop. Only the trained network gets gradients.
 _Avoid_: training a network in isolation from the loop it runs in.
@@ -110,10 +115,13 @@ _Avoid_: environment node, environment module, environment handle.
 The target objective reads the state before the step. The reward reads the Transition of the step. Training, validation and evaluation all run episodes this way, in JS and in Python. Validation and evaluation run greedily.
 _Avoid_: batch (a lane is one episode, not a training sample).
 
-**Scenario Module (场景模块)**: the code module whose `module` output is wired into the `scenario` port of a loop (`scene.module → loop.scenario`). It exports the roles that the runner calls. `init(start)` is optional. `input(state[, table]) → bits[1..256]` and `step(state, action[, table]) → { state, done, success }` are required. It also exports the required `export const budget = …` and, as an option, `export const actions = [...]`. The `actions` export is wired separately to the readout.
+**Scenario Module (场景模块)**: the code module whose `module` output is wired into the `scenario` port of a loop (`scene.module → loop.scenario`). It exports the roles that the runner calls. `init(start)` is optional. `input(state[, table]) → bits[1..65535]` and `step(state, action[, table]) → { state, done, success }` are required. It also exports the required `export const budget = …` and, as an option, `export const actions = [...]`. The `actions` export is wired separately to the readout.
 
-A one-question task writes a `step` that returns `done: true`. The scenario parameters are its inputs (`params.params → scene.params`, `rng.rng → scene.rng`). Heavy derived tables are top-level consts that the system computes once per bundle. The `scenario` port of the loop shows the scenario as incomplete when a role is missing. It does the same when an exported function is not a role and is not wired anywhere.
+A one-question task writes a `step` that returns `done: true`. The scenario parameters are its inputs (`params.params → scene.params`, `rng.rng → scene.rng`). Heavy derived tables are top-level consts that the system computes once per bundle. The `scenario` port of the loop shows the scenario as incomplete when a role is missing. It does the same when an exported function is not a role export of any loop on this scene and is not wired anywhere. One scene can serve several loops, and each loop names its own role exports (ADR 0022).
 _Avoid_: scenario source held by a runner node, one call wire per role, a class with mutable members (state is always an explicit State record).
+
+**Opponent (对手)**: the other side in a scenario with two sides. In training, the scripted bot of the scenario plays it. In a battle, a script module calls both networks and the rules of the scenario (ADR 0019). The scenario rules do not change.
+_Avoid_: bot (that is only one kind of opponent), enemy, second agent (the loop has one action).
 
 **Random (随机数)**: the module that supplies the random numbers of a scenario. It supplies the jump-ahead tables `rng: { mul, add }` of a linear congruential generator with 32 bits. The module computes the tables once from its configuration, and they go into an input of the scenario module. From seed s, the (k+1)-th draw is `add32(imul32(rng.mul[k], u32(s)), rng.add[k])`.
 _Avoid_: a code module computing the generator's tables, random constants.
@@ -153,7 +161,7 @@ Its weights come from one of two sources, never both. The first source is the ar
 Only that tool runs. The next layer sees the result of the tool, zero-extended, followed by the layer before. If the tool layer is the last layer, this is the output of the network. A network with a tool layer trains by REINFORCE (ADR 0010).
 _Avoid_: mux, router (nothing is routed by a learned bit code), sub-network.
 
-**Tool (工具)**: a function `(bits) → bits` wired into a tool layer. A tool is the export of a code module, or a frozen network of any kind through the `run` of its bits-mode readout. A code tool keeps no state. The state of a network tool belongs to the session of the network that calls it. This state includes the potentials of a LIF tool and the states of its own tools. The state advances only on the steps that choose the tool, and it resets with that session.
+**Tool (工具)**: a function `(bits) → bits` wired into a tool layer. A tool is the export of a code module, or a frozen network of any kind through the `run` of its readout. A bits readout gives score ≥ 0 per output. An argmax readout gives the one-hot bits of the first maximum (ADR 0019). A code tool keeps no state. The state of a network tool belongs to the session of the network that calls it. This state includes the potentials of a LIF tool and the states of its own tools. The state advances only on the steps that choose the tool, and it resets with that session.
 _Avoid_: expert.
 
 **Dataset (数据集)**: one table of data that a content hash pins after import.
@@ -173,11 +181,11 @@ _Avoid_: training recipe.
 
 **Training Backend (训练后端)**: the computing environment (browser or Python) that runs training. A change of the training location must not change the execution semantics of the exported model.
 
-**Trainer (训练器)**: the driver that trains the network wired into its `structure` on the loop wired into its `loop` (whole-loop training). It uses the episodes of its `training` partition and calls its objective. It selects by its optional metric on `validation` and produces training runs.
+**Trainer (训练器)**: the driver that trains the network wired into its `structure` on the loop wired into its `loop` (whole-loop training). It uses the episodes of its `training` partition and calls its objective. It selects by its optional metric on `validation` and produces training runs. Its optional `init` takes the `weights` of a candidates module. The run then starts from the accepted artifact of those candidates, not from random weights (ADR 0020). Its optional `gate` takes the `report` of an evaluator. A run starts only when that report is not stale and its metric meets the condition in the trainer configuration (ADR 0020).
 
 **Training Run (训练运行)**: one training on one bundle, together with its record and candidates.
 
-**Bundle (训练快照)**: the immutable `neurom-bundle` copy of all that a trainer, evaluator or execution collected along its inputs. `env` holds the programs of the scenario with their bound values, budget, actions, types, episode kind and tables. `loop` holds the nodes of the body, with the accepted model of each frozen network. The model of the trained network stays open. The last part belongs to the driver: objective, selection, metrics, partitions and recipe.
+**Bundle (训练快照)**: the immutable `neurom-bundle` copy of all that a trainer, evaluator or execution collected along its inputs. `env` holds the programs of the scenario with their bound values, budget, actions, types, episode kind and tables. `loop` holds the nodes of the body, with the accepted model of each frozen network. The model of the trained network stays open. The last part belongs to the driver: objective, selection, metrics, partitions and recipe. A trainer bundle also holds `init`, the start model, when its `init` has a wire.
 
 Runs, reports, executions and artifacts pin the bundle. A running driver also pins the rows of the tables that it names. Later canvas edits do not affect these pinned items. A result whose pinned bundle is different from the bundle that the canvas describes now is **stale (过期)**.
 _Avoid_: draft, task version.
@@ -198,6 +206,9 @@ _Avoid_: draft, task version.
 
 **View Script (视图脚本)**: JavaScript that a view carries instead of a built-in renderer. It is a Vue component that takes `ctx`, or a `render(ctx, el)` function. It runs in a sandboxed frame, isolated from the workbench and the network. It receives the values wired to the view, plus the values of its training module by title. It draws them in any way. It only draws: nothing that it computes goes to a bundle, a trainer or the graph.
 _Avoid_: code module (that is the restricted, IR-compiled file), calling the whole script a component or widget.
+
+**Script Module (脚本模块)**: a module that runs plain JavaScript in the view sandbox. It calls the networks and code functions wired into its declared function inputs, and draws views in a grid that the script lays out (ADR 0019). Its `main` runs one round per `ctx.frame()`, so a user can step it. It is inference only: no bundle or trainer reads it.
+_Avoid_: code runtime (runtime is the execution engine), code module (that is the restricted, IR-compiled file), runner (that is the episode protocol).
 
 **Deployment (链上部署)**: the module that deploys one artifact as a module contract and verifies it. One deployment creates one independent instance.
 
@@ -243,7 +254,7 @@ _Avoid_: group / ungroup, expand (when unpack is meant).
 
 **Prefab (预制模块)**: a composite instantiated as a whole from a template that declares **slots (槽位)**. Its group carries the record `prefab`, which contains the slots and the **expected wires**. A slot is a declared port of a member that the task fills (场景 on `loop.scenario`, 目标 on `trainer.objective` …). The task fills it with the stub modules that its 「+」 adds. The system reads from the wires what fills the slot.
 
-An expected wire is a template wire outside the slots. The workbench lists a missing expected wire with 「恢复」. The record is presentation only, and runs read only the wires.
+An expected wire is a template wire outside the slots. The workbench lists a missing expected wire with 「恢复」. The record is presentation only, and runs read only the wires. A nested group of a template can also declare slots. Then that group is a prefab of its own, and several prefabs can share the modules around them. For example, the tank battle shares one scene among the loops of its stages.
 _Avoid_: packed group (a prefab is never made by packing), confusing a prefab slot with a readout map slot or a frame's outer port slot.
 
 **Template Library (模板库)**: the place where the workbench lists, instantiates, forks, imports and exports builtin and user templates.

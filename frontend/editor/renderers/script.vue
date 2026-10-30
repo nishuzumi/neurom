@@ -7,23 +7,12 @@
 // nor a render.
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import vueSource from 'vue/dist/vue.global.prod.js?raw';
-import { scriptDocument } from './script-frame.js';
+import { scriptDocument, themeVars } from './script-frame.js';
 import { t } from '../../i18n.js';
 
 const props = defineProps<{ ctx: Record<string, unknown>; source: string }>();
 const frame = ref<HTMLIFrameElement | null>(null);
 
-/** the workbench's colour variables (every custom property a :root rule declares), so a script can use var(--spike) */
-function themeVars(): Record<string, string> {
-  const names = new Set<string>(), style = getComputedStyle(document.documentElement), out: Record<string, string> = {};
-  for (const sheet of document.styleSheets) {
-    let rules: CSSRuleList;
-    try { rules = sheet.cssRules; } catch { continue; }
-    for (const rule of rules) if (rule instanceof CSSStyleRule && rule.selectorText === ':root') for (const name of rule.style) if (name.startsWith('--')) names.add(name);
-  }
-  for (const name of names) { const v = style.getPropertyValue(name).trim(); if (v) out[name] = v; }
-  return out;
-}
 // read once, before the frame's first document is built. If a second document replaces the first while the first still
 // loads, the browser can drop the second document, and the frame then has no colours
 const vars = themeVars(), scheme = getComputedStyle(document.documentElement).colorScheme || 'normal';

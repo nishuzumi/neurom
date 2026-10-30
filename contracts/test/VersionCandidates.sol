@@ -11,7 +11,7 @@ import "../src/modules/DensePolicyEngine.sol";
 /// version the check must let through).
 contract EquivalentDensePolicyEngine is DensePolicyEngine {
     function run(uint8 kind, uint16 inputs, uint16 outputs, uint256[] calldata shape, address[] calldata chunks, uint256[] calldata tools, uint256[] calldata state, bytes calldata input)
-        external view override returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages)
+        external view override returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages)
     {
         (scores, action, counts, voltages) = _run(kind, inputs, outputs, shape, chunks, tools, state, input);
     }
@@ -21,7 +21,7 @@ contract EquivalentDensePolicyEngine is DensePolicyEngine {
 /// state (LIF, or with a stateful tool) have a next state, so every other decision stays the same.
 contract OneBitDensePolicyEngine is DensePolicyEngine {
     function run(uint8 kind, uint16 inputs, uint16 outputs, uint256[] calldata shape, address[] calldata chunks, uint256[] calldata tools, uint256[] calldata state, bytes calldata input)
-        external view override returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages)
+        external view override returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages)
     {
         (scores, action, counts, voltages) = _run(kind, inputs, outputs, shape, chunks, tools, state, input);
         if (voltages.length != 0 && input[input.length - 1] == 0x01) voltages[0] ^= 1;

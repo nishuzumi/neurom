@@ -7,11 +7,15 @@
 // be re-attached after a reload (`recover()`). The Python workspace keeps the rows it was given. A browser run cannot
 // survive a reload and is marked failed there. Every change is a Workspace change: the app persists it from its
 // Workspace subscription.
+// A trainer with a `gate` wire starts only when the current report of that evaluator meets `config.gate` (ADR 0020).
+// `evaluators(id)` gives the evaluator session of a node. The check runs at the start for both backends, so the
+// Python workspace never gets a refused run. A later change of the report does not stop a run.
 //
-//   snapshot() → { nodeId, dead, backend, method, problem, active:{id,status,progress}|null, runs:[…], can:{start,cancel}, python }
+//   snapshot() → { nodeId, dead, backend, method, problem, gate:{evaluator,passed,reason,value}|null, active:{id,status,progress}|null, runs:[…], can:{start,cancel}, python }
 //   start() → Promise<runId> · cancel(runId?) → Promise · recover() → Promise · remove(runId) · subscribe(fn) · dispose()
 import { bundleHash } from '../bundle.js';
 import { makeArtifact } from '../store.js';
+import { gateEvaluatorOf, hasCondition } from '../kinds/trainer.js';
 import { observable, SessionError } from './common.js';
 import { bundlePins } from './pinned.js';
 import { isTerminal } from './workspace-client.js';
@@ -26,28 +30,63 @@ async function defaultBrowser(bundle, options) {
   return startBrowserTraining(bundle, options);
 }
 
-export function createTrainerSession({ workspace, nodeId, browser = defaultBrowser, client = null, datasets = null, now = () => Date.now() }) {
+/**
+ * The gate state of `gate` (a trainer's condition `{ metric, min?, max? }`) against the snapshot of the evaluator
+ * session `title` (`{ report, stale }`, or null). → `{ passed, reason, value }`. value: the metric mean, or null.
+ */
+export function gateStatus(gate, evaluation, title) {
+  const refuse = (reason, value = null) => ({ passed: false, reason, value });
+  if (!hasCondition(gate)) return refuse(t('先选择指标，再填写最小值或最大值'));
+  if (!evaluation?.report) return refuse(t('还没有评估器 {title} 的报告：先运行评估', { title }));
+  if (evaluation.stale) return refuse(t('评估器 {title} 的报告已过时：再运行一次评估', { title }));
+  const value = evaluation.report.metrics?.[gate.metric]?.mean;
+  if (typeof value !== 'number') return refuse(t('评估器 {title} 的报告里没有指标 {metric}', { title, metric: gate.metric }));
+  const shown = { metric: gate.metric, value: String(+value.toPrecision(4)), min: gate.min, max: gate.max };
+  if (gate.min != null && value < gate.min) return refuse(t('{metric} 是 {value}，需要 ≥ {min}', shown), value);
+  if (gate.max != null && value > gate.max) return refuse(t('{metric} 是 {value}，需要 ≤ {max}', shown), value);
+  return { passed: true, reason: t('{metric} 是 {value}，满足条件', shown), value };
+}
+
+export function createTrainerSession({ workspace, nodeId, browser = defaultBrowser, client = null, datasets = null, evaluators = null, now = () => Date.now() }) {
   const graph = workspace.graph;
   const active = new Map();                                             // runId → { cancel(), progress }
   let disposed = false, starting = false;
+  let gateWatch = null;                                                 // { id, off } — the evaluator session the gate follows
   const pins = bundlePins(workspace, nodeId, { datasets });
   const view = observable(build);
-  const off = workspace.subscribe(() => { if (!disposed) view.notify('workspace'); });
+  const off = workspace.subscribe(() => { if (!disposed) { watchGate(); view.notify('workspace'); } });
 
   const node = () => (graph.hasNode(nodeId) && graph.node(nodeId).kind === 'trainer' ? graph.node(nodeId) : null);
   const runsOf = () => [...workspace.runs.values()].filter(r => r.trainer === nodeId).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+  const gateOf = n => gateEvaluatorOf(graph, n);
+  /** Follow the evaluator session of the `gate` wire, so a new report or a stale one updates the snapshot. */
+  function watchGate() {
+    const n = node(), id = n ? gateOf(n)?.id ?? null : null;
+    if (gateWatch?.id === id) return;
+    gateWatch?.off(); gateWatch = null;
+    const s = id ? evaluators?.(id) : null;
+    if (s) gateWatch = { id, off: s.subscribe(() => { if (!disposed) view.notify('gate'); }) };
+  }
+  watchGate();
+  /** The gate state of trainer `n` now, or null without a `gate` wire. */
+  function gateView(n) {
+    const evaluator = gateOf(n);
+    if (!evaluator) return null;
+    return { evaluator: evaluator.title, ...gateStatus(n.config.gate, evaluators?.(evaluator.id)?.snapshot() ?? null, evaluator.title) };
+  }
 
   function build() {
     const n = node();
-    if (!n || disposed) return { nodeId, dead: disposed ? t('训练会话已释放') : t('训练器模块已不存在'), backend: null, method: null, problem: null, active: null, runs: [], can: { start: false, cancel: false }, python: pythonView() };
+    if (!n || disposed) return { nodeId, dead: disposed ? t('训练会话已释放') : t('训练器模块已不存在'), backend: null, method: null, problem: null, gate: null, active: null, runs: [], can: { start: false, cancel: false }, python: pythonView() };
     let problem = pins.current().problem;
     const runs = runsOf().map(r => ({ ...r, progress: active.get(r.id)?.progress ?? r.progress ?? null, bundle: undefined }));
     const current = runs.find(r => ACTIVE.has(r.status)) ?? null;
     if (n.config.backend === 'python' && !client) problem ??= t('Python 后端需要 Workspace 客户端');
+    const gate = gateView(n);
     return {
-      nodeId, dead: null, backend: n.config.backend, method: n.config.method, problem, runs,
+      nodeId, dead: null, backend: n.config.backend, method: n.config.method, problem, gate, runs,
       active: current ? { id: current.id, status: current.status, progress: current.progress, backend: current.backend } : null,
-      can: { start: !problem && !current && !starting, cancel: !!current && active.has(current.id) },
+      can: { start: !problem && !current && !starting && (gate?.passed ?? true), cancel: !!current && active.has(current.id) },
       python: pythonView(),
     };
   }
@@ -97,6 +136,8 @@ export function createTrainerSession({ workspace, nodeId, browser = defaultBrows
     if (disposed) throw new SessionError(t('训练会话已释放'));
     const n = node(); if (!n) throw new SessionError(t('训练器模块已不存在'));
     if (starting || runsOf().some(r => ACTIVE.has(r.status))) throw new SessionError(t('这个训练器已有运行中的训练'));
+    const gate = gateView(n);
+    if (gate && !gate.passed) throw new SessionError(gate.reason);
     starting = true; view.notify('start');
     try {
       const { bundle, tables } = await pins.pin();
@@ -150,7 +191,7 @@ export function createTrainerSession({ workspace, nodeId, browser = defaultBrows
   }
   function dispose() {
     if (disposed) return;
-    disposed = true; off(); pins.dispose();
+    disposed = true; off(); pins.dispose(); gateWatch?.off(); gateWatch = null;
     for (const entry of active.values()) entry.stop?.();
     view.notify('dispose'); view.clear();
   }

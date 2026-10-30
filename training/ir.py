@@ -28,7 +28,7 @@ LAZY = {'select': [1, 2], 'and': [1], 'or': [1]}
 MASK32 = np.uint64(0xFFFFFFFF)
 TWO32 = float(2 ** 32)
 
-# op → (arity, has value, has name, body param count, approx tier). Arity 'variadic' = 1..n, 'variadic0' = 0..n.
+# op → (arity, has value, has name, body param count, approx tier). Arity 'variadic' = 1..n.
 OPS = {
     'constant': (0, True, False, 0, False), 'param': (0, False, True, 0, False),
     'add': (2,) + (False,) * 4, 'sub': (2,) + (False,) * 4, 'mul': (2,) + (False,) * 4, 'div': (2,) + (False,) * 4, 'mod': (2,) + (False,) * 4, 'neg': (1,) + (False,) * 4,
@@ -37,7 +37,7 @@ OPS = {
     'lt': (2,) + (False,) * 4, 'lte': (2,) + (False,) * 4, 'gt': (2,) + (False,) * 4, 'gte': (2,) + (False,) * 4, 'eq': (2,) + (False,) * 4, 'neq': (2,) + (False,) * 4,
     'and': (2,) + (False,) * 4, 'or': (2,) + (False,) * 4, 'not': (1,) + (False,) * 4, 'select': (3,) + (False,) * 4,
     'vector': ('variadic',) + (False,) * 4, 'concat': ('variadic',) + (False,) * 4, 'bits': (2,) + (False,) * 4, 'oneHot': (2,) + (False,) * 4, 'at': (2,) + (False,) * 4, 'slice': (3,) + (False,) * 4,
-    'get': (1, False, True, 0, False), 'record': ('variadic0', True, False, 0, False), 'set': (2, False, True, 0, False),
+    'get': (1, False, True, 0, False), 'record': ('variadic', True, False, 0, False), 'set': (2, False, True, 0, False),
     'array': ('variadic',) + (False,) * 4, 'index': (2,) + (False,) * 4, 'update': (3,) + (False,) * 4, 'range': (0, True, False, 0, False),
     'map': (1, False, False, 2, False), 'fold': (2, False, False, 3, False), 'scan': (2, False, False, 3, False),
     'u32': (1,) + (False,) * 4, 'imul32': (2,) + (False,) * 4, 'add32': (2,) + (False,) * 4, 'sub32': (2,) + (False,) * 4, 'xor32': (2,) + (False,) * 4, 'and32': (2,) + (False,) * 4, 'or32': (2,) + (False,) * 4, 'shl32': (2,) + (False,) * 4, 'shr32': (2,) + (False,) * 4,
@@ -206,7 +206,7 @@ def analyze_structure(program):
             if not isinstance(ins, list) or any(not isinstance(x, str) for x in ins): raise _err('inputs must be a list of node ids', node)
             if arity == 'variadic':
                 if not ins: raise _err(f'{op} needs at least one input', node)
-            elif arity != 'variadic0' and len(ins) != arity: raise _err(f'{op} needs {arity} inputs, got {len(ins)}', node)
+            elif len(ins) != arity: raise _err(f'{op} needs {arity} inputs, got {len(ins)}', node)
             if ('value' in node) != has_value: raise _err(f'{op} {"needs" if has_value else "cannot carry"} value', node)
             if (not isinstance(node.get('name'), str)) if has_name else ('name' in node): raise _err(f'{op} {"needs" if has_name else "cannot carry"} name', node)
             if (not isinstance(node.get('body'), dict)) if body_params else ('body' in node): raise _err(f'{op} {"needs" if body_params else "cannot carry"} body', node)

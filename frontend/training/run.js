@@ -1,5 +1,5 @@
 // training/run.js — what every bundle trainer shares:
-//   - the cooperative scheduler (bounded progress, cancellation)
+//   - the cooperative scheduler (bounded progress, yields to the event loop)
 //   - episode sources over bundle partitions
 //   - the selection program
 //   - greedy validation through the lockstep runner (core/loop.js runEpisodes) on the integer engines. So the
@@ -13,13 +13,12 @@ const PROGRESS_POINTS = 400, CURVE_POINTS = 256;
 const YIELD_EVERY_MS = 40;                                          // a trainer yields to the event loop this often
 const VALIDATION_SEEDS = 64;                                        // seed partitions validate on this many episodes when none is wired
 
-export function abortError() { const error = new Error(t('训练已取消')); error.name = 'AbortError'; return error; }
 function subsample(values) { if (values.length <= CURVE_POINTS) return values; const step = values.length / CURVE_POINTS; return Array.from({ length: CURVE_POINTS }, (_, i) => values[Math.floor(i * step)]); }
 
-/** Cooperative scheduler hooks shared by every method: bounded progress messages and cancellation. */
+/** Cooperative scheduler hooks shared by every method: bounded progress messages and yields to the event loop. */
 export class Run {
-  constructor(epochs, { onProgress = () => {}, isCancelled = () => false } = {}) {
-    this.onProgress = onProgress; this.isCancelled = isCancelled;
+  constructor(epochs, { onProgress = () => {} } = {}) {
+    this.onProgress = onProgress;
     this.started = performance.now(); this.startedAt = new Date().toISOString(); this.lastYield = this.started; this.epochs = epochs;
     this.stride = Math.max(1, Math.floor(epochs / PROGRESS_POINTS));
   }
@@ -27,9 +26,8 @@ export class Run {
   report(progress) { this.onProgress({ epochs: this.epochs, elapsed: this.elapsed(), ...progress }); }
   shouldReport(epoch, evaluated) { return evaluated || epoch === 0 || (epoch + 1) % this.stride === 0 || epoch + 1 === this.epochs; }
   async tick() {
-    if (this.isCancelled()) throw abortError();
     const now = performance.now();
-    if (now - this.lastYield > YIELD_EVERY_MS) { this.lastYield = now; await new Promise(resolve => setTimeout(resolve, 0)); if (this.isCancelled()) throw abortError(); }
+    if (now - this.lastYield > YIELD_EVERY_MS) { this.lastYield = now; await new Promise(resolve => setTimeout(resolve, 0)); }
   }
 }
 
@@ -101,6 +99,15 @@ export const anySet = mask => { for (let k = 0; k < mask.length; k++) if (mask[k
 export const always = () => true;
 function sameBits(a, b) { for (let k = 0; k < a.length; k++) if ((a[k] ? 1 : 0) !== (b[k] ? 1 : 0)) return false; return true; }
 
+/** The start of a run from `init` (ADR 0020), before the first epoch: greedy validation of the start `model` as
+ *  epoch 0. It goes into the curves, the evaluations (with `fields(summary)`) and one 'eval' progress message. It is
+ *  the first best, so an epoch must beat it strictly to be selected. Returns that best record. */
+export function startEvaluation({ bundle, run, model, quantization, validation, tables, selection, labelled, curves, evaluations, fields }) {
+  const summary = validateGreedy(bundle, model, validation, { tables, selection, labelled }), metric = summary.metric;
+  curves.metric.push(metric); evaluations.push({ epoch: 0, metric, ...fields(summary) });
+  run.report({ phase: 'eval', epoch: 0, loss: null, metric, metricName: selection.name, selectedEpoch: 0 });
+  return { epoch: -1, model, quantization, metric, summary };
+}
 /** Shared result assembly. */
 export function finishResult({ bundle, run, recipe, best, curves, evaluations, validation, selection, bundleHash, extra = {} }) {
   const evaluation = { metricName: selection.name, metric: best.metric, selectedEpoch: best.epoch + 1,

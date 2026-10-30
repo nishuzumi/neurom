@@ -36,7 +36,7 @@ export function startBrowserTraining(bundle, { onProgress = () => {}, tables = {
         try { onProgress(data.progress); } catch (error) { finish?.(reject, error); }
       }
       else if (data.type === 'complete') finish(resolve, data.result);
-      else if (data.type === 'error') { const error = new Error(data.error); error.name = data.name === 'AbortError' ? 'AbortError' : 'TrainingError'; finish(reject, error); }
+      else if (data.type === 'error') { const error = new Error(data.error); error.name = 'TrainingError'; finish(reject, error); }
     };
     worker.onerror = event => { event.preventDefault?.(); finish?.(reject, new Error(t('训练线程崩溃：{error}', { error: event.message ?? t('未知错误') }))); };
     try { worker.postMessage({ type: 'start', runId, bundle, tables, locale: locale() }); }

@@ -9,8 +9,9 @@
 import { canonicalJSON } from './canonical.js';
 import { t } from '../i18n.js';
 
-const HANDLES = Object.freeze(['partition', 'structure', 'weights', 'run', 'artifact', 'report', 'execution', 'deployment', 'text', 'loop']);
-export const MAX_BITS = 256;
+const HANDLES = Object.freeze(['partition', 'structure', 'weights', 'run', 'artifact', 'report', 'execution', 'loop']);
+/** The one limit of bit widths (ADR 0021): input bits, Bit Wires, scenario `input`, outputs, argmax maps, layer widths. */
+export const MAX_BITS = 65535;
 
 export const NUMBER = Object.freeze({ type: 'number' });
 export const BOOLEAN = Object.freeze({ type: 'boolean' });

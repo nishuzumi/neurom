@@ -21,7 +21,7 @@ All of this ADR is presentation. Modules, kinds, wires, bundles and runs do not 
 
 An expanded group with a `prefab` record is drawn as the frame. The number of trainers is not important (none, one or several).
 
-The system writes the record one time, when a template that declares `slots` is instantiated (`core/template.js`). Nothing counts members.
+The system writes the record one time, when a template that declares `slots` is instantiated (`core/template.js`). Nothing counts members. A nested group of the template can also declare `slots`. That group then gets its own record, with the expected wires that have an end at its members.
 
 A slot is a declared port of a template member, plus `create`. `create` is the modules that the 「+」 of the slot adds. A code module in `create` starts from the stub of the contract of that port (`core/prefab.js stubSource`).
 
@@ -40,6 +40,8 @@ Sections are in the left column and have no card or port band. The sections are:
 Every other direct member is a canvas member, for example the loop box. The well draws canvas members at their stored positions.
 
 The environment is in the column, not in the well. The environment is part of the task definition and of `envHash`, and all drivers share it. The trained model is only what runs in the loop box.
+
+Several training modules can share one environment. Then the environment stays outside their frames, in the group around them, and no frame draws it as a section. Each frame shows it in its scenario slot, and the loop box shows `ƒ scenario ← <title>`. A copy of the scenario is not a solution, because the rules then exist two times.
 
 ### 3. Feeds and slots
 
@@ -80,7 +82,7 @@ The frame does not write explanatory sentences.
 
 Sections go into columns of fixed width, in the order of §2. The `columns` of the group has one of two values:
 
-- `null`. This is automatic. The system uses a contiguous split that makes the tallest column as short as possible. The aspect of the frame sets the number of columns.
+- `null`. This is automatic. The system uses a contiguous split that makes the tallest column as short as possible. The aspect of the frame sets the number of columns. More columns make the frame wider to the left, and the count stops before the frame touches a neighbour at its level. While Arrange lays out the level of the frame, the count does not look at the neighbours. Arrange then puts the neighbours around the frame.
 - A split that the user stored. The user drags a section by its kind label to store a split. After the user stores a split, the frame draws exactly that split.
 
 If a section is not in the split, the frame puts it after its predecessor in the order of §2. `columns` is a view preference. It goes with the graph, not with templates.

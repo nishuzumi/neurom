@@ -22,13 +22,12 @@ import { validateArtifact, artifactSpec } from './core/store.js';
 import { modelProblem } from './core/sessions/executor.js';
 import { envHash } from './core/bundle.js';
 import { trainedOf, trainedTools } from './core/loop.js';
-import { ENGINES, isToolLayer, deploymentProblem, moduleStateWidth, MAX_PORT, MAX_TICKS } from './core/kinds/network.js';
+import { ENGINES, isToolLayer, deploymentProblem, moduleStateWidth, MAX_PORT, MAX_STATE, MAX_TICKS } from './core/kinds/network.js';
 import { DENSE_KINDS as KINDS, encodeDenseWeights } from './runtime/dense-policy.js';
 import { encodeThresholdWeights } from './runtime/threshold-layers.js';
 import { AbiCoder, Contract, getCreate2Address, isAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { t } from './i18n.js';
 
-const ZERO_SESSION = '0x' + '0'.repeat(64);
 const ZERO_ADDRESS = '0x' + '0'.repeat(40);
 const INT32 = 2147483648;
 /** ModuleFactory.MAX_CHUNK_BYTES: the most weight bytes one chunk holds. */
@@ -59,7 +58,7 @@ function isBit(b) { return b === 0 || b === 1 || b === false || b === true; }
 /** `bits`: 0/1 (or boolean) entries → one byte each, the `bytes` a module expects. */
 function encodeBits(bits, expected, label) {
   if (!bits || typeof bits.length !== 'number') throw new Error(t('{label}必须是 0/1 数组', { label: t(label) }));
-  if (expected !== undefined && bits.length !== expected) throw new Error(t('{label}必须是 {expected} 位，收到 {count}', { label: t(label), expected, count: bits.length }));
+  if (bits.length !== expected) throw new Error(t('{label}必须是 {expected} 位，收到 {count}', { label: t(label), expected, count: bits.length }));
   let hex = '0x';
   for (let i = 0; i < bits.length; i++) {
     if (!isBit(bits[i])) throw new Error(t('{label}第 {index} 位不是 0/1：{value}', { label: t(label), index: i, value: bits[i] }));
@@ -76,7 +75,6 @@ export function sessionId(label) {
 }
 
 function requireSession(session) {
-  if (session === undefined || session === null) return ZERO_SESSION;
   if (typeof session !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(session)) throw new Error(t('会话必须是 bytes32（0x + 64 hex）：{session}', { session }));
   return session.toLowerCase();
 }
@@ -90,24 +88,28 @@ function engineOf(id) { return ENGINES.find(n => nameId(n).toLowerCase() === Str
 export function taskIdOf(artifact) { return envHash(artifact.bundle); }
 
 /** The shape words of the engine (contracts DensePolicyEngine / ThresholdLayersEngine) for a validated model: the layer
- *  layout, the parameters with the shift k of every region (ADR 0015), and (dense) the fire threshold of each plain layer. */
-function shapeOf(model) {
+ *  layout, the parameters with the shift k of every region (ADR 0015), and (dense) the fire threshold of each plain layer.
+ *  Dense: four words. Words 0 and 1 hold the 64-bit descriptor of layer l at bit 64·(l mod 4) of word ⌊l / 4⌋:
+ *  [0, 16) hidden − 1 or K − 1, [16, 32) D − 1, [32, 48) R − 1, bit 48 = tool layer. Word 2 holds the parameters and
+ *  shifts. Word 3 holds the thresholds. */
+export function shapeOf(model) {
   if (model.format === 'dense-policy') {
     const { layers, ticks, leak_shift: leakShift, reset, weightBits } = model, lif = model.kind === 'lif';
-    let layout = 0n, params = BigInt(layers.length) | (BigInt(ticks) << 8n) | (BigInt(leakShift) << 16n) | (BigInt(weightBits) << 24n) | (BigInt(reset & 0xffff) << 32n), thresholds = 0n;
+    const layout = [0n, 0n];
+    let params = BigInt(layers.length) | (BigInt(ticks) << 8n) | (BigInt(leakShift) << 16n) | (BigInt(weightBits) << 24n) | (BigInt(reset & 0xffff) << 32n), thresholds = 0n;
     layers.forEach((L, l) => {
-      const at = BigInt(32 * l), k = BigInt(48 + 10 * l);
+      const word = l >> 2, at = BigInt(64 * (l & 3)), k = BigInt(48 + 10 * l), th = BigInt(32 * l);
       if (isToolLayer(L)) {
-        layout |= ((1n << 27n) | BigInt(L.K - 1) | (BigInt(L.D - 1) << 9n) | (BigInt(L.R - 1) << 18n)) << at;
+        layout[word] |= ((1n << 48n) | BigInt(L.K - 1) | (BigInt(L.D - 1) << 16n) | (BigInt(L.R - 1) << 32n)) << at;
         params |= (BigInt(L.k_c) << k) | (BigInt(L.k_d) << (k + 5n));
       } else {
-        layout |= BigInt(L.hidden - 1) << at;
+        layout[word] |= BigInt(L.hidden - 1) << at;
         params |= BigInt(L.k) << k;
-        thresholds |= BigInt(lif ? L.threshold : 1) << at;
+        thresholds |= BigInt(lif ? L.threshold : 1) << th;
       }
     });
     if (model.output) params |= BigInt(model.output.k) << 128n;
-    return [layout, params, thresholds];
+    return [...layout, params, thresholds];
   }
   const widths = [model.inputs, ...model.layers.map(L => L.W.length)];
   return [widths.reduce((w, width, l) => w | (BigInt(width) << BigInt(16 * l)), 0n),
@@ -201,7 +203,7 @@ async function readModule(providerOrSigner, address) {
   const [shape, chunks, tools] = await Promise.all([c.shape(), c.chunks(), c.tools()]);
   return {
     address, engine, engineId: d.engineId, kind: KINDS[int(d.kind, 'kind', 0, 1)], artifactId: d.artifactId, taskId: d.taskId,
-    inputs: int(d.inputs, 'inputs', 1, MAX_PORT), outputs: int(d.outputs, 'outputs', 1, MAX_PORT), stateWidth: int(d.stateWidth, 'stateWidth', 0, MAX_PORT),
+    inputs: int(d.inputs, 'inputs', 1, MAX_PORT), outputs: int(d.outputs, 'outputs', 1, MAX_PORT), stateWidth: int(d.stateWidth, 'stateWidth', 0, MAX_STATE),
     factory: d.factory, engineAddress: d.engine, shape: Array.from(shape, BigInt), chunks: Array.from(chunks), tools: Array.from(tools),
   };
 }
@@ -372,9 +374,9 @@ async function planModule(at, plan, valid, tool) {
 }
 
 /**
- * What deployModule would send for `artifact` now, read-only. `runner`: a provider or signer. `from`: the deployer,
- * default the address of the signer. The deployer becomes the owner of the module, so the Factory refuses a deployment
- * estimated without one. `version`: as for deployModule.
+ * What deployModule would send for `artifact` now, read-only. `runner`: a provider or signer. `from`: the deployer.
+ * The deployer becomes the owner of the module, so the Factory refuses a deployment estimated without one. `version`:
+ * as for deployModule.
  * → `{ artifactId, factory, cap, chunks, tools, transactions }`:
  *   - `chunks` = the distinct weight chunks of every module that it creates (`{ artifactId, id, address, bytes, onChain }`,
  *     by their CREATE2 addresses)
@@ -384,13 +386,12 @@ async function planModule(at, plan, valid, tool) {
  * The grouping follows the rule of createModule, from gas estimates made before anything is sent (splitByGas).
  * deployModule estimates again before each transaction. So a forecast at a boundary can be one transaction off.
  */
-export async function planDeployment(runner, factoryAddress, artifact, { artifacts = null, from = null, version = null } = {}) {
+export async function planDeployment(runner, factoryAddress, artifact, { artifacts = null, from, version = null } = {}) {
   const valid = await validateArtifact(artifact);
-  const deployer = from ?? (typeof runner.getAddress === 'function' ? await runner.getAddress() : null);
-  if (!deployer || !isAddress(deployer)) throw new Error(t('部署计划需要部署者地址（from）：模块的 owner 是部署者，估算要以它的身份进行'));
+  if (!from || !isAddress(from)) throw new Error(t('部署计划需要部署者地址（from）：模块的 owner 是部署者，估算要以它的身份进行'));
   const factory = contractOf(runner, factoryAddress, FactoryABI, 'ModuleFactory'), cap = await txGasCap(runner);
   const plan = { artifactId: valid.id, factory: factoryAddress, cap: cap.toString(), chunks: [], tools: [], transactions: [] };
-  await planModule({ runner, factory, factoryAddress, artifacts, cap, as: { from: deployer }, reuse: new Map(), version }, plan, valid, false);
+  await planModule({ runner, factory, factoryAddress, artifacts, cap, as: { from }, reuse: new Map(), version }, plan, valid, false);
   return plan;
 }
 
@@ -473,8 +474,8 @@ export async function deployModule(signer, factoryAddress, artifact, { artifacts
 }
 
 /**
- * Read-only decision. mode 'forward' = rest state. mode 'peek' = the stored state of `from` (defaults to the signer)
- * under `session`, nothing persisted.
+ * Read-only decision. mode 'forward' = rest state. mode 'peek' = the stored state of `from` under `session`, nothing
+ * persisted.
  */
 export async function inferModule(providerOrSigner, address, observation, { mode = 'forward', session, from } = {}) {
   const h = await readModule(providerOrSigner, address);
@@ -482,14 +483,13 @@ export async function inferModule(providerOrSigner, address, observation, { mode
   const bytes = encodeBits(observation, h.inputs, '输入位');
   if (mode === 'forward') return decodeDecision(await c.forward(bytes), h);
   if (mode !== 'peek') throw new Error(t('未知模式：{mode}', { mode }));
-  const who = from ?? (typeof providerOrSigner.getAddress === 'function' ? await providerOrSigner.getAddress() : null);
-  if (!who) throw new Error(t('peek 需要 from（读取谁的状态）'));
-  if (!isAddress(who)) throw new Error(t('from 地址无效：{address}', { address: who }));
-  return decodeDecision(await c.peekAs(who, requireSession(session), bytes), h);
+  if (!from) throw new Error(t('peek 需要 from（读取谁的状态）'));
+  if (!isAddress(from)) throw new Error(t('from 地址无效：{address}', { address: from }));
+  return decodeDecision(await c.peekAs(from, requireSession(session), bytes), h);
 }
 
 function resultHashOf(decision) {
-  return keccak256(AbiCoder.defaultAbiCoder().encode(['int256[]', 'uint8', 'uint8[]', 'int32[]'], [decision.scores, decision.action, decision.counts, decision.voltages]));
+  return keccak256(AbiCoder.defaultAbiCoder().encode(['int256[]', 'uint16', 'uint8[]', 'int32[]'], [decision.scores, decision.action, decision.counts, decision.voltages]));
 }
 
 function mismatchError(message, rc, extra = {}) {

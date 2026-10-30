@@ -94,6 +94,21 @@ test('a view script reads its training module by title: static values per port, 
   assert.deepEqual(values.errors.map(e => [e.module, e.port]).sort(), [['counter scene', 'budget'], ['params', 'params']]);
 });
 
+test('a view script also reads the environment its training module shares: the scenario of its loop, from outside', () => {
+  const { graph, group, ids } = counterGraph();
+  const view = graph.addNode({ kind: 'view', title: 'map', config: { renderer: 'script' } });
+  graph.addToGroup(group.id, view.id);
+  graph.setPrefab(group.id, { slots: [], expect: [] });
+  // the scene and its params leave the training module: other training modules can share them now
+  graph.removeFromGroup(ids.scene); graph.removeFromGroup(ids.params);
+  const values = trainingModuleValues(graph, graph.resolved(), view.id);
+  assert.deepEqual(values.modules['counter scene'], { actions: ['stay', 'up'], budget: 5 }, 'the scenario module the loop runs');
+  assert.ok(!Object.hasOwn(values.modules, 'params'), 'what only feeds the scenario stays out');
+  // the titles a script reads stay unique across the members and that environment
+  graph.setTitle(ids.cands, 'counter scene');
+  assert.ok(graph.problems().some(p => p.node === view.id && /标题重复：counter scene/.test(p.message)));
+});
+
 test('a view script ctx: the run data at the scrubbed step, flagged live only when following the run', () => {
   const values = { modules: { params: { params: { grid: 12 } } }, errors: [] };
   const at0 = scriptContext(executionScope(execSnap, 0), 'execution', false, values);

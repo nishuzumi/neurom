@@ -37,25 +37,25 @@ interface INeuromModule {
 
     /// @notice Decision from the rest state. Reads and writes nothing.
     function forward(bytes calldata inputBits)
-        external view returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages);
+        external view returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages);
 
     /// @notice Decision from msg.sender's stored state for `session`, without persisting.
     function peek(bytes32 session, bytes calldata inputBits)
-        external view returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages);
+        external view returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages);
 
     /// @notice Decision from the given packed `state` (⌈stateWidth / 8⌉ words, IEngine's packing). Another length
     ///         reverts "state". Reads and writes nothing. `voltages` = the next state. A selector's engine uses this
     ///         function to run a tool whose state lives in the calling session.
     function forwardFrom(uint256[] calldata state, bytes calldata inputBits)
-        external view returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages);
+        external view returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages);
 
     /// @notice Decision from the state stored under (actor, session), without persisting.
     function peekAs(address actor, bytes32 session, bytes calldata inputBits)
-        external view returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages);
+        external view returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages);
 
     /// @notice One persisted decision for (msg.sender, session).
     function step(bytes32 session, bytes calldata inputBits)
-        external returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages);
+        external returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages);
 
     /// @notice Zero (msg.sender, session). No-op for stateless modules.
     function reset(bytes32 session) external;
@@ -80,7 +80,7 @@ interface IEngine {
     /// @notice One decision from the packed `state`, returned exactly as INeuromModule returns it (a module passes the
     ///         result through). `voltages` is the state after the decision (empty for stateless modules).
     function run(uint8 kind, uint16 inputs, uint16 outputs, uint256[] calldata shape, address[] calldata chunks, uint256[] calldata tools, uint256[] calldata state, bytes calldata input)
-        external view returns (int256[] memory scores, uint8 action, uint8[] memory counts, int32[] memory voltages);
+        external view returns (int256[] memory scores, uint16 action, uint8[] memory counts, int32[] memory voltages);
 }
 
 library ModuleKinds {

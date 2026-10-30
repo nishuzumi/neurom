@@ -10,10 +10,14 @@
 // A loop whose body has networks with tool layers extends its Transition with `loop: { <network title>: { <tool port>:
 // { choice, data, result } } }` (ADR 0010 §10): what each tool layer decided and got this step. The network titles of
 // such a body must be unique. A duplicate is a problem on the loop.
+// `config.roles` maps a function role (init / input / step) to another export of the scenario (ADR 0022), so one
+// scenario file serves several loops in different modes. The bundle keys the programs by role, so the runner does not
+// see the mapping.
 import { registerKind } from '../registry.js';
 import { valueIn, valueOut, moduleIn } from './common.js';
 import { NUMBER, bits, handle, record } from '../types.js';
-import { analyseScenario, scenarioProblems, scenarioRefDoc } from './scenario.js';
+import { analyseScenario, scenarioProblems, scenarioRefDoc, roleExports, SCENARIO_CALLS } from './scenario.js';
+import { INPUT_NAME } from './code.js';
 import { toolLayers } from './network.js';
 import { joinList, t } from '../../i18n.js';
 
@@ -137,10 +141,10 @@ export function driversStart(ctx, loopId) {
   return { tag: seen[0].tag, Table: seen[0].Table, tableNode: seen[0].tableNode, conflict: '' };
 }
 
-/** The scenario of loop `node`, typed by its drivers' partitions. */
+/** The scenario of loop `node`, typed by its drivers' partitions and read through the loop's role exports. */
 export function loopAnalysis(node, ctx) {
   const p = ctx.producers(node.id, 'scenario')[0], scene = p ? ctx.node(p.node) : null;
-  return analyseScenario(scene, name => ctx.inType(scene.id, name), driversStart(ctx, node.id));
+  return analyseScenario(scene, name => ctx.inType(scene.id, name), { ...driversStart(ctx, node.id), exports: roleExports(node) });
 }
 
 /** The first partition node a driver of loop `node` runs it on, in a docs context (Start's doc). */
@@ -155,7 +159,10 @@ function driverPartition(node, d) {
 registerKind({
   kind: 'loop',
   label: '回路',
-  config: { defaults: {}, schema: {} },
+  config: {
+    defaults: {},
+    schema: { roles: { type: 'object', optional: true, label: '角色对应的导出', fields: Object.fromEntries(SCENARIO_CALLS.map(role => [role, { type: 'string', pattern: INPUT_NAME.source, max: 64, optional: true }])) } },
+  },
   ports(node, ctx) {
     const I = ctx.refs(node.id).I ?? null;
     return {

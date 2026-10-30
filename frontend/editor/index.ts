@@ -31,6 +31,8 @@ import { freshId } from '../core/graph.js';
 import { METHODS } from '../core/kinds/trainer.js';
 import { structureConfig, toolSignature, isToolLayer } from '../core/kinds/network.js';
 import { trainedOf } from '../core/loop.js';
+import { createRunChain } from '../core/sessions/run-chain.js';
+import { readoutSpec } from '../core/kinds/readout.js';
 import { t } from '../i18n.js';
 
 export type { EditorContext, EditorFacade, LayoutSnapshot } from './types';
@@ -361,17 +363,26 @@ export function createVueEditor(viewport: HTMLElement, ctx: EditorContext): Edit
   }
 
   // ------------------------------------------------------------------ workbench for the bodies
+  // 「运行到这里」 (ADR 0023): one chain for the editor. A script module plays when its body answers `play`.
+  const play = shallowRef<{ node: string; seq: number } | null>(null);
+  const chain = createRunChain({
+    workspace: ctx.workspace, session: ctx.session, status: ctx.status,
+    onScript: (node: string) => { play.value = { node, seq: (play.value?.seq ?? 0) + 1 }; },
+  });
+  const chainTarget = shallowRef<string | null>(null), chainStep = shallowRef<string | null>(null);
+  chain.subscribe(() => { const s = chain.snapshot(); chainTarget.value = s.target; chainStep.value = s.step; });
   const workbench: Workbench = {
     get workspace() { return ctx.workspace(); },
     get graph() { return graph(); },
     version,
     resolution: () => graph().resolved(),
     session: (kind, nodeId) => ctx.session(kind, nodeId),
-    datasets: ctx.datasets,
     edit,
     status: (message, tone) => ctx.status(message, tone),
     python: ctx.python,
     reveal: shallowRef(null),
+    chain: { target: chainTarget, step: chainStep, run: nodeId => { void chain.run(nodeId); } },
+    play,
   };
   let unsubscribeGraph = () => {}, unsubscribeWorkspace = () => {};
   function subscribe() {
@@ -510,17 +521,18 @@ export function createVueEditor(viewport: HTMLElement, ctx: EditorContext): Edit
       const picker = workbench.session('network', node);
       const nameOf = (id: string) => ((picker.snapshot().choices as { id: string; name: string | null }[] | undefined) ?? []).find(c => c.id === id)?.name ?? null;
       type Tool = { kind: string; artifactId?: string };
-      type Trained = { id: string; structure: { inputs: number; layers?: unknown[] } & Record<string, unknown>; readout: { mode: string; width: number; decode: string } | null };
-      /** a frozen network on `id` with its bits readout, `run` wired into `into` of `host`. Then, when it has tool
-       *  layers, the network tools that its artifact was trained with, wired into its own ports. The user wires code
-       *  tools by hand. */
+      type Trained = { id: string; structure: { inputs: number; layers?: unknown[] } & Record<string, unknown>; readout: { mode: string } | null };
+      /** a frozen network on `id` with its readout (bits or argmax), `run` wired into `into` of `host`. Then, when it
+       *  has tool layers, the network tools that its artifact was trained with, wired into its own ports. The user
+       *  wires code tools by hand. */
       const addFrozen = async (host: string, into: string, id: string, at: { x: number; y: number }): Promise<number> => {
         const artifact = await picker.adopt(id) as { id: string; bundle: { loop: { nodes: Record<string, { tools?: Record<string, Tool[]> }> } } };
         const trained = trainedOf(artifact.bundle.loop) as Trained | null;
-        if (!trained || trained.readout?.mode !== 'bits') throw new Error(t('这个产物的网络不是按位读出，不能当工具'));
+        const r = trained?.readout;
+        if (!trained || !r || (r.mode !== 'bits' && r.mode !== 'argmax')) throw new Error(t('这个产物的网络没有读出，不能当工具'));
         const home = toolHome(host);
         const net = g.addNode({ kind: 'network', title: nameOf(id) ?? t('冻结网络'), x: at.x, y: at.y, config: { ...structureConfig(trained.structure), inputs: trained.structure.inputs, artifact: artifact.id } });
-        const readout = g.addNode({ kind: 'readout', x: at.x, y: at.y + geo.rect(net.id).h + GAP.y, config: { mode: 'bits', width: trained.readout.width, decode: trained.readout.decode } });
+        const readout = g.addNode({ kind: 'readout', x: at.x, y: at.y + geo.rect(net.id).h + GAP.y, config: readoutSpec(r) });
         if (home) { g.addToGroup(home, net.id); g.addToGroup(home, readout.id); }
         g.connect({ id: freshId('w'), kind: 'value', from: { node: net.id, port: 'scores' }, to: { node: readout.id, port: 'scores' } });
         g.connect({ id: freshId('w'), kind: 'call', from: { node: readout.id, port: 'run' }, to: { node: host, port: into } });
@@ -898,7 +910,7 @@ export function createVueEditor(viewport: HTMLElement, ctx: EditorContext): Edit
   const facade: EditorFacade = {
     draw, edit, snapshot, fit, focusNodes,
     reload() {
-      clearTimeout(S.saveTimer); S.saveTimer = 0;
+      clearTimeout(S.saveTimer); S.saveTimer = 0; chain.stop();
       measured.clear(); portSig.clear(); viewModels.clear(); history.clear();
       const layout = readLayout(ctx.workspace().settings.canvas);
       edgePresentation.restore(layout.edgePresentation);
@@ -929,7 +941,7 @@ export function createVueEditor(viewport: HTMLElement, ctx: EditorContext): Edit
     ungroup: unpackSelection,
     dispose() {
       S.disposed = true; clearTimeout(S.saveTimer);
-      edgePresentation.dispose(); unsubscribeGraph(); unsubscribeWorkspace();
+      edgePresentation.dispose(); unsubscribeGraph(); unsubscribeWorkspace(); chain.dispose();
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keydown', onSpaceKey, true); window.removeEventListener('keyup', onSpaceKey, true); window.removeEventListener('blur', onBlur);
       document.removeEventListener('pointerover', onPointerOver, true); document.removeEventListener('pointerout', onPointerOut, true);

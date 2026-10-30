@@ -9,7 +9,7 @@
 // type or why the call does not type, the program's params and what a bundle carries for it (core/resolve.js
 // describes the Call).
 // `schema` is a flat map field → descriptor used to validate configs here and to render forms in the editor:
-//   {type:'int'|'number', min?, max?}  {type:'boolean'}  {type:'string', pattern?}  {type:'enum', values:[…]}
+//   {type:'int'|'number', min?, max?}  {type:'string', pattern?}  {type:'enum', values:[…]}
 //   {type:'list', of:descriptor, min?, max?}  {type:'object', fields:{…}}  {type:'map', of:descriptor}  {type:'json'}
 //   {type:'oneOf', of:[descriptor, …]} (the first that accepts the value. The `object` variant judges a plain object,
 //   and the first other variant judges anything else.)
@@ -55,7 +55,6 @@ function checkField(desc, value, path) {
       if (typeof value !== 'number' || !Number.isFinite(value)) fail(t('必须是有限数'), path);
       if ((desc.min !== undefined && value < desc.min) || (desc.max !== undefined && value > desc.max)) fail(t('必须在 {min}..{max} 之间', { min: desc.min ?? '-∞', max: desc.max ?? '∞' }), path);
       return value;
-    case 'boolean': if (typeof value !== 'boolean') fail(t('必须是布尔值'), path); return value;
     case 'string':
       if (typeof value !== 'string') fail(t('必须是字符串'), path);
       if (desc.pattern && !new RegExp(desc.pattern).test(value)) fail(t('格式不正确'), path);
@@ -103,7 +102,7 @@ function merge(defaults, config) {
 
 /** Defaults deep-merged under `config`, then validated against the kind's schema, then the kind's derived fields.
  *  Throws ConfigError. */
-export function validateConfig(kind, config = {}) {
+export function validateConfig(kind, config) {
   const def = typeof kind === 'string' ? kindOf(kind) : kind;
   if (!plain(config)) throw new ConfigError(t('配置必须是对象'), []);
   const out = checkObject(def.config.schema, merge(def.config.defaults, config), []);

@@ -18,7 +18,7 @@
 
 训练器训练回路里的一个网络。其余网络用各自已接受的权重冻结运行。这叫整回路训练。网络还能把别的模块当工具。网络 `layers` 里的**工具层**每一步从接进来的工具里选一个。它还决定交给这个工具的数据位，然后只运行这一个工具（ADR 0010）。
 
-工具是代码函数，或者是冻结网络经位读出的 `run`。冻结网络可以是任何一种：FF、LIF，或自己也带工具层的网络（ADR 0010 §3）。网络工具的状态属于调用它的会话。这个状态包括 LIF 工具的电位和它自己的工具的状态。它放在调用者自己的状态之后，先按工具层排，再按连线顺序排，逐层嵌套。工具的状态只在工具层选中它的那一步前进，并随会话重置。
+工具是代码函数，或者是冻结网络经读出的 `run`（位读出或 argmax 读出，ADR 0019）。冻结网络可以是任何一种：FF、LIF，或自己也带工具层的网络（ADR 0010 §3）。用 argmax 读出的网络工具不能部署到链上，因为链上的工具层按位读出工具的分数。网络工具的状态属于调用它的会话。这个状态包括 LIF 工具的电位和它自己的工具的状态。它放在调用者自己的状态之后，先按工具层排，再按连线顺序排，逐层嵌套。工具的状态只在工具层选中它的那一步前进，并随会话重置。
 
 工具最多嵌套 3 层（`MAX_TOOL_DEPTH`），所以一步的 gas 有上界。嵌套超过 3 层时，画布上报网络的问题，链上 Factory 拒绝。组合器的策略网络就是一个工具层，它从冻结的 ADD4 / SUB4 / MUL4 中选一个运行。
 
@@ -63,9 +63,9 @@ record 类型的输出是一个整体对象端口。它的字段按路径寻址�
 | 模块 | 输入 | 输出 | 作用 |
 |---|---|---|---|
 | **回路** `loop` | 调用 `scenario`（场景模块的 `module`，必需）。值 `action: number`（必需，声明 `loop`：下一步生效） | `input: bits[I]`（本步输入位）、`loop`（句柄，驱动它的模块接这里） | 回合运行器每一步的边界（ADR 0009）。回路体是从 `input` 到 `action` 的值路径上的全部模块，由连线推出。回路体只能有网络、读出和位线。回路体外的静态值可以接进来，例如网络的 `weights` 和读出的 `actions`。`Start` 是驱动它的各分区的回合种类。如果这些种类不一致，就在 `loop` 端口上报问题。如果 `action` 不在从 `input` 出发的路径上，就报“回路未闭合” |
-| **网络** `network` | 值 `in: bits[I]`、`weights`（声明 `loop`）。每个工具层一个调用端口，以层的 `tools` 命名，可接多个 `(bits) → bits` 工具 | `scores: vector[O]`、`structure` | 整数网络。引擎是 `dense-policy`（FF / LIF）或 `threshold-layers`（阈值层列表）。`dense-policy` 的层列表 `layers` 有普通层 `{ hidden }` 与工具层 `{ tools, data? }`（ADR 0010），输出层隐含。I 是手写的配置 `inputs`（1..256），接到 `in` 的位宽必须等于 I。O 取自消费 `scores` 的读出，这样的读出必须恰好一个。`weights` 声明 `loop`，所以 `net.structure → 训练器 → 候选 → net.weights` 是正常的环。配置 `weightBits` 是权重宽度：8（默认）或 16（ADR 0015）。训练器选每层的 scale，配置里没有 scale。配置 `artifact`（可选，内容哈希）：没有训练器训练的网络用它自己选定运行的产物（ADR 0010 §8）。如果网络有 `artifact`，同时又有 `weights` 连线或训练器，就报问题 |
-| **读出** `readout` | 值 `scores: vector[O]`、`actions`（可选） | `action: number`、`bits: bits[O]`。`bits` 模式另有调用输出 `run`：先做它的网络前向，再按位读出，可作工具 | `argmax` 模式带映射表，`null` 表示显式的无效动作 −1。`bits` 模式带宽度和 `lsb-int` 解码 |
-| **位线** `bits` | 每个 `parts` 端口一个 `bits[n]` 输入 | `bits`（拼接） | 切片与拼接位向量（`parts: [{port, offset, width}]`），总宽 ≤ 256 |
+| **网络** `network` | 值 `in: bits[I]`、`weights`（声明 `loop`）。每个工具层一个调用端口，以层的 `tools` 命名，可接多个 `(bits) → bits` 工具 | `scores: vector[O]`、`structure` | 整数网络。引擎是 `dense-policy`（FF / LIF）或 `threshold-layers`（阈值层列表）。`dense-policy` 的层列表 `layers` 有普通层 `{ hidden }` 与工具层 `{ tools, data? }`（ADR 0010），输出层隐含。I 是手写的配置 `inputs`（1..65535），接到 `in` 的位宽必须等于 I。O 取自消费 `scores` 的读出，这样的读出必须恰好一个。`weights` 声明 `loop`，所以 `net.structure → 训练器 → 候选 → net.weights` 是正常的环。配置 `weightBits` 是权重宽度：8（默认）或 16（ADR 0015）。训练器选每层的 scale，配置里没有 scale。配置 `artifact`（可选，内容哈希）：没有训练器训练的网络用它自己选定运行的产物（ADR 0010 §8）。如果网络有 `artifact`，同时又有 `weights` 连线或训练器，就报问题 |
+| **读出** `readout` | 值 `scores: vector[O]`、`actions`（可选） | `action: number`、`bits: bits[O]`。两种模式都有调用输出 `run`：先做它的网络前向，再给出读出位，可作工具。`bits` 模式给出按位读出的位，`argmax` 模式给出 argmax 的 one-hot 位（并列时取最小下标，宽度等于映射表长度） | `argmax` 模式带映射表，`null` 表示显式的无效动作 −1。`bits` 模式带宽度和 `lsb-int` 解码 |
+| **位线** `bits` | 每个 `parts` 端口一个 `bits[n]` 输入 | `bits`（拼接） | 切片与拼接位向量（`parts: [{port, offset, width}]`），总宽 ≤ 65535 |
 | **随机数** `random` | — | `rng: { mul: number[draws], add: number[draws] }` | 32 位线性同余生成器的跳跃表。生成器是 s' = (乘数 · s + 增量) mod 2^32。配置是 `multiplier / increment / draws`，默认 1664525 / 1013904223 / 512。从种子 s 出发的第 k+1 个输出是 `add32(imul32(rng.mul[k], u32(s)), rng.add[k])`。跳跃表按配置算一次。它作为静态值接到场景模块的一个输入（`rng.rng → scene.rng`，场景模块的 `inputs` 里有 `rng`） |
 
 网络只看到回路的输入位，也就是场景 `input` 返回的东西。场景参数（场景模块的输入）不进入网络。
@@ -84,6 +84,7 @@ record 类型的输出是一个整体对象端口。它的字段按路径寻址�
 | 模块 | 输入 | 输出 | 作用 |
 |---|---|---|---|
 | **视图** `view` | 值 `execution` 或 `report` | — | 渲染器有两类。第一类是 `grid / series / table / kv`，配置状态路径和标记，例如 `state.map` + 玩家 / 基地坐标与格子颜色。第二类是 `script`：视图脚本（ADR 0013）。视图脚本在断网的沙箱 iframe 里自己画，用 Vue 组件（`props: ['ctx']`）或 `render(ctx, el)`。`ctx` 包含所接的运行数据（历史滑条选中的那一步）。它还包含所在训练模块全部成员的静态值（`ctx.modules[标题][端口]`） |
+| **脚本模块** `script` | 声明的函数输入（调用，每个名字一个）和值输入（值，每个名字一个） | — | 在视图脚本的沙箱里运行 JavaScript 文件（ADR 0019），只做推理，不进入任何快照。脚本用 `await ctx.call.<名字>(…)` 调用函数输入，用 `ctx.values.<名字>` 读取值输入。页面在沙箱外执行调用（`core/script-calls.js`）：网络通过它的读出的 `run`，用已接受的权重，每次从零状态开始；代码函数按它的程序。参数类型在调用时从值得到。问题：没有接线的函数输入、重复的名字、正在被训练的网络（工具层的规则） |
 | **链上部署** `deployment` | 值 `artifact` | `deployment` | 通过 ModuleFactory 部署一份产物，然后核对、读状态、reset，并用交易逐步运行。本地镜像使用产物快照里的同一环境和整数执行器 |
 
 ### 代码模块
@@ -128,7 +129,7 @@ record 类型的输出是一个整体对象端口。它的字段按路径寻址�
 | 导出 | | 运行器的调用 | 返回 |
 |---|---|---|---|
 | `init(start)` | 可选 | 每回合一次 | `State`。不写 `init` 时，`State` 就是 `Start` 记录本身 |
-| `input(state[, table])` | 必需 | 每一步之前 | `bits[1..256]`：回路的输入位 |
+| `input(state[, table])` | 必需 | 每一步之前 | `bits[1..65535]`：回路的输入位 |
 | `step(state, action[, table])` | 必需 | 每一步 | `{ state: State, done: boolean, success: boolean }`，恰好这三个字段 |
 | `budget` | 必需常量 | | 正整数：每回合最多几步 |
 | `actions` | 可选常量 | | 字符串数组：动作名，另用 `scene.actions → readout.actions` 接给读出 |
@@ -243,15 +244,15 @@ slots:                                # 预制模块的槽位：成员的一个�
 
 模板的要点如下：
 
-- **训练模块的分组**：每个内置模板本身就是训练模块。实例化出的组合以模板名为标题。它直接包含分区、数据集、目标 / 奖励及其参数、指标、训练器、候选、评估器、报告视图、执行实例和地图视图。它也直接包含场景模块，以及场景模块的参数和随机数。它还包含嵌套分组 `box`，也就是回路框（`loop: <回路模块>`），成员恰好是回路模块加回路体。冻结网络用自己的 `artifact`，没有候选模块。工具层调用的网络和它们的读出不属于回路体，留在框外。
+- **训练模块的分组**：除了坦克大战，每个内置模板本身就是训练模块。实例化出的组合以模板名为标题。它直接包含分区、数据集、目标 / 奖励及其参数、指标、训练器、候选、评估器、报告视图、执行实例和地图视图。它也直接包含场景模块，以及场景模块的参数和随机数。它还包含嵌套分组 `box`，也就是回路框（`loop: <回路模块>`），成员恰好是回路模块加回路体。冻结网络用自己的 `artifact`，没有候选模块。工具层调用的网络和它们的读出不属于回路体，留在框外。
 
   展开时，前一类成员画成左栏的段落。场景作为环境段落，紧接在数据之后。嵌套分组放在右边的子画布里（ADR 0011）。
-- **槽位**：`slots` 让实例成为预制模块（[CONTEXT](../CONTEXT.md) 的 Prefab，ADR 0011）。代码新建项不写 `config` 时，点 + 会按槽位端口的约定生成桩代码（`core/prefab.js stubSource`）。调用端口的桩代码按它的签名生成。回路 `scenario` 的桩代码按场景角色生成，`input` 返回的位数等于读回路输入的网络声明的位数。
+- **槽位**：`slots` 让实例成为预制模块（[CONTEXT](../CONTEXT.md) 的 Prefab，ADR 0011）。代码新建项不写 `config` 时，点 + 会按槽位端口的约定生成桩代码（`core/prefab.js stubSource`）。调用端口的桩代码按它的签名生成。回路 `scenario` 的桩代码按场景角色生成，`input` 返回的位数等于读回路输入的网络声明的位数。嵌套分组也可以写 `slots`，槽位在它自己的成员上。这样的分组是一个单独的预制模块，它的预期连线只包括一端在它成员上的连线。所以几个训练模块可以共用顶层的模块，例如坦克大战的场景、参数、随机数和指标。
 - **示例**：`preset` 把模板列进调色板的示例。`label` 是按钮文字。`accept` 给候选模块指定它接受的内置产物。模板自己钉住的 `accepted` 照常导入。
 - **连线顺序**：规范形式按字母顺序排列连线。只有接进同一个调用端口的调用线保持书写顺序，因为工具层按这个顺序给工具编号。
 - **回路框**：分组的 `loop` 字段把这个分组标成某个回路的框。回路框只是视图：回路体由连线推出。如果框的成员与回路体不一致，回路报问题（ADR 0003、0009）。
 - **分组**：模板内的嵌套分组随实例建出，建出时折叠。未列入分组的成员留在顶层。分组里可以再有分组。“存为模板”记录选区内的嵌套分组，连同 `loop` 标记。分组 id 有自己的命名空间：分组 `box` 里也可以有名为 `box` 的模块，成员名优先解析为模块。
-- **实例化**：实例化把模板里的模块复制到画布上，分配新 id，并展开成扁平的模块图。然后它把这些模块包进一个组合。这个组合只露出 `expose` 端口。`instantiateInto` 建出的组合是折叠的。工作台放置带槽位的模板时（调色板、模板库、示例），把组合和嵌套分组都展开。所以槽位立即可见（ADR 0011）。执行、快照和部署看到的始终是扁平图（ADR 0003）。
+- **实例化**：实例化把模板里的模块复制到画布上，分配新 id，并展开成扁平的模块图。然后它把这些模块包进一个组合。这个组合只露出 `expose` 端口。`instantiateInto` 建出的组合是折叠的。工作台放置带槽位的模板时（调色板、模板库、示例），把组合和嵌套分组都展开。槽位写在顶层或嵌套分组上都算。所以槽位立即可见（ADR 0011）。执行、快照和部署看到的始终是扁平图（ADR 0003）。
 
   组合可以嵌套：画布上的组合（包括模板实例）可以再打包进另一个组合，层数不限。模板文件可以声明嵌套分组，但不引用其他模板（ADR 0003）。
 - **实例和模板不联动**：实例是一份副本，只记录来源 `模板 id@revision`。之后修改模板不影响已有实例。
@@ -269,7 +270,7 @@ slots:                                # 预制模块的槽位：成员的一个�
   env:   { programs: { init?, input, step }, budget, actions, start: 'seed'|'enumerate'|'window',
            types: { Start, State, Transition, I, table? }, tables? }
   loop:  { I, action: Ref, nodes: { <id>: 回路节点 }, trained: <网络 id> | null }
-  训练器   objective: { kind: 'reward'|'target', program, bound, boundTypes }, selection, partitions: { training, validation? }, recipe
+  训练器   objective: { kind: 'reward'|'target', program, bound, boundTypes }, selection, partitions: { training, validation? }, recipe, init?
   评估器   partitions: { test }, metrics: [{ name, program, … }], objective?, groupBy?
   执行实例 partitions: { test }
   ```
@@ -282,6 +283,10 @@ slots:                                # 预制模块的槽位：成员的一个�
     `model` 是网络已接受产物的整数模型。这个产物是网络自己的 `artifact`。没有 `artifact` 时，它是接到网络 `weights` 的候选里已接受的那份（`core/loop.js acceptedArtifactId`）。产物里被训练网络的结构与读出必须等于这个网络的结构与读出，否则打包失败（“网络 … 的产物不兼容”）。只有 `trained` 指向的网络的 `model` 是 `null`。
 
     训练器快照里，其他每个网络都要有已接受的权重。评估器和执行实例的快照里（`trained: null`），每个网络都要有已接受的权重。否则打包失败（“网络 … 没有已接受的权重”）。回路体的逐步输入只能来自回路的 `input` 或回路体本身。
+
+    训练器的 `init` 接了线时，训练器快照带 `init: { artifactId, model }`（ADR 0020）。`model` 是接到 `init` 的候选里已接受产物的整数模型（`core/loop.js initModel`）。检查和冻结网络的检查相同：产物里被训练网络的结构与读出必须等于被训练网络的结构与读出。否则打包失败（“训练器 … 的 init 产物不兼容”）。候选还没有接受产物时，打包也失败。没接线时，快照里没有 `init`，所以快照的哈希不变。
+
+    训练器的 `gate` 和配置里的条件 `gate` 都不进快照。工作台在开始训练前检查条件（`sessions/trainer.js`），所以接 `gate` 不改变快照的哈希（ADR 0020）。
   - 链上部署不构建自己的 `env / loop`。它部署一份产物，使用产物自带的快照。
 - **哈希**：`bundleHash = sha256(规范快照)`。`envHash = sha256(规范 env)` 只看 `env`，所以目标不同、回路体不同的驱动可以共用一个环境。链上 `taskId` 就是这个哈希。
 - **产物（`neurom-module`）**：`{ bundle, model, provenance, evaluation, id }`。`id` 是其余部分规范 JSON 的 SHA-256。`bundle` 是训练它的训练器快照。`model` 是被训练网络（`bundle.loop.trained`）的整数模型：`dense-policy`（FF / LIF）或 `threshold-layers`。模型的宽度和 `weightBits` 与快照里的网络结构一致。产物存入和导入时，都按它的网络校验。
@@ -310,7 +315,7 @@ slots:                                # 预制模块的槽位：成员的一个�
 所有运行场景的部分都经同一个回路执行器运行回路。回路执行器是 `frontend/core/loop.js`。Python 孪生是 `training/bundle_loop.py`，它按 lane 批量运行，语义相同。要点如下：
 
 - **`loopSection(graph, res, loopId, { trained, artifacts })`** 构建快照的 `loop` 部分。如果回路或回路体有问题，它抛出 `BundleError`。
-- **`createLoop(loop, { models })`** → `{ reset(), step(bits) → { action, values, ran, tools }, states() }`。每个网络都运行自己的模型。`models` 按网络 id 覆盖模型，例如验证和评估时给被训练网络换上候选模型。
+- **`createLoop(loop)`** → `{ reset(), step(bits) → { action, values, ran, tools }, states() }`。每个网络都运行回路快照里自己的模型。要换模型时（例如验证和评估时给被训练网络换上候选模型），用锁步运行器和贪心运行器的 `models`，它按网络 id 覆盖模型。
 - **按需求值**：执行器从 `action` 出发倒推，每一步每个节点至多求一次值。工具层只运行它选中的工具。`ran` 是这一步运行过的节点。`values` 是每个求过的输出（`'<节点>.<端口>'` → 位、数字或分数）。`tools` 是每个工具层这一步的 `{ choice, data, result }`。执行实例和视图显示这些值。
 
   网络跨步保留自己的执行器状态。状态先是网络自己的 LIF 电位，然后是它每个网络工具的状态。工具的状态先按工具层排，再按连线顺序排，逐层嵌套（`toolCaller` 的 `width`）。工具的状态只在工具层选中它时前进。`states()` 给出每个网络的整份状态，`reset()` 把状态全部清零。REINFORCE 训练时，每个 lane 也各有一份工具状态，回合开始时随电位清零。
@@ -358,8 +363,8 @@ slots:                                # 预制模块的槽位：成员的一个�
 
   `rows` 行、`cols` 列的区域占 cols · ⌈rows · w / 256⌉ · 32 + ⌈rows / 16⌉ · 32 字节。工具层是两个区域：K 个选择行和 D 个数据行。每个区域有自己的移位 k（0..20）：z = (Σ W·x) · 2^k + f · b。FF 在 z ≥ 1 时发放。LIF 普通层按自己的阈值发放。阈值层算 (Σ W·h) · 2^k − th。
 
-  形状：dense 用三个词，阈值层用两个词。dense 的三个词依次存放以下内容：
-  - 各层布局。
+  形状：dense 用四个词，阈值层用两个词。dense 的四个词依次存放以下内容：
+  - 各层布局，占两个词。每层一个 64 位描述，层宽是 16 位。
   - 层数、ticks、leakShift、weightBits、reset 和每个区域的 k。
   - 每个普通层的阈值（FF 恰为 1）。
 
@@ -381,8 +386,8 @@ slots:                                # 预制模块的槽位：成员的一个�
   代码工具不能部署（`代码工具不能部署`）。每个模块和它链上还没有的权重块在一笔交易里一起部署。如果 gas 估算（+ 10%）放不下单笔上限（Monad 30M），先用 `createChunk` 建缺的块，每块一笔交易。一直建到模块和剩下的块放得进最后一笔为止。链上已有的块从不重发。
 
   部署前检查（`core/kinds/network.js deploymentProblem`）包括：
-  - 输入宽度和输出宽度都在 1..256。
-  - dense 有 1..8 层。普通层的 hidden 和工具层的 K / D / R 都在 1..256。
+  - 输入宽度和输出宽度都在 1..65535。
+  - dense 有 1..8 层。普通层的 hidden 和工具层的 K / D / R 都在 1..65535。
   - 每个会话的状态（LIF 普通层神经元加各工具的状态）合计 ≤ 256。
   - 工具嵌套 ≤ 3 层。
   - 每个网络工具本身可部署。
@@ -484,15 +489,10 @@ slots:                                # 预制模块的槽位：成员的一个�
 
 ### 性能
 
-挖矿模板还没有 CPU 剖面。每一步的主要工作如下：
+没有 CPU 剖面。每一步的主要工作如下：
 
 - **挖矿的输入程序**。它每步用 IR 的 `range(81).map` 取出以智能体为中心的 9×9 视野方块（81 格）。然后它把煤和金各编成 81 位，再拼上基地偏移、背包和剩余步数。
 - **LIF 训练**在 JS 侧走 `dense-core.js` 的 BPTT 路径，与 IR 无关。
-
-下一步有两项工作：
-
-- 测 JS 与 Python 生成代码在挖矿模板上的剖面。先做这一项。
-- 加快 `dense-core.js` 的 BPTT 路径。
 
 ## 12. 已知限制
 

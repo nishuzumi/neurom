@@ -51,7 +51,7 @@ export function useExecutionOf(nodeId: MaybeRefOrGetter<string>): ShallowRef<Sna
 }
 
 /** What the execution calls the k-th tool wired into tool port `port` of network `networkId` (wire order, as the
- *  loop section): a bits readout's `run` by the network it reads, a code export by `module.function`. */
+ *  loop section): a readout's `run` by the network it reads, a code export by `module.function`. */
 export function toolLabel(graph: ModuleGraph, networkId: string, port: string, k: number): string {
   const p = graph.producers(networkId, port)[k], source = p ? graph.nodes.get(p.node) : null;
   if (!p || !source) return `#${k}`;

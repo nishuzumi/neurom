@@ -3,6 +3,7 @@
 // input port. The output is their concatenation. Rows edit in place. The summary shows the input widths and the total.
 import { computed } from 'vue';
 import { partPorts, partsWidth } from '../../core/kinds/bits.js';
+import { MAX_BITS } from '../../core/types.js';
 import { t } from '../../i18n.js';
 import { useWorkbench } from '../workbench-context';
 import { useNode } from './common';
@@ -39,8 +40,8 @@ function move(i: number, d: -1 | 1) { const j = i + d; if (j < 0 || j >= parts.v
       <span class="bhint">{{ t('端口') }}</span><span class="bhint">{{ t('偏移') }}</span><span class="bhint">{{ t('宽度') }}</span><span></span>
       <template v-for="(p, i) in parts" :key="i">
         <input type="text" :value="p.port" spellcheck="false" :aria-label="t('切片 {i} 的端口', { i })" @change="setPart(i, 'port', ($event.target as HTMLInputElement).value)" />
-        <input type="number" min="0" max="255" step="1" :value="p.offset" :aria-label="t('切片 {i} 的偏移', { i })" @change="setPart(i, 'offset', ($event.target as HTMLInputElement).value)" />
-        <input type="number" min="1" max="256" step="1" :value="p.width" :aria-label="t('切片 {i} 的宽度', { i })" @change="setPart(i, 'width', ($event.target as HTMLInputElement).value)" />
+        <input type="number" min="0" :max="MAX_BITS - 1" step="1" :value="p.offset" :aria-label="t('切片 {i} 的偏移', { i })" @change="setPart(i, 'offset', ($event.target as HTMLInputElement).value)" />
+        <input type="number" min="1" :max="MAX_BITS" step="1" :value="p.width" :aria-label="t('切片 {i} 的宽度', { i })" @change="setPart(i, 'width', ($event.target as HTMLInputElement).value)" />
         <span class="bits-ops">
           <button type="button" class="mini" :disabled="i === 0" :aria-label="t('上移切片 {i}', { i })" @click="move(i, -1)">↑</button>
           <button type="button" class="mini" :disabled="i === parts.length - 1" :aria-label="t('下移切片 {i}', { i })" @click="move(i, 1)">↓</button>
@@ -49,7 +50,7 @@ function move(i: number, d: -1 | 1) { const j = i + d; if (j < 0 || j >= parts.v
       </template>
     </div>
     <div class="brow">
-      <button type="button" class="mini" :disabled="parts.length >= 256" @click="addPart">{{ t('＋ 切片') }}</button>
+      <button type="button" class="mini" :disabled="parts.length >= MAX_BITS" @click="addPart">{{ t('＋ 切片') }}</button>
       <span class="bhint">{{ t('输出 {total} 位', { total }) }} · {{ inputs.map(x => `${x.port}: ${x.width ?? '?'}`).join(', ') }}</span>
     </div>
     <div v-if="error" class="bproblem" role="alert">{{ error }}</div>

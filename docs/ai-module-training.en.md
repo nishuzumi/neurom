@@ -54,7 +54,7 @@ The bundle sets the widths:
 - `inputs` is the structure width of the trained network in `loop.nodes`. It is equal to the width wired into the `in` of the network. Examples are the width I that the scenario's `input` returns, or the width that a bit wire slices out.
 - `outputs` comes from the readout of the network.
 
-The on-chain engine `DensePolicyEngine` takes the widths as parameters. Before deployment, the system checks that the widths are in 1..256 and that each layer has at most 256. Weights can have any size. The system splits them into as many weight chunks as necessary.
+The on-chain engine `DensePolicyEngine` takes the widths as parameters. Before deployment, the system checks that the widths are in 1..65535 and that each layer has at most 65535. Weights can have any size. The system splits them into as many weight chunks as necessary.
 
 ## 2. Getting a bundle
 
@@ -149,7 +149,7 @@ The CLI prints `{"type":"progress", …}` JSON lines to stdout. When training is
 
 As a library:
 
-- `training/bundle_train.py`: `train_bundle(bundle, on_progress, is_cancelled, tables, bundle_hash)` is the same entry point. `validate_bundle(bundle, tables)` checks the format, the method requirements and the types of every program before training. `validate_model(model, network)` checks that an exported integer model agrees with the network structure in the bundle.
+- `training/bundle_train.py`: `train_bundle(bundle, on_progress, tables, bundle_hash)` is the same entry point. `validate_bundle(bundle, tables)` checks the format, the method requirements and the types of every program before training. `validate_model(model, network)` checks that an exported integer model agrees with the network structure in the bundle.
 - `training/bundle_env.py`: the Python twin of `frontend/core/runner.js`. `create_env(bundle['env'], tables)` → `reset(starts)` / `input()` / `step(actions)`, in batches over lanes. `step` returns a batched `Transition`, and the environment masks the lanes that are finished.
 - `training/bundle_loop.py`: the twin of `frontend/core/loop.js`. `create_loop(bundle['loop'], models)` → `reset(B)` / `step(bits, mask, intercept)` → `{ action, values, ran, tools }`. `intercept = (networkId, fn)`, and `fn(x, lanes)` returns `{'scores'}`, `{'slot'}` or `{'bits'}`. `run_episodes(env, lx, starts, reward, intercept, on_step)` is the one greedy episode runner.
 
