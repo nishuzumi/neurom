@@ -1,6 +1,6 @@
 {
   "_comment": "Measured gas of one referee step of TankLadder. The page estimates the cost of a challenge from these numbers and the weight bytes of the two entries: gas ≈ steps × (forward(challengerBytes) + forward(defenderBytes) + scenePerStep) + transactions × perTransaction. forward(B) is linear in weightBytes between the two measured points (forward.intercept + forward.perByte × B). Unit: gas. All numbers exclude the 21k base cost and the calldata.",
-  "source": "contracts/scripts/ladder-gas.mjs — TankLadder with the spec config on anvil 1.8.0 --network monad (30M block limit), with a 中 network of 39,840 B and a 大 network of 216,864 B. The gas of a step depends on the weight bytes and the active inputs, not on the training. stepsPerEpisode comes from networks of template revision 13. The networks in ladder/data/artifacts (revision 15) play about 38 steps per episode on average.",
+  "source": "contracts/scripts/ladder-gas.mjs — TankLadder with the spec config on anvil 1.8.0 --network monad (30M block limit), with a 中 network of 39,840 B and a 大 network of 216,864 B. The gas of a step depends on the weight bytes and the active inputs, not on the training. stepsPerEpisode comes from networks of template revision 13. The networks in ladder/data/artifacts (the scene of revision 16) play about 38 steps per episode on average.",
   "measuredAt": "2026-10-29",
   "scenePerStep": 25000,
   "perTransaction": 100000,

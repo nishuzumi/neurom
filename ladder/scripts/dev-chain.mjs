@@ -24,7 +24,7 @@ const repo = fileURLToPath(new URL('../..', import.meta.url));
 const { values: args } = parseArgs({ options: { port: { type: 'string', default: '5174' }, play: { type: 'boolean', default: true }, artifacts: { type: 'string' } }, allowNegative: true });
 
 /** The default entries: name → artifact file (relative to the repo). The two trained networks of
- *  ladder/data/artifacts (template revision 15) are always there. Other local artifacts in .scratch fill the rest of
+ *  ladder/data/artifacts (the scene of template revision 16) are always there. Other local artifacts in .scratch fill the rest of
  *  the ladder when they exist. Missing files are skipped. */
 const DEFAULT_ARTIFACTS = [
   ['Mid', 'ladder/data/artifacts/mid.json'],

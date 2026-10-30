@@ -550,7 +550,7 @@ say "The last check of ticket 11 is a human one: Privy's silent signing sends ev
 open_url "$VERCEL_URL"
 step "Log in (email). Privy creates the embedded wallet; copy its address from the top bar."
 if [[ -n "$FAUCET" ]]; then step "Fund it from $FAUCET (a challenge costs several 30M-gas transactions; 10 MON is comfortable)."; else step "Send it a few MON (a challenge is several 30M-gas transactions at the gas limit price)."; fi
-step "Register: upload a tank-battle artifact (template revision 15); the module deploys and enters at the last rank."
+step "Register: upload a tank-battle artifact (template revision 16); the module deploys and enters at the last rank."
 step "Challenge an entry within range. Watch the progress: every transaction must go out without a confirmation"
 step "popup, and the challenge must end settled (won or defended), with the replay visible afterwards."
 step "Set a name for your entry: the name service signs through the same wallet and checks entryOwner on chain."
