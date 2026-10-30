@@ -108,10 +108,10 @@ test('stage 2 continues each structure from its stage 1 candidates on the same b
     assert.deepEqual(wired('gate'), [[ids[`${from}_evaluator`], 'report']], `${m}: gate`);
     assert.deepEqual(graph.producers(ids[`${m}_evaluator`], 'metrics').map(p => graph.node(p.node).title).sort(), [...DUEL_METRICS].sort(), `${m}: evaluator`);
 
-    // the condition: 和教师一致的比例 of the stage 1 report is at least 0.7
+    // the condition: 和教师一致的比例 of the stage 1 report is at least 0.65
     const evaluation = mean => ({ stale: false, report: { metrics: { 和教师一致的比例: { mean } } } });
     assert.ok(METRICS.includes(trainer.config.gate.metric), `${m}: the gate reads a metric of the stage 1 evaluator`);
-    assert.deepEqual([0.69, 0.7, 0.95].map(v => gateStatus(trainer.config.gate, evaluation(v), 'e').passed), [false, true, true], m);
+    assert.deepEqual([0.64, 0.65, 0.95].map(v => gateStatus(trainer.config.gate, evaluation(v), 'e').passed), [false, true, true], m);
     assert.equal(gateStatus(trainer.config.gate, null, 'e').passed, false, `${m}: no report, no start`);
     assert.equal(gateStatus(trainer.config.gate, { ...evaluation(0.95), stale: true }, 'e').passed, false, `${m}: a stale report, no start`);
 
@@ -142,7 +142,7 @@ test('the rewards of stage 2 do not change the environment of stage 1, so its ar
 /** The 9 actions: move up, right, down, left; fire up, right, down, left; wait. */
 const [UP, RIGHT, DOWN, LEFT, FIRE_UP, FIRE_RIGHT, FIRE_DOWN, FIRE_LEFT, WAIT] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 /** Map codes of the scene: 0 empty, 1 brick, 2 steel, 3 base, 4 water. */
-const [BRICK, STEEL, BASE, WATER] = [1, 2, 3, 4];
+const [BRICK, STEEL, WATER] = [1, 2, 4];
 /** The end reasons of a trail: a brick (gone), steel or the map edge, a base, a tank, mutual fire (both shells cancel). */
 const [HIT_BRICK, HIT_STEEL, HIT_BASE, HIT_TANK, MUTUAL] = [1, 2, 3, 4, 5];
 /** A tank on the map at [x, y] with 2 lives, not fired, with its start cell there; `more` overrides fields. */
@@ -219,11 +219,12 @@ const turn = s => ({
 /** The state `s` with only `on` of a trail of a side that did not fire: the scene leaves its other fields unspecified. */
 const quiet = s => ({ ...s, trails: s.trails.map(b => (b.on ? b : { on: false })) });
 
-test('each battle starts on the map of its seed: the fixed part stays, the random part is symmetric, has at most 2 steel or water cells in its quarter and leaves every free cell reachable; each tank starts on its start cell of the seed', () => {
+test('each battle starts on the map of its seed, over the whole uint32 range of the ladder seeds: the fixed part stays, the random part is symmetric, has at most 2 steel or water cells in its quarter and leaves every free cell reachable; each tank starts on its start cell of the seed', () => {
   const { call } = arena();
   const first = call('battle', { seed: 1 }), starts = [new Set(), new Set()], maps = new Set(), blocks = new Set();
   const random = new Set(QUARTER.flat());
-  for (let seed = 1; seed <= 200; seed++) {
+  // the ladder on chain plays keccak-derived uint32 seeds, so 0 and seeds of 2^31 and more occur too
+  for (const seed of [0, 2 ** 31, 2 ** 32 - 1, ...Array.from({ length: 200 }, (_, k) => k + 1)]) {
     const s = call('battle', { seed });
     assert.deepEqual(s, call('battle', { seed }), `seed ${seed}: the start repeats on the seed`);
     assert.deepEqual([s.bases, s.end, s.t, s.hits, s.acts, s.trails.map(b => b.on)], [[true, true], -1, 0, [false, false], [WAIT, WAIT], [false, false]], `seed ${seed}`);

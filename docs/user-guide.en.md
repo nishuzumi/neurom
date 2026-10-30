@@ -480,6 +480,8 @@ The duration of the animation of one step is the mean of the last 4 intervals be
 
 There is one scene, one Params module, one 奖励参数 (reward parameters) module, one seed partition and one set of 5 metrics. They are outside the frames of the training modules, and they connect to all loops, trainers and evaluators. Thus the scene holds the only copy of the rules. Each frame lists the shared modules that it uses in its slots, for example “场景 · 场景”. Each loop box shows `ƒ scenario ← 场景`.
 
+The seed selects the map, the start cells and the random step after a clash of an episode. The training partition is the seeds 1 to 1,000,000 (the upper limit of a partition), so the network has seen almost every combination of a map and start cells. The ladder on chain uses uint32 seeds derived with keccak, and they cover the same combinations. The validation partition (64 seeds from 200000000) and the test partition (256 seeds from 300000000) are outside the training partition.
+
 #### Stage 2 · 对战训练
 
 Stage 2 · 对战训练 (battle training) also has two training modules, for 中 and 大, to the right of stage 1. Each frame has one trainer and one loop box. The networks and the loops are the same as in stage 1. Both trainers use REINFORCE.
@@ -487,7 +489,7 @@ Stage 2 · 对战训练 (battle training) also has two training modules, for 中
 Two inputs of the trainer connect the stages:
 
 - `init` takes the `weights` of the stage 1 candidates of the same structure. The training starts from the weights that stage 1 accepted, and it does not calibrate the biases.
-- `gate` takes the report of the stage 1 evaluator of the same structure. The condition is `{ metric: 和教师一致的比例, min: 0.7 }`. The map is random in each episode, so stage 1 only gets to about 0.75 for 中 and about 0.86 for 大 (the 256 episodes of the test partition). If there is no report, if the report is stale, or if the value is too low, the trainer does not start and tells why.
+- `gate` takes the report of the stage 1 evaluator of the same structure. The condition is `{ metric: 和教师一致的比例, min: 0.65 }`. The map is random in each episode, so stage 1 only gets to about 0.69 for 中 and about 0.88 for 大 (the 256 episodes of the test partition). If there is no report, if the report is stale, or if the value is too low, the trainer does not start and tells why.
 
 The rewards are in a separate Params module, 奖励参数. Thus a change to a reward does not change the bundles of stage 1, and its artifacts stay compatible:
 
@@ -516,14 +518,14 @@ Results against the hard bot on 200 test seeds (node, trainer seed 1, the rules 
 | Network | Time | Agreement with the teacher | Random-action probability 0.1 | Random-action probability 0 |
 | --- | --- | --- | --- | --- |
 | Wait only | | | 0 / 1 / 0 | 0 / 1 / 0 |
-| 中, stage 1 | 1951 s | 0.763 | 0.39 / 0.54 / 0.07 | 0.185 / 0.58 / 0.235 |
-| 大, stage 1 | 1082 s | 0.868 | 0.525 / 0.4 / 0.075 | 0.2 / 0.49 / 0.31 |
-| 中, stage 2 | 874 s | 0.714 | 0.435 / 0.515 / 0.05 | 0.23 / 0.69 / 0.08 |
-| 大, stage 2 | 1164 s | 0.691 | 0.58 / 0.365 / 0.055 | 0.32 / 0.54 / 0.14 |
+| 中, stage 1 | 2020 s | 0.717 | 0.265 / 0.625 / 0.11 | 0.095 / 0.71 / 0.195 |
+| 大, stage 1 | 1106 s | 0.897 | 0.585 / 0.33 / 0.085 | 0.27 / 0.405 / 0.325 |
+| 中, stage 2 | 876 s | 0.618 | 0.425 / 0.545 / 0.03 | 0.225 / 0.71 / 0.065 |
+| 大, stage 2 | 1292 s | 0.741 | 0.645 / 0.265 / 0.09 | 0.34 / 0.45 / 0.21 |
 
 - When the network only waits, the hard bot wins every episode.
-- The map is random in each episode, so the networks play on maps that they have not seen. 大 is stronger than 中: it agrees more with the teacher in stage 1, and it wins more and loses less in both stages.
-- Stage 2 increases the win rate of both networks. When the bot does random actions, 中 goes from 0.39 to 0.435, and 大 from 0.525 to 0.58. When the bot does no random action, 中 goes from 0.185 to 0.23, and 大 from 0.2 to 0.32. Both networks still lose more than they win against the hard bot, so there is room for improvement here.
+- The map is random in each episode, so the network must read the map of each episode. 大 is much stronger than 中: it agrees more with the teacher in stage 1, and it wins more and loses less in both stages. The 2 layers of 32 neurons of 中 cannot hold this many maps. When the training seeds went from 256 to 1 million, its agreement with the teacher went down from 0.76 to 0.72, and the agreement of 大 went up from 0.87 to 0.90.
+- Stage 2 increases the win rate of both networks. When the bot does random actions, 中 goes from 0.265 to 0.425, and 大 from 0.585 to 0.645. When the bot does no random action, 中 goes from 0.095 to 0.225, and 大 from 0.27 to 0.34. Against the hard bot without random actions, both networks still lose more than they win, so there is room for improvement here.
 - The stage 2 networks agree less with the teacher, because they no longer only imitate the teacher.
 - The times are from node, with 2 trainings at the same time. In the browser, the time changes with the computer. The hard teacher and bot count more paths, so a step is about 2 times slower than at the medium level.
 
@@ -568,10 +570,10 @@ A headless script measured the battle on the seeds 1 to 200. It runs `game.js` o
 
 | Red | Easy | Medium | Hard |
 | --- | --- | --- | --- |
-| 中 | 79 / 116 / 5 | 56 / 103 / 41 | 54 / 118 / 28 |
-| 大 | 74 / 107 / 19 | 72 / 84 / 44 | 67 / 98 / 35 |
+| 中 | 89 / 102 / 9 | 40 / 136 / 24 | 48 / 136 / 16 |
+| 大 | 123 / 66 / 11 | 77 / 80 / 43 | 69 / 98 / 33 |
 
-In each cell, 5 to 26 battles get to step 100. The other draws are battles where both sides lose in the same step. 大 wins more and loses less against the medium and the hard bot. With 中 as red and 大 as blue, red wins 72 battles, loses 97 and draws 31 (23 of them get to step 100).
+In each cell, 9 to 28 battles get to step 100. The other draws are battles where both sides lose in the same step. 大 wins more and loses less than 中 against the bot at each level. With 中 as red and 大 as blue, red wins 55 battles, loses 105 and draws 40 (26 of them get to step 100).
 
 `frontend/templates/artifacts/artifacts.test.js` pins the four-bit arithmetic and combiner numbers. Mining, the memory map and the tank battle have no pinned numbers. Scenarios run as interpreted IR, and the cost is training speed. [Section 11 of the design document](design.en.md#11-correctness-and-performance) shows the main work of each step.
 

@@ -26,7 +26,7 @@ There is no level stage, and the battle in the script module uses the networks o
 ## Consequences
 
 - The teacher is the hard bot without random actions. A stronger bot gives a stronger teacher, and the two change together.
-- The gate of stage 2 is an agreement with the teacher of 0.85. The agreement of 中 in stage 1 stays near 0.91, so a gate of 0.9 stops too often.
+- Stage 2 starts only when the agreement with the teacher in the stage 1 report reaches the gate. The gate follows the agreement that stage 1 can reach on the current map (ADR 0024 and the user guide give the value).
 - The reward of stage 2 lives in its own Params module. A change of the reward does not change the bundle of stage 1, so the artifacts of stage 1 stay compatible.
 - These measurements came from the rules before the Botzone Tank2 rules (ADR 0024). The two stages stayed when the rules changed, and the user guide records the results of the current rules.
 - Self-play is not part of this decision (ADR 0020).
