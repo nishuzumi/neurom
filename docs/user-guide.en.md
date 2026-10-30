@@ -407,15 +407,17 @@ Only the chosen network runs. The result bits of the chosen network (zero-extend
 
 Tank battle (`tank-battle`, training in stages): a tank battle with the rules of Botzone Tank2. Each side has 1 tank with 2 lives. There is a base at each end of the map. The template has 4 training modules, and each training module trains one network. Stage 1 · 模仿 (imitation) and stage 2 · 对战训练 (battle training) each have one for 中 and one for 大. The two stages play the same battle: the network drives the tank of side 0, and the bot of the scene drives the tank of side 1. Stage 1 imitates the teacher of the scene with cross-entropy. Stage 2 starts from the weights of stage 1 (ADR 0020) and plays against the bot with reinforcement learning. After the training, the script module 坦克对战 plays 中 against the hard bot, or the two stage 2 networks against each other (ADR 0019).
 
-The scenario module holds the rules. They follow [Botzone Tank2](https://wiki.botzone.org.cn/index.php?title=Tank2), with only 3 differences: each side has 1 tank instead of 2, each tank has 2 lives, and an illegal action counts as wait instead of a loss. ADR 0024 gives the reasons for these rules and for the fixed map.
+The scenario module holds the rules. They follow [Botzone Tank2](https://wiki.botzone.org.cn/index.php?title=Tank2), with only 4 differences: each side has 1 tank instead of 2, each tank has 2 lives, an illegal action counts as wait instead of a loss, and in the step after a clash both sides move or wait at random. ADR 0024 gives the reasons for these rules and for the map.
 
-- The map is a fixed 9×9. A cell is empty, brick, steel, water or a base. The base of side 0 is at the bottom centre (4, 8), and the base of side 1 is at the top centre (4, 0). The cells to the left, right and front of each base are bricks, and the middle column is bricks too. This is the same as the fixed part of Tank2. In the middle row, only the two cells (3, 4) and (5, 4) are bricks, and the other cells are steel and water. Thus both sides must go through these two passages, and they often meet in the middle. The map does not change when it turns 180°.
+- The map is 9×9. A cell is empty, brick, steel, water or a base. The fixed part: the base of side 0 is at the bottom centre (4, 8), and the base of side 1 is at the top centre (4, 0). The cells to the left, right and front of each base are bricks, and the middle column is bricks too. This is the same as the fixed part of Tank2. In the middle row, only the two cells (3, 4) and (5, 4) are bricks, and the other cells are steel and water. Thus both sides must go through these two passages, and they often meet in the middle. The two top rows and the two bottom rows are also fixed.
+- The banks of the river (rows 2, 3, 5 and 6, without the middle column and the water at the map edge) are random in each episode. The seed selects the 7 cells of the top-left quarter. Each cell is mirrored left to right, then turned 180°, so one cell selects 4 cells of the full map. Thus the map is symmetric left to right, and it does not change when it turns 180°. At most 2 of the 7 cells are steel or water (half steel, half water). Each of the other cells is a brick with the probability 1/2. The cell (3, 3) in front of the passage never gets steel or water, and (1, 2) and (2, 3) never get them both. Thus a tank can always get to each empty cell and each brick. The seeds 1 to 200 give 190 different maps.
 - The tank of each side starts on one of the 10 empty cells in the two bottom rows of its side. The seed selects the start cell of each side.
 - There are 9 actions: move one cell up, right, down or left, fire up, right, down or left, and wait. The facing of a tank is only used for drawing. The direction of a shot is in the action.
 - An illegal action counts as wait: the target cell of a move is not empty or has a tank when the action is given, or the tank fired in the last step and fires again (the cooldown of fire is 1 step).
 - In one step, the moves are resolved first, then the shots. The two tanks can go into the same empty cell at the same time, and then they overlap. Tanks that overlap cannot hit each other.
 - A bullet is a ray. In the same step, it hits the first cell that is not empty and not water: a brick or a base is removed, a tank is hit, and steel or the map edge does not change. A bullet flies over water. A bullet does not know friend from enemy, so it can also remove its own base.
-- Clash: when both sides fire, and each shot hits the tank of the other side, the two shots cancel each other. The shots of both sides do not count, so both sides can fire in the next step.
+- Clash: when both sides fire, and each shot hits the tank of the other side, the two shots cancel each other. The shots of both sides do not count, so neither side has a cooldown.
+- The step after a clash: neither side uses its own action. Each side selects one of the 4 moves and wait at random, and it cannot fire. The random numbers come from the episode seed, the step and the side, so an episode gives the same result again. With only 1 tank on each side, two tanks that face each other clash until the steps run out. This step breaks the deadlock.
 - A tank that is hit loses 1 life. If it still has a life, it goes back to its start cell at the end of this step, and it acts as usual in the next step.
 - A side loses when its base is destroyed or when it has no lives. When both sides lose in the same step, or when the episode gets to the step limit (100), the battle is a draw.
 - On each step, the scene writes the shot of each side to `trails` in the state: the start cell, the direction, the number of the cell that it hit and what it hit. The hit can be a brick, steel or the map edge, a base, a tank, or a clash that cancels. `hits` lists the tanks that are hit in this step.
@@ -444,15 +446,15 @@ The bot never fires along the line of its own base, and it does not walk through
 
 The bot `bot(state, 1, level)` selects one of the equally good actions at random. Then, with the random-action probability, it does a random action instead. The random numbers come from the episode seed, the step and the side.
 
-The 3 levels against each other on 200 test seeds (the rules of the training). The random-action probability of both sides is 0.1. Each cell is the win / loss rate of side 0:
+The 3 levels against each other on the seeds 1 to 200 (the rules of the training). Neither side does random actions. Each cell is the win / loss rate of side 0:
 
 | Side 0 \ side 1 | Easy | Medium | Hard |
 | --- | --- | --- | --- |
-| Easy | 0.495 / 0.505 | 0.42 / 0.57 | 0.355 / 0.635 |
-| Medium | 0.555 / 0.425 | 0.48 / 0.465 | 0.405 / 0.59 |
-| Hard | 0.615 / 0.37 | 0.575 / 0.395 | 0.505 / 0.48 |
+| Easy | 0.31 / 0.36 | 0.27 / 0.61 | 0.235 / 0.61 |
+| Medium | 0.565 / 0.315 | 0.36 / 0.37 | 0.29 / 0.47 |
+| Hard | 0.525 / 0.285 | 0.455 / 0.29 | 0.33 / 0.375 |
 
-In each row, from left to right, side 0 wins less and less. In each column, from top to bottom, side 0 wins more and more. Thus each level is stronger than the level below it, in both seats. When neither side does random actions, hard against medium is 0.50 / 0.22 (side 0 is hard) and 0.24 / 0.455 (side 0 is medium), and the other episodes are draws. The main advantage of the hard level is the more exact path count. The block rule rarely triggers. These methods were also tried, and none of them made the hard level stronger: a search of one simultaneous step (9 actions for each side, with the worst result for each action), defence also when the steps are equal, and no clash while it dodges.
+In each row, from left to right, side 0 loses more and more. In the medium and hard columns, from top to bottom, side 0 wins more and more. Against the easy level, the hard level wins a little less than the medium level, but it also loses less. The other episodes are draws. Many draws get to step 100: the two tanks wait on the two sides of a brick in a passage, because the side that removes the brick first is hit by the other side. The main advantage of the hard level is the more exact path count. The block rule rarely triggers. These methods were also tried, and none of them made the hard level stronger: a search of one simultaneous step (9 actions for each side, with the worst result for each action), defence also when the steps are equal, and no clash while it dodges.
 
 #### Stage 1 · 模仿
 
@@ -465,8 +467,8 @@ Stage 1 · 模仿 has two training modules, for 中 and 大. Each frame has one 
 
 Both networks use `dense-policy` and int16 weights. The argmax readout maps the 9 slots to the actions 0 to 8. Both trainers use cross-entropy, the objective is the `teacher` of the scene, and exploration is 0.1. No metric connects to the trainers, so each trainer keeps the model with the highest greedy accuracy on the validation seeds. The other settings of the two trainers are different:
 
-- 中: 2500 epochs, 16 episodes per epoch, lr 0.005.
-- 大: 900 epochs, 16 episodes per epoch, lr 0.003.
+- 中: 5000 epochs, 16 episodes per epoch, lr 0.005.
+- 大: 2500 epochs, 16 episodes per epoch, lr 0.003.
 
 Each structure has its own candidates, evaluator, report, execution and replay. The reward of the evaluator is `agreement(transition)` of the scene: 1 when the action of the network is in the target bits of the teacher, and 0 if not. Thus the return of an episode is the number of steps that agree with the teacher. The evaluator reports 5 metrics on 256 fixed test seeds: 和教师一致的比例 (agreement with the teacher, the return divided by the steps), 胜率 (win rate), 击毁对方坦克的比例 (share with the tank of the bot destroyed), 我方坦克被击中的比例 (share with our tank hit) and 平局的比例 (share of draws). The destroyed and hit shares count the episodes with at least one destruction.
 
@@ -485,7 +487,7 @@ Stage 2 · 对战训练 (battle training) also has two training modules, for 中
 Two inputs of the trainer connect the stages:
 
 - `init` takes the `weights` of the stage 1 candidates of the same structure. The training starts from the weights that stage 1 accepted, and it does not calibrate the biases.
-- `gate` takes the report of the stage 1 evaluator of the same structure. The condition is `{ metric: 和教师一致的比例, min: 0.85 }`. Stage 1 of 中 only gets to about 0.89, so the threshold is not 0.9. If there is no report, if the report is stale, or if the value is too low, the trainer does not start and tells why.
+- `gate` takes the report of the stage 1 evaluator of the same structure. The condition is `{ metric: 和教师一致的比例, min: 0.7 }`. The map is random in each episode, so stage 1 only gets to about 0.75 for 中 and about 0.86 for 大 (the 256 episodes of the test partition). If there is no report, if the report is stale, or if the value is too low, the trainer does not start and tells why.
 
 The rewards are in a separate Params module, 奖励参数. Thus a change to a reward does not change the bundles of stage 1, and its artifacts stay compatible:
 
@@ -509,20 +511,21 @@ The order of the training:
 6. In “评估器（中，阶段 2）”, click “评估”.
 7. Do the same steps for the 6 modules of 大.
 
-Results against the hard bot on 200 test seeds (node, trainer seed 1, the rules of the training). The win-rate columns give the win / loss / draw rates:
+Results against the hard bot on 200 test seeds (node, trainer seed 1, the rules of the training). The random-action probability is the probability of the bot. The network does no random action. The win-rate columns give the win / loss / draw rates:
 
 | Network | Time | Agreement with the teacher | Random-action probability 0.1 | Random-action probability 0 |
 | --- | --- | --- | --- | --- |
 | Wait only | | | 0 / 1 / 0 | 0 / 1 / 0 |
-| 中, stage 1 | 726 s | 0.892 | 0.745 / 0.215 / 0.04 | 0.305 / 0.29 / 0.405 |
-| 大, stage 1 | 284 s | 0.946 | 0.775 / 0.2 / 0.025 | 0.26 / 0.275 / 0.465 |
-| 中, stage 2 | 589 s | 0.816 | 0.85 / 0.14 / 0.01 | 0.40 / 0.19 / 0.41 |
-| 大, stage 2 | 733 s | 0.772 | 0.835 / 0.125 / 0.04 | 0.24 / 0.19 / 0.57 |
+| 中, stage 1 | 1951 s | 0.763 | 0.39 / 0.54 / 0.07 | 0.185 / 0.58 / 0.235 |
+| 大, stage 1 | 1082 s | 0.868 | 0.525 / 0.4 / 0.075 | 0.2 / 0.49 / 0.31 |
+| 中, stage 2 | 874 s | 0.714 | 0.435 / 0.515 / 0.05 | 0.23 / 0.69 / 0.08 |
+| 大, stage 2 | 1164 s | 0.691 | 0.58 / 0.365 / 0.055 | 0.32 / 0.54 / 0.14 |
 
 - When the network only waits, the hard bot wins every episode.
-- Stage 2 increases the win rate of both networks against the bot with random actions: 中 from 0.745 to 0.85, and 大 from 0.775 to 0.835.
-- When the bot does no random action, many episodes are draws. The stage 2 中 wins 0.40 and loses 0.19.
-- The times are from node, with 2 to 3 trainings at the same time. In the browser, the time changes with the computer. The hard teacher and bot count more paths, so a step is about 2 times slower than at the medium level.
+- The map is random in each episode, so the networks play on maps that they have not seen. 大 is stronger than 中: it agrees more with the teacher in stage 1, and it wins more and loses less in both stages.
+- Stage 2 increases the win rate of both networks. When the bot does random actions, 中 goes from 0.39 to 0.435, and 大 from 0.525 to 0.58. When the bot does no random action, 中 goes from 0.185 to 0.23, and 大 from 0.2 to 0.32. Both networks still lose more than they win against the hard bot, so there is room for improvement here.
+- The stage 2 networks agree less with the teacher, because they no longer only imitate the teacher.
+- The times are from node, with 2 trainings at the same time. In the browser, the time changes with the computer. The hard teacher and bot count more paths, so a step is about 2 times slower than at the medium level.
 
 #### Battle
 
@@ -536,15 +539,15 @@ The battle has two frozen networks, “中（对战）” and “大（对战）
 The rules of the battle are also only in the scene, and the battle uses the same code as the training. The battle is different from the training only in these items:
 
 - Red is side 0, with its base at the bottom. Blue is side 1, with its base at the top.
-- Both sides do random actions, the network too.
+- Neither side does random actions. In the training, the bot does random actions.
 
 `view(state, side)` gives the 572 bits that one side sees, in the order of `input`. Blue sees the map turned 180°, so each side has its base at the bottom. `play(state, a, b)` gets the action of each side on the map of that side, and changes the action of blue into the world direction.
 
 The script has 3 files:
 
 - `main.js`: the layout and `main`. Each 「重置」 (reset) starts a new battle, and its seed is its number. `main` reads 设置 at the start of each battle. Thus, after you change `opponent`, click 「重置」, and the next battle has the new opponent.
-- `game.js`: the flow of one battle. On each step, for a side that is a network, it calls `view` and that network. When blue is a bot, it calls `机器人`. Then, with the random-action probability, a side does a random action instead. At the end of the step, it calls `play`. The random-action probability is `RANDOM`, 0.1 by default. The random numbers come from a fixed seed, so a battle gives the same result again.
-- `views.js`: the 3 views. The battlefield shows the map, the two bases, the two tanks and their lives. The battlefield plays the animation of each step as the replay does, with the same rules for the duration. The side panel shows `Controls`, the battle number, the seed, the random-action probability, the result and the state of both sides: the base, the cell of the tank, whether it can fire, and the lives. When blue is a bot, its name shows its level, for example “蓝方（困难机器人）”. The log shows the actions of both sides on each step, with `*` for a random action, and the result in the last line. The side panel and the log show the latest step directly.
+- `game.js`: the flow of one battle. On each step, for a side that is a network, it calls `view` and that network. When blue is a bot, it calls `机器人`. Then it calls `play`. When the last step was a clash, `play` does not use the actions of the two sides. It makes each side move or wait one time at random. The random numbers come from the seed of the battle, so a battle gives the same result again.
+- `views.js`: the 3 views. The battlefield shows the map, the two bases, the two tanks and their lives. The battlefield plays the animation of each step as the replay does, with the same rules for the duration. The side panel shows `Controls`, the battle number, the seed, the result and the state of both sides: the base, the cell of the tank, whether it can fire, and the lives. When blue is a bot, its name shows its level, for example “蓝方（困难机器人）”. The log shows the actions of both sides on each step, with `*` for the random step after a clash, and the result in the last line. The side panel and the log show the latest step directly.
 
 To swap the places of the two networks, swap the wires of `红方` and `蓝方`.
 
@@ -563,27 +566,25 @@ Then the script starts again and plays. The status bar shows each step. When a g
 
 A headless script measured the battle on the seeds 1 to 200. It runs `game.js` of the battle script and the page side of its calls. The networks are the stage 2 networks (trainer seed 1). With a network as red and a bot as blue, each cell gives the wins, losses and draws of red in 200 battles:
 
-| Red | Random-action probability | Easy | Medium | Hard |
-| --- | --- | --- | --- | --- |
-| 中 | 0.1 | 87 / 112 / 1 | 96 / 84 / 20 | 100 / 92 / 8 |
-| 中 | 0 | 56 / 52 / 92 | 76 / 32 / 92 | 76 / 38 / 86 |
-| 大 | 0.1 | 110 / 89 / 1 | 81 / 93 / 26 | 90 / 101 / 9 |
-| 大 | 0 | 75 / 23 / 102 | 44 / 26 / 130 | 49 / 38 / 113 |
+| Red | Easy | Medium | Hard |
+| --- | --- | --- | --- |
+| 中 | 79 / 116 / 5 | 56 / 103 / 41 | 54 / 118 / 28 |
+| 大 | 74 / 107 / 19 | 72 / 84 / 44 | 67 / 98 / 35 |
 
-These win rates are lower than in the training, because the network also does random actions, and in the training only the bot does. With the random-action probability 0, many battles get to step 100 and are draws.
+In each cell, 5 to 26 battles get to step 100. The other draws are battles where both sides lose in the same step. 大 wins more and loses less against the medium and the hard bot. With 中 as red and 大 as blue, red wins 72 battles, loses 97 and draws 31 (23 of them get to step 100).
 
 `frontend/templates/artifacts/artifacts.test.js` pins the four-bit arithmetic and combiner numbers. Mining, the memory map and the tank battle have no pinned numbers. Scenarios run as interpreted IR, and the cost is training speed. [Section 11 of the design document](design.en.md#11-correctness-and-performance) shows the main work of each step.
 
 `frontend/templates/tank-battle.test.js` checks the rules through the runner and through the calls of the script module. The rule checks are:
 
-- The battle starts from the fixed map. Each tank is on the start cell that the seed selects, with 2 lives. Blue sees the same bits as red sees in the turned battle. The rules are the same for both sides.
+- The seed selects the map of each episode: the fixed part does not change, the random part is symmetric left to right and does not change when it turns 180°, at most 2 cells of the quarter are steel or water, and each empty cell and each brick can be reached. Each tank is on the start cell that the seed selects, with 2 lives. Blue sees the same bits as red sees in the turned battle. The rules are the same for both sides.
 - A move into a brick, steel, water, off the map or the cell of a tank is wait. The two tanks can go into the same empty cell and overlap, and tanks that overlap cannot hit each other.
 - A bullet hits the first cell that is not empty and not water: it removes a brick or a base, steel does not change, and it flies over water. A shot during the cooldown is wait. Moves come before shots, so a tank that leaves the ray in this step is not hit.
-- In a clash, both shots cancel, and neither side counts as fired. When only one side hits, it hits the other tank.
+- In a clash, both shots cancel, and neither side counts as fired. In the next step, each side moves or waits at random, and it does not use its own action. Different seeds give different random steps. When only one side hits, it hits the other tank.
 - A hit loses 1 life, and the tank goes back to its start cell. The battle ends at the second hit, when a base is destroyed, or when the steps run out. A shot that removes its own base is a loss. When both sides lose in the same step, the battle is a draw.
 - The trail of each shot agrees with the result of the rules: a brick, steel or the map edge, a base, a tank, a clash.
 - A battle through the calls of the script gives the same result as direct calls of the scene functions and the networks.
-- A swap of the wires swaps the places. With the random-action probability 0 and 0.1, a seed gives the same result again.
+- A swap of the wires swaps the places. A seed gives the same result again.
 
 The checks of the teacher and the bot are:
 

@@ -108,10 +108,10 @@ test('stage 2 continues each structure from its stage 1 candidates on the same b
     assert.deepEqual(wired('gate'), [[ids[`${from}_evaluator`], 'report']], `${m}: gate`);
     assert.deepEqual(graph.producers(ids[`${m}_evaluator`], 'metrics').map(p => graph.node(p.node).title).sort(), [...DUEL_METRICS].sort(), `${m}: evaluator`);
 
-    // the condition: 和教师一致的比例 of the stage 1 report is at least 0.85
+    // the condition: 和教师一致的比例 of the stage 1 report is at least 0.7
     const evaluation = mean => ({ stale: false, report: { metrics: { 和教师一致的比例: { mean } } } });
     assert.ok(METRICS.includes(trainer.config.gate.metric), `${m}: the gate reads a metric of the stage 1 evaluator`);
-    assert.deepEqual([0.84, 0.85, 0.95].map(v => gateStatus(trainer.config.gate, evaluation(v), 'e').passed), [false, true, true], m);
+    assert.deepEqual([0.69, 0.7, 0.95].map(v => gateStatus(trainer.config.gate, evaluation(v), 'e').passed), [false, true, true], m);
     assert.equal(gateStatus(trainer.config.gate, null, 'e').passed, false, `${m}: no report, no start`);
     assert.equal(gateStatus(trainer.config.gate, { ...evaluation(0.95), stale: true }, 'e').passed, false, `${m}: a stale report, no start`);
 
@@ -152,11 +152,34 @@ const trail = ([x, y], d, n, why) => ({ on: true, x, y, d, n, why });
 const cellOf = (s, x, y) => s.cells[y * 9 + x];
 /** The action `a` turned 180°: a move or a fire direction turns, wait stays. */
 const turnAct = a => (a < 8 ? a - (a % 4) + ((a % 4) + 2) % 4 : a);
-/** The state `s` with `tanks` in place and the cells { 'x,y': code } changed. */
+/** A fixed map for the position tests: the fixed part of the scene, and the random part as in revision 13. */
+const LAYOUT = [
+  0, 0, 0, 1, 3, 1, 0, 0, 0,
+  0, 2, 0, 1, 1, 1, 0, 2, 0,
+  0, 1, 0, 0, 1, 0, 0, 1, 0,
+  4, 1, 0, 0, 1, 0, 0, 1, 4,
+  4, 4, 2, 1, 2, 1, 2, 4, 4,
+  4, 1, 0, 0, 1, 0, 0, 1, 4,
+  0, 1, 0, 0, 1, 0, 0, 1, 0,
+  0, 2, 0, 1, 1, 1, 0, 2, 0,
+  0, 0, 0, 1, 3, 1, 0, 0, 0,
+];
+/** The cells of the random part of the map, by the cell of the top-left quarter that decides them. */
+const QUARTER = [[0, 2], [1, 2], [2, 2], [3, 2], [1, 3], [2, 3], [3, 3]].map(([x, y]) => [[x, y], [8 - x, y], [8 - x, 8 - y], [x, 8 - y]].map(([a, b]) => b * 9 + a));
+/** The state `s` on LAYOUT with `tanks` in place and the cells { 'x,y': code } changed. */
 const place = (s, tanks, cells = {}) => {
-  const map = [...s.cells];
+  const map = [...LAYOUT];
   for (const [xy, v] of Object.entries(cells)) { const [x, y] = xy.split(',').map(Number); map[y * 9 + x] = v; }
   return { ...s, cells: map, tanks };
+};
+/** Whether every cell that a tank can enter (empty, or a brick that it can shoot away) is reachable from every other one. */
+const connected = cells => {
+  const free = c => cells[c] === 0 || cells[c] === BRICK, all = cells.map((_, c) => c).filter(free), seen = new Set([all[0]]), todo = [all[0]];
+  while (todo.length) {
+    const c = todo.pop(), x = c % 9, y = Math.floor(c / 9);
+    for (const [a, b] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) if (a >= 0 && b >= 0 && a < 9 && b < 9 && free(b * 9 + a) && !seen.has(b * 9 + a)) { seen.add(b * 9 + a); todo.push(b * 9 + a); }
+  }
+  return seen.size === all.length;
 };
 
 /** Fixed models of 中 and 大, accepted in the stage 2 candidates that the networks of the battle read. */
@@ -196,22 +219,28 @@ const turn = s => ({
 /** The state `s` with only `on` of a trail of a side that did not fire: the scene leaves its other fields unspecified. */
 const quiet = s => ({ ...s, trails: s.trails.map(b => (b.on ? b : { on: false })) });
 
-test('the battle starts on the fixed map with a base at each end, each tank on its start cell of the seed, and side 1 sees the map turned 180°', () => {
+test('each battle starts on the map of its seed: the fixed part stays, the random part is symmetric, has at most 2 steel or water cells in its quarter and leaves every free cell reachable; each tank starts on its start cell of the seed', () => {
   const { call } = arena();
-  const first = call('battle', { seed: 1 }), starts = [new Set(), new Set()];
-  assert.deepEqual([cellOf(first, 4, 8), cellOf(first, 4, 0)], [BASE, BASE], 'the bases');
-  assert.deepEqual(first.cells.filter((v, c) => v !== first.cells[80 - c]), [], 'the map is the same after a turn of 180°');
-  assert.deepEqual(first.cells.slice(36, 45).map((v, x) => (v === BRICK ? x : v === 0 ? -1 : null)).filter(v => v !== null), [3, 5], 'the middle row has only the two brick passages');
-  for (let seed = 1; seed <= 100; seed++) {
+  const first = call('battle', { seed: 1 }), starts = [new Set(), new Set()], maps = new Set(), blocks = new Set();
+  const random = new Set(QUARTER.flat());
+  for (let seed = 1; seed <= 200; seed++) {
     const s = call('battle', { seed });
     assert.deepEqual(s, call('battle', { seed }), `seed ${seed}: the start repeats on the seed`);
-    assert.deepEqual([s.cells, s.bases, s.end, s.t, s.hits, s.acts, s.trails.map(b => b.on)], [first.cells, [true, true], -1, 0, [false, false], [WAIT, WAIT], [false, false]], `seed ${seed}`);
+    assert.deepEqual([s.bases, s.end, s.t, s.hits, s.acts, s.trails.map(b => b.on)], [[true, true], -1, 0, [false, false], [WAIT, WAIT], [false, false]], `seed ${seed}`);
+    assert.deepEqual(s.cells.flatMap((v, c) => (random.has(c) || v === LAYOUT[c] ? [] : [c])), [], `seed ${seed}: the fixed part of the map`);
+    assert.ok(s.cells.every((v, c) => v === s.cells[80 - c] && v === s.cells[Math.floor(c / 9) * 9 + 8 - (c % 9)]), `seed ${seed}: the map is the same after a turn of 180° and in a mirror`);
+    const quarter = QUARTER.map(([c]) => s.cells[c]), hard = quarter.flatMap((v, k) => (v === STEEL || v === WATER ? [k] : []));
+    assert.ok(quarter.every(v => [0, BRICK, STEEL, WATER].includes(v)) && hard.length <= 2 && !hard.includes(6), `seed ${seed}: at most 2 steel or water cells in the quarter, never in front of the passage (${quarter})`);
+    assert.ok(connected(s.cells), `seed ${seed}: every free cell is reachable`);
+    hard.forEach(k => blocks.add(`${k}:${quarter[k]}`)); maps.add(s.cells.join());
     const [a, b] = s.tanks;
     assert.deepEqual([a, b], [tank([a.x, a.y]), tank([b.x, b.y], { d: DOWN })], `seed ${seed}: 2 lives, not fired, the start cell under the tank`);
     assert.ok(a.y >= 7 && cellOf(s, a.x, a.y) === 0, `seed ${seed}: side 0 starts on a free cell of its two bottom rows`);
     assert.ok(b.y <= 1 && cellOf(s, b.x, b.y) === 0, `seed ${seed}: side 1 starts on a free cell of its two top rows`);
     starts[0].add(`${a.x},${a.y}`); starts[1].add(`${b.x},${b.y}`);
   }
+  assert.ok(maps.size > 150, `the seeds give many maps (${maps.size} of 200)`);
+  assert.equal(blocks.size, 12, 'steel and water both appear on each of the 6 cells that can hold them');
   assert.deepEqual(starts.map(c => c.size), [10, 10], 'the seeds give each side all 10 start cells');
   assert.deepEqual([...starts[1]].map(c => c.split(',').map(Number)).map(([x, y]) => `${8 - x},${8 - y}`).sort(), [...starts[0]].sort(), 'the start cells of side 1 are those of side 0 turned');
   const s = place(first, [tank([2, 5], { fired: true }), tank([6, 2], { lives: 1 })]);
@@ -293,13 +322,19 @@ test('a shell is an instant ray: it hits the first cell that is not empty or wat
   assert.deepEqual([into.hits, into.trails[0]], [[false, true], trail([2, 2], RIGHT, 1, HIT_TANK)], 'the tank steps into the ray before the shell flies');
 });
 
-test('mutual fire cancels both shells and neither side counts as fired, while a one-sided hit lands', () => {
+test('mutual fire cancels both shells and neither side counts as fired, the next step each side makes a random move or wait of its seed, and a one-sided hit lands', () => {
   const { at, step } = arena();
   const face = at([tank([2, 2]), tank([3, 2])]);
   const mutual = step(face, FIRE_RIGHT, FIRE_LEFT);
   assert.deepEqual([mutual.hits, mutual.tanks.map(t => [t.lives, t.fired]), mutual.acts], [[false, false], [[2, false], [2, false]], [FIRE_RIGHT, FIRE_LEFT]], 'both shells cancel, and the acts still show the fires');
   assert.deepEqual(mutual.trails, [trail([2, 2], RIGHT, 1, MUTUAL), trail([3, 2], LEFT, 1, MUTUAL)], 'the trails show the mutual fire');
-  assert.deepEqual(step(mutual, FIRE_RIGHT, FIRE_LEFT).trails.map(b => b.why), [MUTUAL, MUTUAL], 'neither side cooled down, so they can fire again');
+  const jolts = Array.from({ length: 20 }, (_, k) => step({ ...mutual, seed: k + 1 }, FIRE_RIGHT, FIRE_LEFT));
+  for (const j of jolts) {
+    assert.ok(j.acts.every(a => a < 4 || a === WAIT) && j.trails.every(b => !b.on), `seed ${j.seed}: no fire, each side moves or waits (${j.acts})`);
+    assert.deepEqual(step({ ...mutual, seed: j.seed }, WAIT, WAIT), j, `seed ${j.seed}: the random step ignores the actions and repeats on its seed`);
+  }
+  assert.ok(new Set(jolts.map(j => j.acts.join())).size > 3, 'the random step differs between seeds');
+  assert.deepEqual(step(jolts[0], WAIT, WAIT).acts, [WAIT, WAIT], 'after the random step, each side takes its own action again');
   const one = step(face, FIRE_RIGHT, WAIT);
   assert.deepEqual([one.hits, one.tanks.map(t => [t.lives, t.fired])], [[false, true], [[2, true], [1, false]]], 'one side fires: the other is hit');
   // side 1 fires up into the brick (3,1), so its ray does not reach side 0: no mutual fire
@@ -415,6 +450,7 @@ test('at each level, the bot of side 1 plays the rules of the teacher on the tur
       let s = env.reset({ seed }), tr;
       do {
         const bot = botMove(probe, s), mask = teacher(turn(s));
+        if (s.trails[0].why === MUTUAL) { tr = env.step(WAIT); s = tr.next; continue; }   // the random step after a mutual fire
         assert.equal(mask[turnAct(bot)], 1, `level ${level}, seed ${seed}, step ${s.t}: the bot takes an action that the teacher marks`);
         tr = env.step(teacher(s).indexOf(1)); s = tr.next;
       } while (!tr.done && s.t < 40);
@@ -544,11 +580,10 @@ test('a battle through the script equals the scene functions and the networks ca
   const [mid, big] = [policy(BATTLE_MODELS.mid), policy(BATTLE_MODELS.big)];
   for (const seed of [1, 2]) {
     const shown = [];
-    const { state, log } = await fight(ctxCall(calls()), { seed, random: 0, show: (s, entry) => shown.push(entry) });
+    const { state, log } = await fight(ctxCall(calls()), { seed, show: (s, entry) => shown.push(entry) });
     const direct = directBattle(call, mid, big, seed);
     assert.deepEqual(state, direct.state, `seed ${seed}`);
     assert.deepEqual(log.map(e => e.moves), direct.moves, `seed ${seed}: the moves`);
-    assert.ok(log.every(e => !e.wild.some(Boolean)), `seed ${seed}: no random action`);
     assert.deepEqual(shown, [null, ...log], `seed ${seed}: the script shows the start and each step`);
   }
 });
@@ -565,22 +600,15 @@ test('swapping the wires of 红方 and 蓝方 swaps the seats of the networks', 
   for (const w of wires) graph.disconnect(w.id);
   for (const w of wires) graph.connect({ kind: 'call', from: w.from, to: { node: w.to.node, port: w.to.port === '红方' ? '蓝方' : '红方' } });
   assert.deepEqual([seat('红方'), seat('蓝方')], [big(bits), mid(bits)]);
-  const { state } = await fight(ctxCall(calls()), { seed: 1, random: 0 });
+  const { state } = await fight(ctxCall(calls()), { seed: 1 });
   assert.deepEqual(state, directBattle(call, big, mid, 1).state, 'a whole battle with 大 as 红方');
 });
 
-test('a battle repeats on its seed: with no random action, and with the random actions of the script', async () => {
+test('a battle repeats on its seed', async () => {
   const { graph, ids, calls } = arena();
-  const { fight, RANDOM } = await scriptFile(graph, ids, 'game.js');
-  assert.equal(RANDOM, 0.1, 'the default random-action probability');
-  const play = async (seed, random) => (await fight(ctxCall(calls()), { seed, random })).log;
-  const still = await play(5, 0);
-  assert.deepEqual(await play(5, 0), still);
-  const once = await play(5, RANDOM), again = await play(5, RANDOM);
-  assert.deepEqual(once, again);
-  assert.ok(once.some(e => e.wild.some(Boolean)), 'some actions are random');
-  assert.ok(once.flatMap(e => e.moves).every(a => Number.isInteger(a) && a >= 0 && a < ACTIONS), 'a random action is one of the 9');
-  assert.notDeepEqual(once.map(e => e.moves), still.map(e => e.moves), 'the random actions change the battle');
+  const { fight } = await scriptFile(graph, ids, 'game.js');
+  const play = async seed => (await fight(ctxCall(calls()), { seed })).log;
+  assert.deepEqual(await play(5), await play(5));
 });
 
 test('蓝方 can be the bot of each level: through the script, it takes an action that the teacher of that level marks', async () => {
@@ -591,7 +619,7 @@ test('蓝方 can be the bot of each level: through the script, it takes an actio
     assert.deepEqual(names(level), ['红方', `蓝方（${['简单', '中等', '困难'][level - 1]}机器人）`]);
     for (const seed of [1, 2, 3]) {
       const states = [];
-      const { log } = await fight(ctxCall(calls()), { seed, random: 0, opponent: level, show: s => states.push(s) });
+      const { log } = await fight(ctxCall(calls()), { seed, opponent: level, show: s => states.push(s) });
       // the move of 蓝方 is on its own map, that is, the map of side 0 in the turned battle
       log.forEach((e, i) => assert.equal(teacher(turn(states[i]))[e.moves[1]], 1, `level ${level}, seed ${seed}, step ${e.t}`));
     }
