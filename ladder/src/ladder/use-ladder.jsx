@@ -22,11 +22,20 @@ export function LadderProvider({ config, provider, signer, children }) {
    *  page re-reads it only when the count changed or a challenge in the window is still playing. */
   const recentRef = useRef({ count: -1, items: [], stale: true });
 
-  // a new block → a new read
+  // a new block → a new read. The page polls the block number itself: with ethers 6, `provider.on('block')` right after
+  // `provider.off('block')` (React StrictMode runs each effect twice in development) can leave no listener at all, and
+  // then the page never refreshes.
   useEffect(() => {
-    const onBlock = () => setTick(n => n + 1);
-    provider.on('block', onBlock);
-    return () => { provider.off('block', onBlock); };
+    let live = true, last = -1, timer = null;
+    const poll = async () => {
+      try {
+        const b = await provider.getBlockNumber();
+        if (live && b !== last) { last = b; setTick(n => n + 1); }
+      } catch { /* the next poll tries again */ }
+      if (live) timer = setTimeout(poll, provider.pollingInterval);
+    };
+    poll();
+    return () => { live = false; clearTimeout(timer); };
   }, [provider]);
 
   useEffect(() => {

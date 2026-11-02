@@ -19,6 +19,7 @@ import { DENSE_FORMAT } from '../../../frontend/runtime/dense-policy.js';
 import stepGas from '../../data/step-gas.json' with { type: 'json' };
 import TankLadderABI from '../../../frontend/abi/TankLadder.json' with { type: 'json' };
 import { createLadderClient, decodeLadderError, episodeSeed, unpackActions, PLAY_GAS, MAX_IN_FLIGHT, STATUS, EPISODES } from './client.js';
+import { readProvider } from '../wallet/read-provider.js';
 
 const [INPUTS, ACTIONS] = [572, 9];
 const iface = new ethers.Interface(TankLadderABI);
@@ -240,6 +241,20 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
         [second, first].map(i => [i.id, i.challenger, i.defender, i.status, i.challengerWins, i.defenderWins, i.startBlock]));
       for (const c of recent) { assert.ok(c.gasUsed > 1_000_000 && c.transactions >= 1, `challenge ${c.id}: ${c.transactions} transactions, ${c.gasUsed} gas`); }
       assert.deepEqual((await reader.recentChallenges({ count: 1 })).map(c => c.id), [2]);
+    });
+
+    await t.test('with the read provider of the page, a key signer registers right after the deployment receipt', async () => {
+      // The dev signer of the page signs locally, so the read provider gives its nonces. Automine gives the receipt of
+      // the deployment at once, so the register transaction follows it within the 250 ms request cache of ethers.
+      const page = readProvider(chain.url, chainId);
+      const key = ethers.HDNodeWallet.fromMnemonic(ethers.Mnemonic.fromPhrase('test test test test test test test test test test test junk'), "m/44'/60'/0'/0/4").connect(page);
+      const asKey = createLadderClient({ provider: page, signer: key, ladder, factory, chainId, pollMs: 20 });
+      try {
+        for (const seed of [17, 19, 23]) {
+          const r = await asKey.register(await artifactOf(fixedModel(INPUTS, [32, 32], ACTIONS, seed)));
+          assert.equal(r.owner, key.address);
+        }
+      } finally { page.destroy(); }
     });
   } finally { chain.stop(); }
 });

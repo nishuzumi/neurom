@@ -5,10 +5,11 @@
 // The value: `{ kind, ready, address, signer, login(), logout(), label }`. `signer` is an ethers Signer that the ladder
 // client sends transactions with. `provider` is the read provider of the page (a JsonRpcProvider of the chain RPC).
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { BrowserProvider, HDNodeWallet, JsonRpcProvider, Mnemonic } from 'ethers';
+import { BrowserProvider, HDNodeWallet, Mnemonic } from 'ethers';
 import { PrivyProvider, usePrivy, useWallets } from '@privy-io/react-auth';
 import { defineChain } from 'viem';
 import { t } from '../i18n.js';
+import { readProvider } from './read-provider.js';
 
 const WalletContext = createContext(null);
 /** The wallet value of the nearest WalletProvider. */
@@ -32,7 +33,7 @@ export function viemChain(config) {
 
 /** The read provider of the page: one per RPC URL. */
 export function useReadProvider(config) {
-  return useMemo(() => new JsonRpcProvider(config.rpc, config.chainId, { staticNetwork: true, pollingInterval: 1500 }), [config.rpc, config.chainId]);
+  return useMemo(() => readProvider(config.rpc, config.chainId), [config.rpc, config.chainId]);
 }
 
 /** The wallet of the page: Privy when the app id is set, else the local dev signer on the local chain. */

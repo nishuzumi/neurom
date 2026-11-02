@@ -20,12 +20,20 @@ ANVIL=~/.foundry/bin/anvil FORGE=~/.foundry/bin/forge node ladder/scripts/dev-ch
 The script does this:
 
 1. Builds the contracts, starts a fresh `anvil --network monad` and deploys the protocol and the ladder (`frontend/ladder.fixture.js`).
-2. Registers a few entries from anvil accounts 0 and 2. By default it uses the trained 中 and 大 networks in `ladder/data/artifacts/`. If `.scratch/jolt/` on this machine has other artifacts, it registers them too. `--artifacts a.json,b.json` selects other files.
+2. Registers a few entries from anvil accounts 0 and 2. By default it uses the trained 中 and 大 networks in `ladder/data/artifacts/`. If `.scratch/jolt/` on this machine has other artifacts, it registers them too. `--artifacts a.json,b.json` selects other files. `--no-seed` registers nothing, so the ladder starts empty.
 3. Plays a few challenges to the end. `--no-play` skips this step.
 4. Starts the name service on PGlite in the process, mounts it at `/api/names` of the page and names the registered entries.
-5. Starts the Vite dev server (`--port`, default 5174), pointed at this anvil through `VITE_LADDER_RPC`, `VITE_LADDER_FACTORY` and `VITE_LADDER_ADDRESS`.
+5. Starts one Vite dev server for each login account, pointed at this anvil through `VITE_LADDER_RPC`, `VITE_LADDER_FACTORY` and `VITE_LADDER_ADDRESS`. The first server uses `--port` (default 5174). Each next server uses the next port.
 
-The Log in button of the page uses account 1 of the anvil default mnemonic (`VITE_DEV_ACCOUNT`). It owns no entry at the start, so the whole flow (register, challenge, name) can be walked in the browser. The private keys of these accounts are public: local development only.
+The Log in button of each page uses one account of the anvil default mnemonic (`VITE_DEV_ACCOUNT`). By default there is one page, with account 1. It owns no entry at the start, so the whole flow (register, challenge, name) can be walked in the browser. The private keys of these accounts are public: local development only.
+
+To try several users, list the account indices (0 to 9) with `--accounts`. Each account gets one page on its own port, so each page keeps its own login. All pages use the same chain and the same name service. For example:
+
+```bash
+npm run dev:chain -w ladder -- --accounts 1,3,4,5,6,7 --no-seed
+```
+
+This starts 6 pages on the ports 5174 to 5179, with an empty ladder.
 
 `npm run dev -w ladder` starts only the page. Then the page connects to `http://127.0.0.1:18545` per the `31337` entry of `data/deployments.json`, and the name service is not available.
 

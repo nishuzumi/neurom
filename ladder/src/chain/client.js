@@ -60,7 +60,8 @@ export function decodeLadderError(error) {
 function ladderError(message, data, extra = {}) {
   let name = null, args = null;
   if (data) { try { const e = iface.parseError(data); if (e && ERROR_NAMES.has(e.name)) { name = e.name; args = e.args; } } catch { /* not ours */ } }
-  const e = new Error(name ? `${message}: ${name}` : message);
+  const cause = extra.cause?.shortMessage ?? extra.cause?.message;
+  const e = new Error(name ? `${message}: ${name}` : cause ? `${message}: ${cause}` : message);
   return Object.assign(e, { data: data ?? undefined, ladderError: name, ladderArgs: args, ...extra });
 }
 

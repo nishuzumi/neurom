@@ -20,12 +20,20 @@ ANVIL=~/.foundry/bin/anvil FORGE=~/.foundry/bin/forge node ladder/scripts/dev-ch
 脚本做这些事：
 
 1. 编译合约，起一个新的 `anvil --network monad`，部署协议合约和擂台合约（`frontend/ladder.fixture.js`）。
-2. 用 anvil 账号 0 和 2 注册几个出战模型。默认用 `ladder/data/artifacts/` 里训练好的“中”和“大”。如果本机 `.scratch/jolt/` 里有别的模型产物，也一起注册。`--artifacts a.json,b.json` 指定别的文件。
+2. 用 anvil 账号 0 和 2 注册几个出战模型。默认用 `ladder/data/artifacts/` 里训练好的“中”和“大”。如果本机 `.scratch/jolt/` 里有别的模型产物，也一起注册。`--artifacts a.json,b.json` 指定别的文件。`--no-seed` 不注册，擂台从空的开始。
 3. 打几场挑战，直到结算。`--no-play` 跳过这一步。
 4. 在进程内用 PGlite 起名字服务，挂在页面的 `/api/names`，并给已注册的出战模型起好名字。
-5. 起 Vite 开发服务器（`--port`，默认 5174），通过 `VITE_LADDER_RPC`、`VITE_LADDER_FACTORY` 和 `VITE_LADDER_ADDRESS` 指向这个 anvil。
+5. 给每个登录账号起一个 Vite 开发服务器，通过 `VITE_LADDER_RPC`、`VITE_LADDER_FACTORY` 和 `VITE_LADDER_ADDRESS` 指向这个 anvil。第一个服务器用 `--port`（默认 5174），后面的依次加 1。
 
-页面上点“登录”用的是 anvil 默认助记词的账号 1（`VITE_DEV_ACCOUNT`）。它一开始没有出战模型，所以注册、挑战和起名字的整个流程都能在浏览器里走一遍。这些账号的私钥是公开的，只用于本地开发。
+每个页面上点“登录”，用的是 anvil 默认助记词里的一个账号（`VITE_DEV_ACCOUNT`）。默认只有一个页面，用账号 1。它一开始没有出战模型，所以注册、挑战和起名字的整个流程都能在浏览器里走一遍。这些账号的私钥是公开的，只用于本地开发。
+
+要试多个用户时，用 `--accounts` 列出账号序号（0 到 9）。每个账号一个页面，端口不同，所以登录状态各自独立。所有页面用同一条链和同一个名字服务。例如：
+
+```bash
+npm run dev:chain -w ladder -- --accounts 1,3,4,5,6,7 --no-seed
+```
+
+这样起 6 个页面，端口是 5174 到 5179，擂台是空的。
 
 只起页面时，运行 `npm run dev -w ladder`。这时页面按 `data/deployments.json` 的 `31337` 连接 `http://127.0.0.1:18545`，名字服务不可用。
 

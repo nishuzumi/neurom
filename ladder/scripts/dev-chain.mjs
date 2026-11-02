@@ -5,10 +5,12 @@
 //   3. a few challenges, played to the end from the contract,
 //   4. a name service on PGlite, mounted at /api/names of the Vite dev server,
 //   5. the Vite dev server of the page, pointed at the anvil through VITE_LADDER_RPC and the addresses.
-// The page then logs in with anvil account 1 (VITE_DEV_ACCOUNT), which owns nothing at the start, so the whole flow
-// (register, challenge, name) can be walked in the browser. Local development only: the accounts are public.
+// Each page logs in with one anvil account (VITE_DEV_ACCOUNT). The default is one page for account 1, which owns
+// nothing at the start, so the whole flow (register, challenge, name) can be walked in the browser. `--accounts 1,3,4`
+// starts one page for each account, on the ports after `--port`, so several local users share one chain and one name
+// service. `--no-seed` starts with an empty ladder. Local development only: the accounts are public.
 //
-//   node ladder/scripts/dev-chain.mjs [--port 5174] [--no-play] [--artifacts a.json,b.json]
+//   node ladder/scripts/dev-chain.mjs [--port 5174] [--accounts 1] [--no-seed] [--no-play] [--artifacts a.json,b.json]
 //   ANVIL=… FORGE=… select the Foundry binaries (contracts/scripts/foundry.mjs).
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +23,20 @@ import { createNameService, ladderOwnerOf, nameMessage } from '../server/names.j
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = fileURLToPath(new URL('../..', import.meta.url));
-const { values: args } = parseArgs({ options: { port: { type: 'string', default: '5174' }, play: { type: 'boolean', default: true }, artifacts: { type: 'string' } }, allowNegative: true });
+const { values: args } = parseArgs({
+  options: {
+    port: { type: 'string', default: '5174' },
+    accounts: { type: 'string', default: '1' },
+    seed: { type: 'boolean', default: true },
+    play: { type: 'boolean', default: true },
+    artifacts: { type: 'string' },
+  },
+  allowNegative: true,
+});
+const accounts = args.accounts.split(',').map(Number);
+if (accounts.some(a => !Number.isInteger(a) || a < 0 || a > 9) || new Set(accounts).size !== accounts.length) {
+  throw new Error(`--accounts must list different indices 0 to 9 of the anvil mnemonic, got "${args.accounts}"`);
+}
 
 /** The default entries: name → artifact file (relative to the repo). The two trained networks of
  *  ladder/data/artifacts (the scene of template revision 16) are always there. Other local artifacts in .scratch fill the rest of
@@ -34,7 +49,7 @@ const DEFAULT_ARTIFACTS = [
   ['Mid Jolt', '.scratch/jolt/s2-a-jolt.json'],
   ['Big Jolt', '.scratch/jolt/s2-b-jolt.json'],
 ];
-const files = args.artifacts ? args.artifacts.split(',').map((f, i) => [`Entry ${i + 1}`, f]) : DEFAULT_ARTIFACTS;
+const files = !args.seed ? [] : args.artifacts ? args.artifacts.split(',').map((f, i) => [`Entry ${i + 1}`, f]) : DEFAULT_ARTIFACTS;
 
 const log = (...a) => console.log('[dev-chain]', ...a);
 
@@ -99,22 +114,27 @@ if (args.play && entries.length >= 2) {
   await play(entries[1], entries[0]);
 }
 
-// --- the Vite dev server with /api/names
+// --- one Vite dev server with /api/names for each account. Vite reads the VITE_ variables when it creates the server,
+// so each server keeps the account that was set before it was created.
 process.env.VITE_LADDER_CHAIN_ID = '31337';
 process.env.VITE_LADDER_RPC = chain.url;
 process.env.VITE_LADDER_ADDRESS = ladder;
 process.env.VITE_LADDER_FACTORY = factory;
 const handler = createNameHandler({ service, adminToken: process.env.ADMIN_TOKEN ?? '' });
-const server = await createServer({
-  configFile: `${here}../vite.config.js`,
-  server: { port: Number(args.port) },
-  plugins: [{ name: 'ladder-dev-names', configureServer(s) { s.middlewares.use('/api/names', (req, res) => handler(req, res)); } }],
-});
-await server.listen();
-const url = server.resolvedUrls.local[0];
-log(`page ${url}`);
-log('login in the page uses anvil account 1 (VITE_DEV_ACCOUNT). Ctrl-C stops everything.');
+const servers = [];
+for (const [i, account] of accounts.entries()) {
+  process.env.VITE_DEV_ACCOUNT = String(account);
+  const server = await createServer({
+    configFile: `${here}../vite.config.js`,
+    server: { port: Number(args.port) + i, strictPort: true },
+    plugins: [{ name: 'ladder-dev-names', configureServer(s) { s.middlewares.use('/api/names', (req, res) => handler(req, res)); } }],
+  });
+  await server.listen();
+  servers.push(server);
+  log(`page ${server.resolvedUrls.local[0]} logs in with anvil account ${account} (${await (await provider.getSigner(account)).getAddress()})`);
+}
+log('Ctrl-C stops everything.');
 
-const stop = async () => { await server.close(); await db.close(); chain.stop(); process.exit(0); };
+const stop = async () => { await Promise.all(servers.map(s => s.close())); await db.close(); chain.stop(); process.exit(0); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
