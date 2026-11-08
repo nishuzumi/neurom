@@ -6,9 +6,7 @@ status: proposed
 
 ## Context
 
-The file `.scratch/ladder/research-monad-1ct-wallets.md` is on the branch `prototype/tank-ladder` (commit `2b12472`).
-
-The tank ladder (ADR 0026) needs a page for players and viewers: login, the ladder, entry registration, challenges and replays. The page sends all transactions of a challenge without a wallet popup for each one. The research picked the Privy embedded wallet with `showWalletUIs: false` (`.scratch/ladder/research-monad-1ct-wallets.md`). Privy supports this through its React SDK. The documentation of its vanilla SDK, `@privy-io/js-sdk-core`, says that it is a low-level library, and that a project must speak to the Privy team before it uses it (https://docs.privy.io/recipes/core-js).
+The tank ladder (ADR 0026) needs a page for players and viewers: login, the ladder, entry registration, challenges and replays. The page sends all transactions of a challenge without a wallet popup for each one. We compared the embedded wallet providers that the Monad documentation lists (https://docs.monad.xyz/tooling-and-infra/wallet-infra/embedded-wallets) and picked the Privy embedded wallet with `showWalletUIs: false`. Privy supports this through its React SDK. The documentation of its vanilla SDK, `@privy-io/js-sdk-core`, says that it is a low-level library, and that a project must speak to the Privy team before it uses it (https://docs.privy.io/recipes/core-js).
 
 The workbench is a Vue app. Its Vite root is `frontend/`, and `frontend/build.mjs` makes one self-contained HTML file. The ladder page is a hosted site on Vercel with API functions for names, so its build is different.
 
