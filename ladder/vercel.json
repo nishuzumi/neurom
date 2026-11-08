@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "redirects": [
+    { "source": "/ladder", "destination": "/ladder/", "permanent": true },
+    { "source": "/studio", "destination": "/studio/", "permanent": true },
+    { "source": "/guide", "destination": "/guide/", "permanent": true }
+  ]
+}

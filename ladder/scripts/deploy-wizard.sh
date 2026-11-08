@@ -33,7 +33,6 @@ TOTAL_STAGES=0
 _STAGE_INDEX=0
 ENV_FILE="${ENV_FILE:-.env}"
 WRITTEN_ENV=()    # KEYs written to ENV_FILE this run
-WRITTEN_SECRET=() # secret NAMEs set this run
 SKIPPED=()        # things we couldn't do (e.g. gh missing)
 
 # _clear wipes the terminal so only the current step is on screen. No-op when
@@ -158,40 +157,11 @@ write_env() {
   printf '  %s✓ wrote%s %s → %s\n' "$GREEN" "$RESET" "$key" "$ENV_FILE"
 }
 
-# set_secret NAME VALUE sets a GitHub Actions repo secret via gh. Falls back
-# to a warning (and records it) if gh is unavailable or unauthenticated.
-set_secret() {
-  local name="$1" value="$2"
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    if printf '%s' "$value" | gh secret set "$name" >/dev/null 2>&1; then
-      WRITTEN_SECRET+=("$name")
-      printf '  %s✓ set%s GitHub secret %s\n' "$GREEN" "$RESET" "$name"
-      return
-    fi
-  fi
-  SKIPPED+=("GitHub secret $name (set it manually: gh secret set $name)")
-  warn "skipped GitHub secret $name: gh not ready; set it later"
-}
-
-# set_var NAME VALUE sets a GitHub Actions repo variable (non-secret).
-set_var() {
-  local name="$1" value="$2"
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    if gh variable set "$name" --body "$value" >/dev/null 2>&1; then
-      printf '  %s✓ set%s GitHub variable %s\n' "$GREEN" "$RESET" "$name"
-      return
-    fi
-  fi
-  SKIPPED+=("GitHub variable $name")
-  warn "skipped GitHub variable $name, gh not ready; set it later"
-}
-
 # finish clears, then shows a closing summary of everything configured.
 finish() {
   _clear
   printf '\n%s%s  ✓ Setup complete%s\n' "$BOLD" "$GREEN" "$RESET"
   (( ${#WRITTEN_ENV[@]} ))    && note "wrote ${#WRITTEN_ENV[@]} value(s) to $ENV_FILE: ${WRITTEN_ENV[*]}"
-  (( ${#WRITTEN_SECRET[@]} )) && note "set ${#WRITTEN_SECRET[@]} GitHub secret(s): ${WRITTEN_SECRET[*]}"
   if (( ${#SKIPPED[@]} )); then
     printf '\n'; warn "still to do by hand:"
     for s in "${SKIPPED[@]}"; do note "  - $s"; done
@@ -416,9 +386,9 @@ pause
 # ── 6 ─────────────────────────────────────────────────────────────────────
 stage "Ladder contract"
 say "contracts/script/DeployLadder.s.sol deploys the TankLadder with the configuration of the spec (δ 10%, range 10,"
-say "timeout 400 blocks, cooldown 6000 blocks, 24M/2M gas) and this season's factory and end block. To change a"
-say "value, export LADDER_MAX_WEIGHT_BYTES, LADDER_DELTA_BPS, LADDER_RANGE, LADDER_TIMEOUT_BLOCKS,"
-say "LADDER_COOLDOWN_BLOCKS, LADDER_MIN_START_GAS or LADDER_RESERVE_GAS before running the wizard."
+say "board of 20 ranks, timeout 400 blocks, cooldown 6000 blocks, 24M/2M gas) and this season's factory and end block."
+say "To change a value, export LADDER_MAX_WEIGHT_BYTES, LADDER_DELTA_BPS, LADDER_RANGE, LADDER_BOARD_SIZE,"
+say "LADDER_TIMEOUT_BLOCKS, LADDER_COOLDOWN_BLOCKS, LADDER_MIN_START_GAS or LADDER_RESERVE_GAS before running the wizard."
 existing_ladder=$(_existing LADDER_ADDRESS || true)
 if [[ -n "$existing_ladder" ]] && confirm "A ladder is already saved ($existing_ladder). Keep it instead of deploying another?"; then
   LADDER_ADDRESS="$existing_ladder"
@@ -466,8 +436,9 @@ stage "Vercel project"
 say "The page is a Vercel project whose root is the ladder/ workspace (ADR 0027)."
 open_url "https://vercel.com/new"
 step "Import this repository. In 'Configure Project' set Root Directory to 'ladder'."
-step "Framework Preset: Vite. Build Command: npm run build. Output Directory: dist. Keep the default Install Command"
-step "(Vercel runs npm install at the repo root because the root package.json declares the workspace)."
+step "Framework Preset: Vite. ladder/vercel.json sets the Build Command (npm run build) and the Output Directory (dist)."
+step "Keep the default Install Command (Vercel runs npm install at the repo root because the root package.json declares"
+step "the workspace). The build also makes the home page at /, the ladder at /ladder/ and the workbench at /studio/ (ADR 0027)."
 step "Deploy once (the first build may fail until the next step is on; that is fine)."
 step "Then open the project: Settings → General → Root Directory → turn on"
 step "'Include source files outside of the Root Directory in the Build Step' and save. The build imports ../frontend/."
@@ -492,7 +463,7 @@ confirm "Is DATABASE_URL set on the project?" || SKIPPED+=("Neon: connect the da
 # ── 11 ────────────────────────────────────────────────────────────────────
 stage "Privy app"
 say "Login and the embedded wallet come from Privy (ADR 0027). The page already configures the SDK to create an"
-say "Ethereum embedded wallet on login and to hide confirmation modals (ladder/src/wallet/wallet.jsx); the"
+say "Ethereum embedded wallet on login and to hide confirmation modals (frontend/wallet/privy.js); the"
 say "dashboard settings below make the same choices for the app, and the domains protect the App ID."
 open_url "https://dashboard.privy.io"
 step "Create an app for the $NETWORK season (one app per network keeps the user bases apart)."
@@ -501,7 +472,7 @@ step "Configuration → Authentication → Advanced: turn on 'Disable confirmati
 step "challenge is up to 20 transactions in a row)."
 step "Configuration → App settings → Domains → Allowed origins: add $VERCEL_URL"
 if [[ "$NETWORK" == testnet ]]; then
-  step "and, for the preview deployments and local work, the preview URL of the project and http://localhost:5174."
+  step "and, for the preview deployments and local work, the preview URL of the project, http://localhost:5174 and http://127.0.0.1:5174."
 else
   step "(and the www variant if your domain has one). Do not add *.vercel.app or localhost to the mainnet app."
 fi
@@ -547,17 +518,24 @@ pause "Press Enter when the deployment is live."
 # ── 13 ────────────────────────────────────────────────────────────────────
 stage "Walk through the live page"
 say "The last check of ticket 11 is a human one: Privy's silent signing sends every transaction of a challenge."
-open_url "$VERCEL_URL"
+open_url "$VERCEL_URL/ladder/"
 step "Log in (email). Privy creates the embedded wallet; copy its address from the top bar."
 if [[ -n "$FAUCET" ]]; then step "Fund it from $FAUCET (a challenge costs several 30M-gas transactions; 10 MON is comfortable)."; else step "Send it a few MON (a challenge is several 30M-gas transactions at the gas limit price)."; fi
-step "Register: upload a tank-battle artifact (template revision 16); the module deploys and enters at the last rank."
+step "Deploy: open the workbench at $VERCEL_URL/studio/. It shares the login of the ladder, so you do not log in again."
+step "Give a tank-battle candidate (template revision 16) an English ID and deploy it through the official Factory"
+step "with the same wallet. The ID is unique for the deploying account."
+step "Register: on the entries page, choose the module by its English ID from the list of the modules this wallet deployed."
+step "The list comes from the archive of the Factory on chain. The page sends one register transaction and the module"
+step "takes the last rank, or stays off the board when the board is full. The entry belongs to the wallet that sent"
+step "the register transaction."
 step "Challenge an entry within range. Watch the progress: every transaction must go out without a confirmation"
 step "popup, and the challenge must end settled (won or defended), with the replay visible afterwards."
 step "Set a name for your entry: the name service signs through the same wallet and checks entryOwner on chain."
+step "The name is the display name of the contest. It is not the English ID of the module."
 if confirm "Did a whole challenge run through with silent signing, and did the name save?"; then
   say "ticket 11's human checks are done."
 else
-  SKIPPED+=("page walk-through on $VERCEL_URL: register, challenge with silent signing, name")
+  SKIPPED+=("page walk-through on $VERCEL_URL/ladder/: register, challenge with silent signing, name")
 fi
 pause
 
@@ -568,8 +546,8 @@ if [[ "$NETWORK" == mainnet ]]; then
   say "opens: the gas-limit pricing of Monad (a 30M transaction is paid at 30M), the EOA-only rule for challengers"
   say "(no 7702 delegation, no smart accounts), the fixed end block $LADDER_END_BLOCK, δ and range, the cooldown,"
   say "the timeout after which anyone can expire a stuck challenge, and that names are public and unchangeable."
-  step "Edit the rules section of the page (ladder/src/components/Rules.jsx and its i18n entries), deploy, read it"
-  step "once on $VERCEL_URL."
+  step "Edit the rules section of the page (ladder/src/components/Rules.vue and its i18n entries), deploy, read it"
+  step "once on $VERCEL_URL/ladder/."
   confirm "Are the limits written into the rules?" || SKIPPED+=("write the known limits into the contest rules (ticket 12)")
   pause
 fi

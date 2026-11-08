@@ -1,10 +1,10 @@
-# The tank ladder page (`ladder/`)
+# The site and the tank ladder page (`ladder/`)
 
-This directory is the page and the name service of the tank battle contest (ADR 0026, ADR 0027). It is an npm workspace of the repo root and the root directory of the Vercel project. The page uses React, Vite and the Privy React SDK. The page imports the workbench modules of `../frontend/` directly. It does not copy code.
+This directory is the NEUROM site: the home page, the page of the tank battle contest, the participation guide and the name service (ADR 0026, ADR 0027). It is an npm workspace of the repo root and the root directory of the Vercel project. The site has four pages on one origin: the home page at `/`, the ladder at `/ladder/`, the workbench at `/studio/` and the participation guide at `/guide/`. Local development and the live site use the same paths. The pages use Vue 3 and Vite, as the workbench does. The login uses the Privy session of `frontend/wallet/privy.js`, which mounts the Privy React SDK into one element the page gives it. The page imports the workbench modules of `../frontend/` directly. It does not copy code.
 
 ## Directories
 
-- `src/`: the page. `src/chain/` is the ladder client without UI. `src/i18n.js` and `src/i18n/en.json` are the English entries of the page.
+- `index.html` and `src/home/`: the home page. `ladder/index.html` and `src/`: the ladder page. `guide/index.html` and `src/guide/main.js`: the participation guide. It is a static page in Chinese and English that tells a player how to train from zero, deploy, register and challenge. The three pages are three inputs of one Vite build (`vite.config.js`). `src/chain/` is the ladder client without UI. It reads the ladder contract and the archive of the official Factory (`deploymentsOf`: the modules one account deployed and their English IDs). `src/components/SiteBar.vue` is the site top bar that the home page and the ladder share. `src/i18n.js` and `src/i18n/en.json` are the English entries of the page.
 - `api/`: the Vercel functions. `api/names.js` only wires the environment to the modules of `server/`.
 - `server/`: the logic of the name service (`names.js`), the HTTP layer (`names-http.js`) and the database (`db.js`, `schema.sql`).
 - `data/`: data that changes. `banned-words.json` is the banned word list, `step-gas.json` is the measured gas of a step, `deployments.json` is the RPC, the official Factory and the ladder contract of each chain.
@@ -19,13 +19,16 @@ ANVIL=~/.foundry/bin/anvil FORGE=~/.foundry/bin/forge node ladder/scripts/dev-ch
 
 The script does this:
 
-1. Builds the contracts, starts a fresh `anvil --network monad` and deploys the protocol and the ladder (`frontend/ladder.fixture.js`).
+1. Builds the contracts, starts a fresh `anvil --network monad` and deploys the protocol and the ladder (`frontend/ladder.fixture.js`). `--board-size 3` deploys the ladder with a board of 3 ranks, so the default entries fill it and the page shows entries off the board.
 2. Registers a few entries from anvil accounts 0 and 2. By default it uses the trained 中 and 大 networks in `ladder/data/artifacts/`. If `.scratch/jolt/` on this machine has other artifacts, it registers them too. `--artifacts a.json,b.json` selects other files. `--no-seed` registers nothing, so the ladder starts empty.
 3. Plays a few challenges to the end. `--no-play` skips this step.
 4. Starts the name service on PGlite in the process, mounts it at `/api/names` of the page and names the registered entries.
-5. Starts one Vite dev server for each login account, pointed at this anvil through `VITE_LADDER_RPC`, `VITE_LADDER_FACTORY` and `VITE_LADDER_ADDRESS`. The first server uses `--port` (default 5174). Each next server uses the next port.
+5. Starts one Vite dev server for each login account, pointed at this anvil through `VITE_LADDER_RPC`, `VITE_LADDER_FACTORY` and `VITE_LADDER_ADDRESS`. The first server uses `--port` (default 5174). Each next server uses the next port. Each server serves the home page at `/` and the ladder at `/ladder/`.
+6. Each server serves the workbench (`frontend/`) at `/studio/`, as the live site does. The workbench uses the same chain, the same official Factory and the login account of that server. Train there, give the candidate an English ID, deploy it, then choose it on the ladder page from the modules this account deployed and register: the whole flow runs locally. The Python workspace of the workbench goes through the proxy of the root `vite.config.ts`.
 
-The Log in button of each page uses one account of the anvil default mnemonic (`VITE_DEV_ACCOUNT`). By default there is one page, with account 1. It owns no entry at the start, so the whole flow (register, challenge, name) can be walked in the browser. The private keys of these accounts are public: local development only.
+The Log in button of each page uses one account of the anvil default mnemonic (`VITE_DEV_ACCOUNT`). By default there is one page, with account 1. It owns no entry at the start, so the whole flow (deploy, register, challenge, name) can be walked locally. The private keys of these accounts are public: local development only.
+
+`--fork` deploys nothing. It starts a local fork of Monad testnet instead (ADR 0028): the fork entry of `data/deployments.json`, with its chain id and port, the same command as `forkCommand` of `frontend/chain.js`. The fork keeps the board, the official Factory and the ladder of the real chain, so it registers nothing and plays nothing. The pages and the workbench use the fork entry, and the chain node of a template reaches the same node.
 
 To try several users, list the account indices (0 to 9) with `--accounts`. Each account gets one page on its own port, so each page keeps its own login. All pages use the same chain and the same name service. For example:
 
@@ -33,20 +36,72 @@ To try several users, list the account indices (0 to 9) with `--accounts`. Each 
 npm run dev:chain -w ladder -- --accounts 1,3,4,5,6,7 --no-seed
 ```
 
-This starts 6 pages on the ports 5174 to 5179, with an empty ladder.
+This starts 6 pages on the ports 5174 to 5179, with an empty ladder. `/ladder/` of each port is the ladder and `/studio/` is the workbench.
 
-`npm run dev -w ladder` starts only the page. Then the page connects to `http://127.0.0.1:18545` per the `31337` entry of `data/deployments.json`, and the name service is not available.
+To start only the local-chain page, run `VITE_LADDER_CHAIN_ID=31337 npm run dev -w ladder`. The ladder is at `/ladder/`. It uses the local RPC in `data/deployments.json`. The name service is not available. The workbench is at `/studio/` of the same port. Without a chain selection, the page prefers a public chain with a ladder address.
+
+## Testnet season
+
+The contracts are on Monad Testnet (Chain ID `10143`). The web pages still run locally.
+
+| Item | Value |
+|---|---|
+| Unified Factory | [`0xC059cCfbc7A8654e9c96d5da66bc6aE3a3ffffd2`](https://testnet.monadscan.com/address/0xC059cCfbc7A8654e9c96d5da66bc6aE3a3ffffd2) |
+| Ladder contract | [`0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2`](https://testnet.monadscan.com/address/0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2) |
+| Ladder deployment block | `77755980` |
+| Season end block | `84827030` |
+| RPC | `https://testnet-rpc.monad.xyz` |
+
+The workbench and ladder share `data/deployments.json`. Run:
+
+```bash
+VITE_LADDER_CHAIN_ID=10143 npm run dev -w ladder
+```
+
+The home page is at `/`, the ladder at `/ladder/`, the workbench at `/studio/`. Select `Monad Testnet (10143)` in the deployment module. The workbench and ladder share `frontend/wallet/privy.js` and the same Privy user's embedded EVM wallet. Neither page substitutes an external wallet. The two pages have one origin, so one login is enough, and the addresses match, which the submission page needs to list the corresponding archive.
+
+Without login configuration, the ladder can still read ranks, rules and replays. Do not put deployment keys in `VITE_*` variables. Public web pages and the name service still need Vercel, Privy and Neon configuration.
+
+All 5 testnet checks passed. Challenge `#1` ran 6 episodes and 270 steps. The score was `2 : 2`, with a successful defense. The archive stores the English IDs of both verification modules. These modules only check deployment and the contest flow.
+
+Public RPC endpoints limit log query ranges. The client reads at most 100 blocks per query and sends each RPC request separately. Contest log queries stop at the challenge deadline. They do not scan later empty blocks.
+
+## Challenge results and replays
+
+The page shows the result from the current wallet's side. The challenger sees "Challenge succeeded" or "Challenge failed". The defender sees "Defense succeeded" or "Defense failed". Spectators and logged-out users see the winner. Timeout results state "timeout". Scores always use the order "challenger : defender".
+
+The full player stops at the last step of the selected episode. It does not select the next episode automatically. Click "Last step" to inspect the latest recorded frame. A completed episode shows the terminal frame and its result text. Manual episode selection, steps and slider changes pause playback.
+
+Background updates for the same challenge do not reset playback position. The challenge page reads one update at a time, so new blocks do not discard slow RPC results. Settled challenges do not reload the replay on each block. The home page repeats only completed episodes with a winner. It excludes draws and unfinished episodes. From recent challenges, it selects the newest challenge with an eligible episode.
+
+The home page keeps the original episode numbers. If no recent challenge has an eligible episode, the home page shows "No episode has a winner yet". Full replays retain all episodes.
+
+The page shows challenge status before it reads the replay. Configuration and ranks do not wait for historical gas or names. Only the main page reads gas totals for recent challenges. Each reader permits one query at a time. A new block queues one refresh. Replays and historical gas share the historical logs already read.
+
+## Timeout settlement
+
+When the challenge page is open, the challenger's wallet automatically submits timeout settlement. The page calls `expire` with the node's gas estimate. The page attempts automatic settlement once for each challenge and account. If signing or submission fails, click "Retry settlement". Spectators pay only after they click "Settle timeout". No background service sends transactions after you close the page.
+
+
+## Wallet and node errors
+
+`could not coalesce error` is an outer error from the wallet library. This error alone does not mean that the wallet balance is insufficient.
+
+The workbench and ladder share `frontend/chain-error.js`. The page shows the specific reason and code from nested errors. The page reports insufficient balance only when the error states this condition. The page identifies rejected signatures separately. Without a specific reason, the page states that the wallet or node gave no reason. The ladder gives priority to custom contract errors.
+
 
 ## Environment variables
 
 Page (Vite, read at build time):
+Both Vite configurations read `.env.local` from the repository root, not `ladder/.env.local`. Both pages share `VITE_PRIVY_APP_ID` and chain configuration. Privy keeps the login state per origin. The live site and the local ladder dev server both serve the workbench at `/studio/`, on the origin of the ladder, so one login is enough. A workbench started alone with the root `npm run dev` has another origin and needs its own login. Never put an App Secret or wallet private key in `VITE_*`.
 
-- `VITE_PRIVY_APP_ID`: the Privy app id. With it, the page logs in with the Privy embedded wallet (`showWalletUIs: false`: the transactions of a challenge get no popup each). Without it, the page uses an account of the anvil default mnemonic on the local chain (31337), marked LOCAL DEV in the UI. This is for local development only.
+
+- `VITE_PRIVY_APP_ID`: the shared Privy app ID. Public chains use the Privy embedded wallet for login and signatures. Without it, the ladder is read-only. Local dev (31337) always uses public Anvil development accounts and shows the LOCAL DEV label.
 - `VITE_LADDER_CHAIN_ID`: the chain of the page, a key of `data/deployments.json`. Default: the first chain of the file with a ladder address, else 31337.
 - `VITE_LADDER_RPC`, `VITE_LADDER_FACTORY`, `VITE_LADDER_ADDRESS`: optional. Override the RPC, the official Factory and the ladder address of `deployments.json`. The dev script uses them to point at its anvil.
 - `VITE_DEV_ACCOUNT`: the index of the local dev account in the mnemonic, default 1.
 
-The configuration of the contract (δ, range, cooldown, timeout, maximum weight size, season end block) is read from the contract, never written in the page.
+The configuration of the contract (δ, range, board size, cooldown, timeout, maximum weight size, season end block) is read from the contract, never written in the page.
 
 Name service (Vercel functions):
 
@@ -56,13 +111,17 @@ Name service (Vercel functions):
 - `LADDER_RPC_URL`: optional. Overrides the RPC of `deployments.json`.
 - `LADDER_ADDRESS`: optional. Overrides the ladder address of `deployments.json`.
 
-## The page
+## The pages
 
-The main page is one long page: the top bar, the hero in two columns (left: title, one line, the 3-step guide and the buttons, right: the dark panel that plays the latest challenge), the data strip, the sticky numbered nav on the left, then 4 sections: start, ladder, rules, recent challenges. The layout follows Open Kernel Challenge and HashSmash. The visual style follows mojo.devnads.com.
+The home page (`/`) introduces NEUROM: what it is, the flow from the canvas to the ladder, the features, the numbers of the Monad network results, and the links to the workbench, the ladder and the documents. The text of the home page comes from the README of the repo.
 
-Three more views switch on the URL hash:
+The main page of the ladder (`/ladder/`) is one long page: the top bar, the hero in two columns (left: title, one line, the 3-step guide and the buttons, right: the dark panel that plays the latest challenge), the data strip, the sticky numbered nav on the left, then 4 sections: start, ladder, rules, recent challenges. The layout follows Open Kernel Challenge and HashSmash. The visual style follows mojo.devnads.com.
 
-- `#/entries` my entries: import a model artifact (a file or pasted JSON). The page checks the content id, then deploys and registers. After the registration you can name the entry.
+The three pages share one site top bar, in the same order: the wordmark `NEUROM` to `/`, then Tank Ladder (`/ladder/`), Workbench (`/studio/`) and GitHub. The top bar of the ladder also has its own section links and the wallet.
+
+Three more views of the ladder switch on the URL hash (for example `/ladder/#/entries`):
+
+- `#/entries` my entries: choose one of the modules the current account deployed and register it. The module is deployed first in the deployment module of the workbench, with an English ID, through the official Factory, on this chain. The page reads the modules this account deployed (English ID, address, structure, artifact) from the archive of the official Factory. It does not read events or the local storage of the browser. A module already on the ladder shows its rank and cannot be chosen. After a deployment in the workbench, the list updates at the next block. You do not copy an address. The page shows the chain and the official Factory the contract records. It sends only the register transaction: it deploys nothing and no longer imports or uploads JSON. The contract records the entry under the account that sends the register transaction, whoever deployed the module. After the registration you can name the entry. The name is the display name of the contest. It is not the English ID of the module.
 - `#/challenge/<id>` a challenge in progress: the 6 episodes as cells, the current step, the transactions in flight and confirmed, then the result and the rank change. After you close the page and come back, you continue from my entries.
 - `#/replay/<id>` a replay: the tank board in the dark panel, segmented tabs for the 6 episodes, the step slider below.
 
@@ -106,7 +165,7 @@ The database is PGlite in the process. The owner check runs against the real lad
 1. Create a Vercel project with Root Directory `ladder`.
 2. Enable "Include source files outside of the Root Directory in the Build Step". The build reads modules of `../frontend/`.
 3. Keep the default Install Command. Vercel runs `npm install` in the repo root, because the root `package.json` declares the workspace.
-4. The Build Command is `npm run build`, the Output Directory is `dist`.
+4. `ladder/vercel.json` sets the Build Command `npm run build` and the Output Directory `dist`. The build makes the home page, the ladder page and the participation guide first. Then `frontend/build.mjs --hosted` makes the workbench into `dist/studio/index.html`. The site serves the home page at `/`, the ladder at `/ladder/`, the workbench at `/studio/` and the participation guide at `/guide/` (ADR 0027). `/ladder`, `/studio` and `/guide` redirect to the URL with the slash. The live workbench trains in the browser only and does not connect to a Python workspace.
 5. Add Neon from the Marketplace, then set the environment variables above.
 
 ## Deploying a season (testnet and mainnet)
@@ -133,9 +192,9 @@ Stages:
 8. The chain checks (next section).
 9. The Vercel project: Root Directory `ladder`, "Include source files outside of the Root Directory in the Build Step" on.
 10. Neon from the Vercel Marketplace, connected to the project's Production and Preview environments; `DATABASE_URL` is injected. The name service creates its table on its first request.
-11. The Privy app: Ethereum embedded wallets on, "Disable confirmation modals" on (a challenge is up to 20 transactions in a row), the Vercel domain under Allowed origins. The page code also sets `showWalletUIs: false` and wallet creation on login.
+11. In Privy, enable email and automatic EVM wallet creation under Authentication → Login methods. Enable Disable confirmation modals under Authentication → Advanced. Disable smart wallets. Add the origin of the site under Basics → Domains and clients. The ladder and the workbench share this origin. To log in on a local workbench too, also add the origin of the local workbench. All pages must use the same App ID.
 12. Vercel environment variables: `VITE_PRIVY_APP_ID`, `VITE_LADDER_CHAIN_ID`, `LADDER_CHAIN_ID`, `LADDER_RPC_URL`, `LADDER_ADDRESS`, `ADMIN_TOKEN` (generated). The testnet run writes Production and Preview, the mainnet run replaces Production only. Then redeploy.
-13. A walk through the live page: log in, register, challenge, set a name. Confirm that no confirmation modal appeared during the whole challenge.
+13. A walk through the live page: log in, set an English ID and deploy in the workbench, choose the module and register, challenge, set a name. Confirm that no confirmation modal appeared during the whole challenge.
 14. (mainnet) The known limits go into the contest rules: gas-limit pricing, challengers must be plain EOAs, the end block, δ and range, cooldown, timeout.
 
 ## Chain checks (`scripts/verify-chain.mjs`)
@@ -144,7 +203,7 @@ The facts the prototype proved only on anvil, proved again on the real network:
 
 - An EIP-7702 delegated account carries code (the script prints its size: 23 bytes, `0xef0100` and the target).
 - `challenge` refuses that account with `NotEoa`, while a plain EOA passes that check (it is refused for another reason).
-- A challenge between two entries runs from the contract to settlement. The script deploys two twins of the 中 network through the Factory (the last weight byte is padding; a salt makes every run new entries), registers them, starts the challenge with a 30M gas limit and `advance`s until settled. Twins draw every episode, so this is the worst case of mid-mid: 600 steps, 5 transactions.
+- A challenge between two entries runs from the contract to settlement. The script deploys two copies of the 中 network through the Factory (39,840 weight bytes). The script changes the last padding byte to make distinct entries for each run. The English ID includes a salt and the time. The script registers both modules, starts the challenge and calls `advance` until settlement. Each play transaction has a 30M gas limit. A challenge runs at most 600 steps. The transaction count depends on the scene seed.
 - The gas per step against the `mid-mid` numbers of `data/step-gas.json`; a deviation over 30% fails, because the page estimates costs from these numbers.
 
 ```

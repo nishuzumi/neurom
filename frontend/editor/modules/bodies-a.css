@@ -22,7 +22,7 @@
 .btable{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;table-layout:fixed}
 .btable th,.btable td{border:1px solid var(--line);padding:1px 5px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .btable th{background:var(--panel-head);color:var(--muted);font-weight:500}
-.btable-wrap{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:4px;min-width:0}
+.btable-wrap{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:var(--radius);min-width:0}
 .bsection{border-top:1px solid var(--line);padding-top:4px;margin-top:2px}
 .bsection>summary{cursor:pointer;color:var(--muted);font-size:11.5px;user-select:none}
 
@@ -57,18 +57,18 @@
 .cf-error,.pf-error{grid-column:2;grid-row:2;font-size:11px;color:var(--bad);overflow-wrap:anywhere}
 .cf-row.cf-block>.cf-error{grid-row:3}
 .cf-row.bad :is(input,select,textarea),.pf-row.bad :is(input,select){border-color:var(--bad)}
-.cf-object{border:1px solid var(--line);border-radius:5px;padding:4px 6px 6px;margin:0;display:grid;grid-template-columns:fit-content(10em) minmax(0,1fr);gap:6px 8px;min-width:0}
+.cf-object{border:1px solid var(--line);border-radius:var(--radius);padding:4px 6px 6px;margin:0;display:grid;grid-template-columns:fit-content(10em) minmax(0,1fr);gap:6px 8px;min-width:0}
 .cf-object>*{grid-column:1 / -1}
 .cf-legend{color:var(--muted);font-size:11px;padding:0 4px}
 .pf-row.changed .pf-label{color:var(--spike)}
 /* computed fields (function inputs, read-only): same grid as a field row. The value sits in an input-shaped well. A
    list shows as wrapping indexed chips (the index is what code modules see, for example action numbers) */
 .pf-computed .pf-label{color:var(--muted)}
-.pf-value,.pf-list{min-width:0;padding:3px 7px;border:1px dashed var(--line-strong);border-radius:5px;font-family:var(--mono);font-size:11.5px;color:var(--ink);overflow-wrap:anywhere}
+.pf-value,.pf-list{min-width:0;padding:3px 7px;border:1px dashed var(--line-strong);border-radius:var(--radius);font-family:var(--mono);font-size:11.5px;color:var(--ink);overflow-wrap:anywhere}
 .pf-list{list-style:none;margin:0;padding:3px;display:flex;flex-wrap:wrap;gap:3px}
 .pf-computed :is(.pf-value,.pf-list){padding-right:22px}
 .pf-computed>.pf-range{align-self:start;padding-top:4px}
-.pf-list li{display:inline-flex;align-items:baseline;gap:4px;padding:0 6px;border-radius:4px;background:#191a1f;min-width:0;overflow-wrap:anywhere}
+.pf-list li{display:inline-flex;align-items:baseline;gap:4px;padding:0 6px;border-radius:var(--radius);background:var(--soft);min-width:0;overflow-wrap:anywhere}
 .pf-idx{font-size:9.5px;color:var(--muted)}
 .pf-decl{display:grid;grid-template-columns:minmax(0,7em) 6em minmax(0,1fr) auto;gap:3px 5px;align-items:center;min-width:0}
 .pf-decl input,.pf-decl select{width:100%;min-width:0}
@@ -77,14 +77,15 @@
 .pf-decl .pf-full label{display:inline-flex;align-items:center;gap:3px;color:var(--muted);font-size:11px;white-space:nowrap}
 
 /* ------------------------------------------------------------------ code (CodeModule: one restricted-JS file per module) */
-/* one bordered box: the `inputs` line, the file editor, the located problems */
-.code{display:flex;flex-direction:column;min-width:0;width:100%;border:1px solid var(--line);border-radius:6px;background:#191a1f}
-.code:focus-within{border-color:var(--muted)}
+/* one bordered box: the `inputs` line, the file editor, the located problems. The box sits on the grey ground, a
+   little lower than the white card around it */
+.code{display:flex;flex-direction:column;min-width:0;width:100%;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg)}
+.code:focus-within{border-color:var(--line-strong)}
 .code-head,.code-edit{font-family:var(--mono);font-size:12px;line-height:1.45;tab-size:2}
 .code.problem{border-color:var(--bad)}
 .code-head{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid var(--line);background:var(--panel-head);min-width:0;white-space:nowrap}
 /* the box is not clipped (hovers and the caret must not be cut): a filled first row rounds its own corners to the box's */
-.code-head:first-child{border-radius:5px 5px 0 0}
+.code-head:first-child{border-radius:var(--radius) var(--radius) 0 0}
 .code-kw{color:var(--mod)}
 .code-params{flex:1 1 2em;min-width:2em;font:inherit;padding:0 4px;background:transparent;border-color:transparent}
 .code-params:hover,.code-params:focus{border-color:var(--line-strong)}
@@ -97,19 +98,20 @@
 .code-edit .cm-scroller{max-height:calc(20lh + 8px)}
 .mnode.sized .code-edit .cm-editor{height:calc(3lh + 10px)}
 .mnode.sized .code-edit .cm-scroller{max-height:none}
-/* token classes (code-editor.ts `highlighter`: the editor and the hover's code line). Colour only */
+/* token classes (code-editor.ts `highlighter`: the editor and the hover's code line). Colour only. A light scheme:
+   every token is 4.5:1 or more on the grey ground, so a keyword, a string, a number and a comment stay apart */
 :is(.code-edit,.code-hover) .tok-comment{color:var(--muted)}
 :is(.code-edit,.code-hover) .tok-keyword{color:var(--mod)}
-:is(.code-edit,.code-hover) .tok-string{color:#9ece6a}
-:is(.code-edit,.code-hover) .tok-number{color:#ff9e64}
-:is(.code-edit,.code-hover) .tok-function{color:#7aa2f7}
-:is(.code-edit,.code-hover) .tok-type{color:#2ac3de}
-:is(.code-edit,.code-hover) .tok-property{color:#73daca}
-:is(.code-edit,.code-hover) .tok-regex{color:#b4f9f8}
-:is(.code-edit,.code-hover) .tok-operator{color:#89ddff}
+:is(.code-edit,.code-hover) .tok-string{color:var(--ok)}
+:is(.code-edit,.code-hover) .tok-number{color:#c2410c}
+:is(.code-edit,.code-hover) .tok-function{color:var(--inh)}
+:is(.code-edit,.code-hover) .tok-type{color:#0e7490}
+:is(.code-edit,.code-hover) .tok-property{color:var(--sens)}
+:is(.code-edit,.code-hover) .tok-regex{color:#be123c}
+:is(.code-edit,.code-hover) .tok-operator{color:#4f46e5}
 :is(.code-edit,.code-hover) .tok-punct{color:var(--muted)}
-.code-problem{padding:3px 8px;font-size:11.5px;color:var(--bad);border-top:1px solid var(--bad);background:rgba(240,104,77,.08);white-space:pre-wrap;overflow-wrap:anywhere}
-.code-problem:last-child{border-radius:0 0 5px 5px}
+.code-problem{padding:3px 8px;font-size:11.5px;color:var(--bad);border-top:1px solid var(--bad);background:color-mix(in srgb,var(--bad) 6%,#fff);white-space:pre-wrap;overflow-wrap:anywhere}
+.code-problem:last-child{border-radius:0 0 var(--radius) var(--radius)}
 .code-problem .loc{font-family:var(--mono);color:var(--muted);margin-right:6px}
 /* the export list under the file: kind (ƒ / value), name, signature, where it is wired */
 .code-exports{display:grid;grid-template-columns:max-content max-content minmax(0,2fr) minmax(0,1fr);gap:1px 8px;align-items:baseline;min-width:0;font-size:11.5px}
@@ -123,18 +125,18 @@
 .ctabs-strip{flex:0 0 84px;display:flex;flex-direction:column;gap:8px;min-width:0;padding:2px 6px 2px 0;border-right:1px solid var(--line)}
 .ctabs-group{display:flex;flex-direction:column;gap:1px;min-width:0}
 .ctabs-head{display:flex;align-items:center;gap:2px;min-width:0;margin-bottom:1px}
-.ctabs-title{flex:1 1 auto;min-width:0;padding:1px 3px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700}
-.ctabs-title:hover,.ctabs-title:focus{border-color:var(--line-strong);background:var(--bg);color:var(--ink)}
+.ctabs-title{flex:1 1 auto;min-width:0;padding:1px 3px;border:1px solid transparent;border-radius:var(--radius);background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700}
+.ctabs-title:hover,.ctabs-title:focus{border-color:var(--line-strong);background:#fff;color:var(--ink)}
 .ctabs-del{flex:none;width:16px;height:16px;padding:0;border:0;background:transparent;color:var(--muted);font-size:13px;line-height:1;cursor:pointer}
 .ctabs-del:hover{color:var(--bad)}
 /* a collapsed module (not the selected one, 「代码」 section): one row, its title, its role count or its problem count */
 .ctabs-group.closed .ctabs-head{margin-bottom:0}
-.ctabs-open{flex:1 1 auto;display:flex;align-items:center;gap:4px;min-width:0;padding:2px 3px;border:0;border-radius:4px;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700;text-align:left;cursor:pointer}
+.ctabs-open{flex:1 1 auto;display:flex;align-items:center;gap:4px;min-width:0;padding:2px 3px;border:0;border-radius:var(--radius);background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700;text-align:left;cursor:pointer}
 .ctabs-open:hover{background:var(--soft);color:var(--ink)}
 .ctabs-count{flex:none;font-size:10px;font-weight:400;color:var(--muted);opacity:.8}
-.ctab{display:flex;align-items:center;gap:4px;min-width:0;padding:2px 6px;border:0;border-radius:4px;background:transparent;color:var(--muted);font-family:var(--mono);font-size:11.5px;text-align:left;cursor:pointer}
+.ctab{display:flex;align-items:center;gap:4px;min-width:0;padding:2px 6px;border:0;border-radius:var(--radius);background:transparent;color:var(--muted);font-family:var(--mono);font-size:11.5px;text-align:left;cursor:pointer}
 .ctab:hover{background:var(--soft);color:var(--ink)}
-.ctab.on{background:color-mix(in srgb,var(--focus) 22%,transparent);color:var(--ink)}
+.ctab.on{background:var(--focus-soft);color:var(--focus)}
 .ctab-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ctab-badge{flex:none;min-width:14px;padding:0 3px;border-radius:7px;background:var(--bad);color:#fff;font-size:10px;line-height:14px;text-align:center}
 .ctab.bad .ctab-name{color:var(--bad)}
@@ -147,7 +149,7 @@
 .ctabs-pane>.body{flex:1 0 auto}
 .ctabs-missing{display:flex;flex-direction:column;gap:6px;min-width:0}
 .ctabs-missing-head{display:flex;align-items:center;justify-content:space-between;gap:6px;color:var(--muted);font-size:11.5px}
-.ctabs-preview{margin:0;padding:6px 8px;border:1px dashed var(--line-strong);border-radius:6px;background:#191a1f;font-family:var(--mono);font-size:12px;line-height:1.45;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.ctabs-preview{margin:0;padding:6px 8px;border:1px dashed var(--line-strong);border-radius:var(--radius);background:var(--bg);font-family:var(--mono);font-size:12px;line-height:1.45;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
 .code-hint{padding:4px 2px;color:var(--muted);font-size:11.5px;overflow-wrap:anywhere}
 /* the role header (code-contract.ts): locked text, its lock icon, the grey types, the `?` */
 .code-edit .cm-locked{background:color-mix(in srgb,var(--mod) 9%,transparent);border-radius:2px}
@@ -159,9 +161,9 @@
 .code-edit .cm-help:hover{border-color:var(--focus);color:var(--ink)}
 .code-edit .cm-help.bad{border-color:var(--bad);color:var(--bad)}
 /* the role help window (RoleHelp.vue): teleported, fixed, dragged by its bar */
-.rhelp{position:fixed;z-index:1001;width:360px;max-width:calc(100vw - 16px);max-height:70vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line-strong);border-radius:8px;box-shadow:0 10px 30px #000a;color:var(--ink);font-size:12px;line-height:1.45}
-.rh-bar{display:flex;align-items:flex-start;gap:8px;padding:6px 8px 6px 10px;border-bottom:1px solid var(--line);background:var(--panel-head);border-radius:8px 8px 0 0;cursor:move;user-select:none}
-.rh-sig{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:12px;color:#7aa2f7;overflow-wrap:anywhere}
+.rhelp{position:fixed;z-index:1001;width:360px;max-width:calc(100vw - 16px);max-height:70vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);box-shadow:var(--shadow-pop);color:var(--ink);font-size:12px;line-height:1.45}
+.rh-bar{display:flex;align-items:flex-start;gap:8px;padding:6px 8px 6px 10px;border-bottom:1px solid var(--line);background:var(--panel-head);border-radius:var(--radius) var(--radius) 0 0;cursor:move;user-select:none}
+.rh-sig{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:12px;color:var(--inh);overflow-wrap:anywhere}
 .rh-close{flex:none;width:18px;height:18px;padding:0;border:0;background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
 .rh-close:hover{color:var(--ink)}
 .rh-body{display:flex;flex-direction:column;gap:3px;padding:8px 10px 10px;overflow:auto;min-height:0}
@@ -169,30 +171,30 @@
 .rh-when{color:var(--ink);overflow-wrap:anywhere}
 .rh-row{display:flex;align-items:baseline;gap:6px;min-width:0}
 .rh-name{flex:none;font-family:var(--mono);color:var(--ink)}
-.rh-type{flex:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);color:#2ac3de}
+.rh-type{flex:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);color:#0e7490}
 .rh-doc{flex:1 1 auto;min-width:0;color:var(--muted);overflow-wrap:anywhere}
 .rh-rec>summary{cursor:pointer;list-style:none}
 .rh-rec>summary::before{content:'▸';flex:none;width:1ch;color:var(--muted)}
 .rh-rec[open]>summary::before{content:'▾'}
 .rh-leaf::before{content:'';flex:none;width:1ch}
 .rh-fields{margin-left:1.5ch;padding-left:6px;border-left:1px solid var(--line)}
-.rh-eg{display:block;padding:4px 6px;border-radius:4px;background:#191a1f;font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.rh-eg{display:block;padding:4px 6px;border-radius:var(--radius);background:var(--bg);border:1px solid var(--line);font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 .rh-eg.open{white-space:pre-wrap;overflow-wrap:anywhere}
 .rh-problem{color:var(--bad);overflow-wrap:anywhere}
 .rh-note{margin-top:6px;color:var(--muted);font-size:11.5px}
 .rh-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 /* hover (teleported to <body>, fixed, unscaled by the canvas zoom): the code line, the doc text, muted notes. A tall
    type is clipped, never the doc / notes under it. */
-.code-hover{position:fixed;z-index:1000;max-width:440px;max-height:50vh;padding:5px 9px;display:flex;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--line-strong);border-radius:6px;color:var(--ink);font-size:12px;line-height:1.45;box-shadow:0 6px 20px #0007;pointer-events:none}
+.code-hover{position:fixed;z-index:1000;max-width:440px;max-height:50vh;padding:5px 9px;display:flex;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);color:var(--ink);font-size:12px;line-height:1.45;box-shadow:var(--shadow-pop);pointer-events:none}
 .code-hover-code{flex:0 1 auto;min-height:1lh;overflow:hidden;margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
 .code-hover-code code{font:inherit}
 .code-hover-doc{flex:none;white-space:pre-wrap;overflow-wrap:anywhere;padding-top:4px;border-top:1px solid var(--line)}
 .code-hover-meta{flex:none;font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
 /* the hovered token: a tinted frame over it (fixed like the hover, with a faint fill so the text colours stay readable) */
-.code-hover-mark{position:fixed;z-index:999;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--focus) 75%,transparent);border-radius:3px;background:color-mix(in srgb,var(--focus) 16%,transparent);pointer-events:none}
+.code-hover-mark{position:fixed;z-index:999;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--focus) 60%,transparent);border-radius:var(--radius);background:color-mix(in srgb,var(--focus) 10%,transparent);pointer-events:none}
 
 /* ------------------------------------------------------------------ dataset */
-.ds-drop{border:1px dashed var(--line-strong);border-radius:6px;padding:8px;text-align:center;color:var(--muted);font-size:11.5px}
+.ds-drop{border:1px dashed var(--line-strong);border-radius:var(--radius);padding:8px;text-align:center;color:var(--muted);font-size:11.5px}
 .ds-drop.over{border-color:var(--focus);color:var(--ink)}
 .ds-drop input[type=file]{display:none}
 
@@ -209,7 +211,7 @@
 .pt-axis input{width:100%;min-width:0;font-family:var(--mono);font-size:11px}
 .pt-window{display:grid;grid-template-columns:max-content minmax(0,1fr) minmax(0,1fr) auto;gap:3px 6px;align-items:center;min-width:0}
 .pt-window input:not([type=checkbox]){width:100%;min-width:0}
-.pt-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--soft);min-width:0}
+.pt-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--line);min-width:0}
 .pt-bar span{height:100%}
 .pt-bar .training{background:var(--focus)}.pt-bar .validation{background:var(--spike)}.pt-bar .test{background:var(--ok)}.pt-bar .embargo{background:var(--bad);opacity:.6}
 

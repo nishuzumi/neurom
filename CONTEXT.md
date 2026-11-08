@@ -20,6 +20,11 @@ _Avoid_: conflating the VM with the trainer.
 
 **Module Instance (模块实例)**: a runnable module created from one specific model artifact. Two instances with the same weights do not have to share memory.
 
+**Module ID (模块英文 ID)**: a fixed deployment label. It is unique within one deploying account on one chain. It does not identify model content.
+_Avoid_: artifact id, global name, contest display name.
+
+**Deployment Archive (部署存档)**: the chain record of a module address, deploying account and Module ID. A change of payee ownership does not change this record.
+
 **Session (会话)**: one execution history whose state the system must keep continuously. An explicit definition must state whether separate episodes or separate users share state.
 
 ### Modules on the canvas
@@ -212,6 +217,12 @@ _Avoid_: code runtime (runtime is the execution engine), code module (that is th
 
 **Deployment (链上部署)**: the module that deploys one artifact as a module contract and verifies it. One deployment creates one independent instance.
 
+**Chain Node (链节点)**: the module that gives other modules access to one chain. Its configuration names the chain and the address of the node. The node can be a local fork or a public RPC.
+_Avoid_: anvil module (a fork is only one kind of node), network (that is the module that changes bits into scores), provider (that is what the chain node gives, not the module).
+
+**Practice Challenge (模拟挑战)**: a challenge that the ladder contract plays on a local fork of the ladder chain. The fork goes back to its earlier state after each challenge. A practice challenge spends nothing and changes no real rank.
+_Avoid_: dry run, estimate (the ladder contract itself decides the result), calling a battle in the script view a practice challenge.
+
 **Engine Version (引擎版本)**: one immutable on-chain contract that computes one execution engine. An engine id has one or more versions, and the official factory names the latest version. A module contract runs on the version that it was deployed with, for its full life. The engine version holds no weights and no state of its own.
 _Avoid_: engine contract (one engine id has several), upgrading an engine, VM (that is the execution engine's semantics, not a contract), calling it the factory.
 
@@ -238,18 +249,21 @@ _Avoid_: watermark (a watermark in general may sit on reachable inputs), fingerp
 
 ### Ladder
 
-**Ladder (擂台榜)**: the ranked list of entries in the tank battle contest. The ranks change only when a challenge succeeds. Then the challenger takes the rank of the defender, and the defender and each entry between them move down by one rank. A new entry starts at the last rank.
+**Ladder (擂台榜)**: the ranked list of entries in the tank battle contest. The ranks 1 to `boardSize` (20) form the board (`board()` in the contract). The ranks change only when a challenge succeeds. Then the challenger takes the rank of the defender, and the defender and each entry between them move down by one rank. A new entry takes the last rank when the board is not full. Else it is off the board.
 _Avoid_: leaderboard, ranking table, record (that is the mining game's).
 
-**Entry (出战模型)**: a deployed module with a name that an account enters on the ladder. An account can have several entries. An entry never changes its weights, and the rank belongs to the entry. To use other weights, the account enters a new entry, which starts at the last rank.
+**Entry (出战模型)**: a deployed module with a name that an account enters on the ladder. An account can have several entries. An entry never changes its weights, and the rank belongs to the entry. To use other weights, the account enters a new entry, which takes the last rank or is off the board.
 _Avoid_: model (that is the model artifact), player, submission.
 
-**Challenge (挑战)**: a match that an entry starts against an entry 1 to 10 ranks above it. A challenge is 3 mirror pairs. It succeeds when the challenger wins more episodes than the defender. When both win the same number of episodes, the entry whose weight size is smaller by at least δ wins. All other results are a defense.
+**Off the Board (榜外)**: the state of an entry that has no rank. The contract gives it rank 0. An entry is off the board when it enters a full board, or when a challenger from off the board pushes it down from the last rank. An entry off the board challenges as the rank below the last. It comes back with a challenge that succeeds.
+_Avoid_: unranked, waiting list, bench.
+
+**Challenge (挑战)**: a match that an entry starts against an entry 1 to 10 ranks above it. The defender is on the board. A challenge is 3 mirror pairs. It succeeds when the challenger wins more episodes than the defender. When both win the same number of episodes, the entry whose weight size is smaller by at least δ wins. All other results are a defense. When the defender is off the board at the settlement, the challenger still wins the challenge, but the ranks do not change.
 _Avoid_: duel, battle (that is the interactive match of the script module), game.
 
 **Challenger (挑战者)**: the entry that starts a challenge.
 
-**Defender (擂主)**: the entry that a challenger challenges. It is always above the challenger on the ladder.
+**Defender (擂主)**: the entry that a challenger challenges. It is on the board above the challenger when the challenge starts.
 _Avoid_: champion (only rank 1 is the champion), opponent (that is the other side in a scenario).
 
 **Mirror Pair (镜像对)**: two episodes with the same seed, in which the two entries change sides. The map stays the same after a turn of 180°. Thus a copy that plays the same actions as the original cannot win more episodes than the original in a mirror pair.

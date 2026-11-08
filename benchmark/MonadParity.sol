@@ -48,7 +48,7 @@ contract MonadParity {
         g = gasleft();
         for (uint256 k; k < chunks.length; k++) { ids[k] = keccak256(chunks[k]); factory.createChunk(chunks[k]); }
         m[9] = g - gasleft();
-        ModuleFactory.ModuleSpec memory spec = ModuleFactory.ModuleSpec(engineId, address(0), kind, inputs, outputs, shape, new address[](0), ids, artifactId, taskId);
+        ModuleFactory.ModuleSpec memory spec = ModuleFactory.ModuleSpec(engineId, address(0), kind, inputs, outputs, shape, new address[](0), ids, artifactId, taskId, "parity");
         g = gasleft();
         NeuromModule module = NeuromModule(factory.deploy(spec, new bytes[](chunks.length)));
         m[10] = g - gasleft();

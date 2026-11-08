@@ -19,7 +19,7 @@ function setColor(event: Event) { presentation.changeDefaults({ color: (event.ta
   </details>
 </template>
 <style scoped>
-.edge-settings{background:var(--panel);border:1px solid var(--line-strong);border-radius:7px;color:var(--ink);font-size:12px;box-shadow:0 4px 16px #0005;user-select:none}
+.edge-settings{background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);color:var(--ink);font-size:12px;box-shadow:var(--shadow);user-select:none}
 summary{cursor:pointer;padding:5px 10px;font-weight:600}
 .edge-settings[open]{width:250px}
 .edge-settings-body{padding:0 12px 10px;display:flex;flex-direction:column;gap:9px}

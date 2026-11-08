@@ -6,6 +6,7 @@ import './candidates.js';
 import './execution.js';
 import './evaluator.js';
 import './deployment.js';
+import './chain-node.js';
 import './loop.js';
 import './random.js';
 import './params.js';

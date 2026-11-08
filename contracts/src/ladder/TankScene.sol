@@ -122,14 +122,6 @@ library TankScene {
     function _turned(uint256 c, uint256 side) private pure returns (uint256) { return side == 0 ? c : 80 - c; }
     function _bit(uint256 ptr, uint256 k) private pure { assembly ("memory-safe") { mstore8(add(ptr, k), 1) } }
 
-    /// @dev The 572 input bits of `side` as bytes (for views and tests).
-    function inputOf(State memory s, uint256 side) internal pure returns (bytes memory v) {
-        v = new bytes(INPUTS);
-        uint256 ptr;
-        assembly ("memory-safe") { ptr := add(v, 32) }
-        fillInput(s, side, ptr);
-    }
-
     // ------------------------------------------------------------------------------------------------ move(state, a0, a1)
 
     /// @dev The first cell that a shell from (x, y) in direction d hits (ray of the template). `on`, `tx_`, `ty` are

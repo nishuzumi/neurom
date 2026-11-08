@@ -52,17 +52,13 @@ function scanAst(ast, source, where, out, lineOffset = 0) {
       if (!ignored(source, line)) out.keys.push({ key: node.value, where: `${where}:${line}` });
     } else if (node.type === 'TemplateLiteral' && node.quasis.some(q => CJK.test(q.value.cooked ?? q.value.raw))) {
       if (!ignored(source, line)) out.errors.push(`${where}:${line}: Chinese template literal — use t('…{name}…', { name })`);
-    } else if (node.type === 'JSXText' && CJK.test(node.value)) {
-      if (!ignored(source, line)) out.errors.push(`${where}:${line}: Chinese JSX text — use {t('…')}`);
     }
   });
 }
 
 const PLUGINS = ['typescript', 'importAttributes', 'topLevelAwait'];
-/** `.jsx` files (the ladder page) parse with JSX. Chinese JSX text is an error: write `{t('…')}`. */
-function scanScript(code, source, where, out, lineOffset = 0, { jsx = false } = {}) {
-  const plugins = jsx ? ['jsx', 'importAttributes', 'topLevelAwait'] : PLUGINS;
-  scanAst(babelParse(code, { sourceType: 'module', plugins, errorRecovery: false }), source, where, out, lineOffset);
+function scanScript(code, source, where, out, lineOffset = 0) {
+  scanAst(babelParse(code, { sourceType: 'module', plugins: PLUGINS, errorRecovery: false }), source, where, out, lineOffset);
 }
 function scanExpression(code, source, where, line, out) {
   if (!CJK.test(code)) return;
@@ -112,7 +108,7 @@ function scanFile(file, out = { keys: [], errors: [] }) {
       if (errors.length) throw errors[0];
       for (const block of [descriptor.script, descriptor.scriptSetup]) if (block) scanScript(block.content, source, where, out, block.loc.start.line - 1);
       if (descriptor.template) scanTemplate(descriptor.template.ast, source, where, out);
-    } else scanScript(source, source, where, out, 0, { jsx: file.endsWith('.jsx') });
+    } else scanScript(source, source, where, out);
   } catch (error) { out.errors.push(`${where}: cannot parse (${error.message})`); }
   return out;
 }

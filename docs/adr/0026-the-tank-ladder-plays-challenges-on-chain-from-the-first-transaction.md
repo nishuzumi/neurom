@@ -14,9 +14,14 @@ The workbench has no server for accounts or uploads. The chain runs only network
 
 Monad has no randomness that validators cannot predict. `PREVRANDAO` is the hash of a BLS signature of the leader over the round number, and the leader schedule is public (`.scratch/ladder/research-monad-randomness.md`). The EVM cannot read the `PREVRANDAO` of an earlier block.
 
+A settlement that succeeds moves the defender and every entry between down one rank. We measured the cost of this shift with a throwaway forge bench (`forge test --network monad`, MIP-8 storage pages, a board of 20). With an unbounded array and a rank field in the entry mapping, each shifted rank cost about 12.1k gas, because each mapping slot is on its own storage page. The worst settlement with 19 shifted ranks cost 284,025 gas. With the ranks only in the array, each shifted rank cost about 0.9k gas, because the array slots are adjacent. The same settlement cost 89,660 gas. The start check costs about 25k more for the scan of the array.
+
 ## Decision
 
 - The referee is a hand-written application contract, the ladder contract. It plays the tank scenario on chain, bit for bit the same as the template, and it calls the two entry modules. It selects the action from the scores by argmax itself.
+- The ladder is a board of `boardSize` ranks (default 20). The ranks are in one array in rank order. The entry mapping has no rank field. The contract finds a rank with a scan of the array. The bound keeps the scan and the shift small.
+- A new entry takes the last rank when the board is not full. Else it is off the board, with rank 0. It still counts as an entry.
+- An entry off the board challenges as the rank below the last. The defender must be on the board.
 - A challenge is 3 mirror pairs. The challenger succeeds only when it wins more episodes than the defender. When both win the same number, the entry whose weight size is smaller by at least δ wins. Thus a copy of the defender (the same actions from the same or permuted weights) cannot take the rank of the original.
 - An episode that gets to the step limit goes to the side with more lives. Only equal lives give a draw. The template uses this rule too, so the training objective and the contest agree. This changes the draw rule of ADR 0024.
 - Only an EOA without code can start a challenge: `msg.sender == tx.origin` and `tx.origin.code.length == 0`. The second check refuses an EIP-7702 account, which runs its own code while `msg.sender == tx.origin` (ADR 0018).
@@ -24,7 +29,7 @@ Monad has no randomness that validators cannot predict. `PREVRANDAO` is the hash
 - Anyone can call `advance(challengeId)` to play more steps. The seed is fixed, so the caller has no effect on the result.
 - A challenge that does not end within M blocks is a defense.
 - The challenger pays all gas, also the gas of the network of the defender. The maximum weight size is the weight size of 大 (216,864 bytes).
-- These items are contract configuration: δ, M, the cooldown, the gas threshold, the reserve, the maximum weight size and the end block of the season.
+- These items are contract configuration: δ, M, the cooldown, the gas threshold, the reserve, the maximum weight size, the board size and the end block of the season.
 
 ## Considered Options
 
@@ -38,6 +43,8 @@ Monad has no randomness that validators cannot predict. `PREVRANDAO` is the hash
 - The ladder assumes that no challenger controls or bribes a validator. The leader of a block knows its `PREVRANDAO` before the block, so it can include a challenge only in a good block. If the prizes become large, a new ladder contract must take its seed from Pyth Entropy.
 - After the first transaction, the challenger knows the result. It can stop and keep the gas of the other transactions. The challenge then counts as a defense, and the cooldown applies.
 - Each rule change must occur two times: in the template and in the ladder contract. The parity tests must pass.
+- A challenger from off the board that succeeds pushes the last entry off the board. That entry comes back with a challenge that succeeds.
+- When the defender was pushed off the board while the challenge played, the challenger still wins the challenge, and the wins and losses count. But no rank changes. This occurs only when the challenger is off the board too.
 - On `anvil --network monad` (Foundry 1.8.0), the EOA check refused a wrapper contract and an EIP-7702 account. The code of a delegated account is 23 bytes (`0xef0100` and the delegate address). We did not test this on a Monad network (`.scratch/ladder/proto-gas.md`).
 - The ladder contract writes the input bits of each side directly into the call buffer. On `anvil --network monad`, one step used about 0.23M gas for 中 against 中 and 0.93M gas for 大 against 大 (median of the play loop, `contracts/scripts/ladder-gas.mjs`). A transaction of 30M gas plays about 121 steps of 中 against 中 and 31 steps of 大 against 大. A challenge of 大 against 大 of 600 steps needs about 20 transactions.
 - The start transaction must have a gas limit of 30M. With a limit of 24M, the gas that is left at entry is below the threshold.

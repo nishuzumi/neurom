@@ -51,6 +51,19 @@
   },
   {
     "inputs": [],
+    "name": "MAX_ID_BYTES",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "MAX_PORT",
     "outputs": [
       {
@@ -65,6 +78,19 @@
   {
     "inputs": [],
     "name": "MAX_TOOL_DEPTH",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MIN_ID_BYTES",
     "outputs": [
       {
         "internalType": "uint256",
@@ -146,6 +172,11 @@
             "internalType": "bytes32",
             "name": "taskId",
             "type": "bytes32"
+          },
+          {
+            "internalType": "string",
+            "name": "moduleId",
+            "type": "string"
           }
         ],
         "internalType": "struct ModuleFactory.ModuleSpec",
@@ -274,6 +305,11 @@
             "internalType": "bytes32",
             "name": "taskId",
             "type": "bytes32"
+          },
+          {
+            "internalType": "string",
+            "name": "moduleId",
+            "type": "string"
           }
         ],
         "internalType": "struct ModuleFactory.ModuleSpec",
@@ -295,6 +331,44 @@
       }
     ],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "deployerOf",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "deployer",
+        "type": "address"
+      }
+    ],
+    "name": "deploymentCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -388,6 +462,78 @@
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "deployer",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "moduleId",
+        "type": "string"
+      }
+    ],
+    "name": "moduleById",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "module",
+        "type": "address"
+      }
+    ],
+    "name": "moduleIdOf",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "deployer",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "offset",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "limit",
+        "type": "uint256"
+      }
+    ],
+    "name": "modulesByDeployer",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "page",
+        "type": "address[]"
       }
     ],
     "stateMutability": "view",

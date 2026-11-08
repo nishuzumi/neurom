@@ -8,9 +8,10 @@
 </head>
 <body>
 <header class="app-header">
-  <div class="brand"><h1>NEUROM <span class="sub">模块工作台</span></h1></div>
+  <div class="brand"><h1><a id="site-home" class="wordmark" href="/">NEUROM</a><span class="sub">模块工作台</span></h1><nav id="site-nav" class="topnav" aria-label="站点导航" hidden><a href="/ladder/">坦克擂台赛</a><a href="/studio/" class="on">工作台</a><a href="https://github.com/nishuzumi/neurom">GitHub</a></nav></div>
   <span class="app-note"><span id="save-note"></span><span id="python-note"></span><span id="sync-note" class="sync-note" role="alert" hidden>另一个标签页改了工作区 <button id="sync-load" type="button">载入</button><button id="sync-keep" type="button" title="把本页的工作区写过去。这会覆盖另一个标签页的修改">用本页覆盖</button></span></span>
   <div class="app-actions"><button id="ws-export" title="把整个工作区（模块图、运行、产物、我的模板、视角）保存为 JSON 文件">保存工作区</button><button id="ws-import" title="打开 neurom-workbench 工作区文件。如果文件打不开，会显示原因，当前工作区保持不变">打开</button><input id="ws-file" type="file" accept="application/json,.json" hidden></div>
+  <div id="wallet" class="wallet" aria-label="钱包" hidden><span id="wallet-error" class="wallet-error" role="alert" hidden></span><span id="wallet-address" class="wallet-address" hidden></span><button id="wallet-login" type="button">登录</button><button id="wallet-logout" type="button" hidden>退出登录</button></div>
   <button id="lang-toggle" class="lang-toggle" title="中文 / English" aria-label="Language: 中文 / English"><span data-locale="zh">中</span><span data-locale="en">EN</span></button><!-- i18n-ignore -->
 </header>
 <nav class="nav-rail" aria-label="工作区导航">
@@ -50,6 +51,7 @@
   <button id="editor-arrange" title="按连线层次整理选中的模块位置">整理</button><button id="editor-save-template" title="把选中的模块保存为我的模板">存为模板</button>
 </div>
 <footer class="status-strip"><span id="status" role="status"></span><span class="canvas-hint">双指 / 滚轮平移 · 捏合或 ⌘ 滚轮缩放 · F 全览 · 值线实线，调用线虚线 ƒ</span></footer>
+<div id="privy-root" class="privy-root"></div>
 <script type="module" src="graph_app.js"></script>
 </body>
 </html>

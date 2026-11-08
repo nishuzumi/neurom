@@ -84,9 +84,9 @@ function close(e?: Event) { e?.preventDefault(); emit('close'); }
 </template>
 
 <style scoped>
-.gset{width:min(520px,92vw);max-height:min(720px,86vh);padding:0;border:1px solid var(--line-strong);border-radius:10px;background:var(--panel);color:var(--ink);box-shadow:0 24px 64px -16px rgba(0,0,0,.9);font-size:12px}
+.gset{width:min(520px,92vw);max-height:min(720px,86vh);padding:0;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--panel);color:var(--ink);box-shadow:var(--shadow-pop);font-size:12px}
 .gset[open]{display:flex;flex-direction:column}
-.gset::backdrop{background:rgba(0,0,0,.55)}
+.gset::backdrop{background:rgba(24,24,27,.45)}
 .gset-head{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 14px;border-bottom:1px solid var(--line);background:var(--panel-head)}
 .gset-head h2{margin:0;flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gset-main{flex:1;min-height:0;overflow:auto;padding:10px 14px 14px;display:flex;flex-direction:column;gap:12px}
@@ -94,7 +94,7 @@ h3{margin:0 0 6px;font-size:12px;font-weight:600}
 .gset-loop select{width:100%}
 .gset-member{border-bottom:1px solid var(--line)}
 .gset-member summary{display:flex;gap:8px;align-items:center;padding:5px 0;cursor:pointer}
-.gset-n{margin-left:auto;padding:0 6px;border-radius:8px;background:var(--focus);color:var(--bg);font-size:10.5px;font-weight:700}
+.gset-n{margin-left:auto;padding:0 6px;border-radius:8px;background:var(--focus);color:#fff;font-size:10.5px;font-weight:700}
 .gset-port{display:grid;grid-template-columns:auto 3em minmax(0,1fr);gap:6px;align-items:center;padding:2px 0 2px 14px}
 .gset-dir{color:var(--muted);font-size:11px}
 .gset-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono)}

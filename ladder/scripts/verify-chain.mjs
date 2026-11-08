@@ -3,11 +3,11 @@
 // anvil, proved again on the chain the ladder is deployed on.
 //   1. An EIP-7702 account carries code: a fresh account delegates to the ladder, and the script prints its code size.
 //   2. `challenge` refuses that account with `NotEoa` (the EOA check), while a plain EOA passes that check.
-//   3. A challenge between two entries runs to settlement from the contract alone: the script deploys two twins of the
-//      中 fixture network (contracts/test/fixtures/tank-episodes.json, 39,840 weight bytes; the last weight byte, a
-//      padding byte, is salted so the ladder sees two distinct new entries each run), registers them, starts a
-//      challenge with a 30M gas limit and advances it until it is settled. Twins draw every episode, so this is the
-//      worst case of a mid-mid challenge: 600 steps, 5 transactions.
+//   3. A challenge between two entries runs to settlement from the contract alone. The script deploys two copies of
+//      the 中 fixture network (contracts/test/fixtures/tank-episodes.json, 39,840 weight bytes).
+//      A salt changes the last padding byte, so each run creates distinct entries.
+//      The script registers both modules, starts a challenge and advances it until settlement.
+//      A challenge runs at most 600 steps. Each play transaction has a 30M gas limit.
 //   4. The gas per step of that challenge against `data/step-gas.json` (pair mid-mid), the number the page estimates
 //      costs from. A deviation over GAS_TOLERANCE fails the check: the page would then quote wrong costs.
 // It prints every transaction, the gas, what the deployer paid (Monad charges the gas limit, not the gas used) and
@@ -26,6 +26,7 @@ import { parseArgs } from 'node:util';
 import { AbiCoder, Contract, JsonRpcProvider, SigningKey, Wallet, concat, encodeRlp, formatEther, keccak256, toBeHex } from 'ethers';
 import TankLadderABI from '../../frontend/abi/TankLadder.json' with { type: 'json' };
 import FactoryABI from '../../frontend/abi/ModuleFactory.json' with { type: 'json' };
+import { PLAY_GAS, ladderEvents, localLadder, mined, playChallenge } from '../../frontend/ladder.fixture.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = fileURLToPath(new URL('../..', import.meta.url));
@@ -35,8 +36,6 @@ if (args.help || (!args.anvil && !args.rpc)) {
   process.exit(args.help ? 0 : 2);
 }
 
-/** The gas limit of a play transaction: Monad's transaction limit (frontend/ladder.fixture.js PLAY_GAS). */
-const PLAY_GAS = 30_000_000n;
 /** The accepted deviation of the measured gas per step from data/step-gas.json. */
 const GAS_TOLERANCE = 0.30;
 const ANVIL_KEY_0 = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -52,17 +51,6 @@ const results = [];
 const record = (name, ok, detail) => { results.push({ name, ok, detail }); log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`); };
 const mon = wei => `${Number(formatEther(wei)).toFixed(4)} MON`;
 
-/** Poll the receipt of `hash` (ethers' wait() misses receipts of large transactions on anvil), then wait until the
- *  node reports its block as the latest: anvil hands out the receipt a moment before the state and the block number
- *  move, and the next nonce lookup would be stale. */
-async function mined(provider, hash, { timeoutMs = 180_000 } = {}) {
-  const until = Date.now() + timeoutMs;
-  let rc = null;
-  while (!rc && Date.now() < until) { rc = await provider.getTransactionReceipt(hash); if (!rc) await new Promise(r => setTimeout(r, 100)); }
-  if (!rc) throw new Error(`no receipt for ${hash} after ${timeoutMs / 1000}s`);
-  while ((await provider.getBlockNumber()) < rc.blockNumber && Date.now() < until) await new Promise(r => setTimeout(r, 50));
-  return rc;
-}
 /** Send `contract.method(...args)` with a 20% margin over the estimate (or `gasLimit`) and wait → receipt (throws on revert). */
 async function send(contract, method, params, { gasLimit } = {}) {
   const limit = gasLimit ?? (await contract[method].estimateGas(...params)) * 12n / 10n;
@@ -79,8 +67,8 @@ function ladderError(e) {
   if (data) { try { return ladderIface.parseError(data)?.name ?? data; } catch { return data; } }
   return e?.shortMessage ?? e?.message ?? String(e);
 }
-/** The events of the ladder in a receipt. */
-const ladderEvents = rc => rc.logs.map(l => { try { return ladderIface.parseLog(l); } catch { return null; } }).filter(Boolean);
+/** The most play transactions of the challenge check. The challenge stays active when it needs more. */
+const MAX_PLAYS = 40;
 /** The intrinsic gas of a transaction with `data`: 21,000 plus the calldata. */
 const intrinsic = data => 21_000 + [...Buffer.from(data.slice(2), 'hex')].reduce((g, b) => g + (b ? 16 : 4), 0);
 /** An integer as RLP wants it: minimal big-endian bytes, zero = empty. */
@@ -106,7 +94,9 @@ async function delegationTx(provider, sender, authority, target) {
   return { raw, hash: keccak256(raw), gasLimit: 120_000n };
 }
 
-/** Deploy a salted twin of fixture module `tag` through the Factory as `signer` → its address. */
+/** Deploy a salted twin of fixture module `tag` through the Factory as `signer` → its address. The module id is
+ *  unique for the deployer across runs (the tag, the salt and the time in base 36: ModuleFactory refuses an id the
+ *  account used before). */
 async function deployTwin(signer, factoryAddress, tag, salt) {
   const factory = new Contract(factoryAddress, FactoryABI, signer);
   const [m] = coder.decode([fixture.abi.module], fixture.modules[tag].data);
@@ -114,7 +104,8 @@ async function deployTwin(signer, factoryAddress, tag, salt) {
   const last = Buffer.from(chunks[chunks.length - 1].slice(2), 'hex');
   last[last.length - 1] ^= salt;
   chunks[chunks.length - 1] = '0x' + last.toString('hex');
-  const spec = { engineId: m.engineId, version: '0x0000000000000000000000000000000000000000', kind: Number(m.kind), inputs: Number(m.inputs), outputs: Number(m.outputs), shape: [...m.shape], tools: [], chunks: chunks.map(keccak256), artifactId: keccak256(concat([m.artifactId, toBeHex(salt, 1)])), taskId: m.taskId };
+  const moduleId = `verify-${tag}-${salt}-${Date.now().toString(36)}`;
+  const spec = { engineId: m.engineId, version: '0x0000000000000000000000000000000000000000', kind: Number(m.kind), inputs: Number(m.inputs), outputs: Number(m.outputs), shape: [...m.shape], tools: [], chunks: chunks.map(keccak256), artifactId: keccak256(concat([m.artifactId, toBeHex(salt, 1)])), taskId: m.taskId, moduleId };
   let gas = 0n;
   for (const c of chunks) gas += (await send(factory, 'createChunk', [c])).gasUsed;
   const rc = await send(factory, 'deploy', [spec, chunks.map(() => '0x')]);
@@ -127,10 +118,9 @@ async function deployTwin(signer, factoryAddress, tag, salt) {
 // ---------------------------------------------------------------------------------------------------------- setup
 // cacheTimeout -1: ethers answers identical requests from a 250 ms cache by default, which hands a stale nonce to the
 // transaction that follows a receipt on a fast node.
-const connect = (url, pollingInterval) => new JsonRpcProvider(url, undefined, { staticNetwork: true, pollingInterval, cacheTimeout: -1 });
+const connect = (url, pollingInterval) => new JsonRpcProvider(url, undefined, { staticNetwork: true, pollingInterval, cacheTimeout: -1, batchMaxCount: 1 });
 let anvil = null, provider, deployer, ladderAddress;
 if (args.anvil) {
-  const { localLadder } = await import('../../frontend/ladder.fixture.js');
   log('building the contracts and starting anvil --network monad…');
   anvil = await localLadder();
   provider = connect(anvil.url, 20);
@@ -143,7 +133,9 @@ if (args.anvil) {
 }
 try {
   const { chainId } = await provider.getNetwork();
-  ladderAddress ??= args.ladder ?? deployments[String(chainId)]?.ladder;
+  // a fork entry (forkOf) has the ladder of the chain it forks
+  const entry = deployments[String(chainId)], ladderOf = e => e?.ladder ?? (e?.forkOf ? deployments[e.forkOf]?.ladder : undefined);
+  ladderAddress ??= args.ladder ?? ladderOf(entry);
   if (!ladderAddress) throw new Error(`no ladder address for chain ${chainId}: pass --ladder or fill data/deployments.json`);
   const ladder = new Contract(ladderAddress, TankLadderABI, deployer);
   const config = await ladder.config();
@@ -177,7 +169,7 @@ try {
     // The RPC capped the gas of eth_call below minStartGas (or refused it). The real thing: fund the account and send.
     log('the RPC did not run eth_call with 30M gas; sending a real challenge transaction from the 7702 account instead');
     const price = (fee.maxFeePerGas ?? fee.gasPrice) * 2n;
-    const fund = await deployer.sendTransaction({ to: delegated.address, value: price * PLAY_GAS + 10n ** 15n });
+    const fund = await deployer.sendTransaction({ to: delegated.address, value: price * BigInt(PLAY_GAS) + 10n ** 15n });
     await mined(provider, fund.hash);
     const tx = await new Wallet(delegated.privateKey, provider).sendTransaction({ to: ladderAddress, data: probe, gasLimit: PLAY_GAS, maxFeePerGas: price, maxPriorityFeePerGas: fee.maxPriorityFeePerGas ?? 0n });
     const rc = await mined(provider, tx.hash);
@@ -202,31 +194,18 @@ try {
   const ranks = [];
   for (const m of [defender, challenger]) {
     const rc = await send(ladder, 'register', [m]);
-    const ev = ladderEvents(rc).find(e => e.name === 'EntryRegistered');
+    const ev = ladderEvents(ladder, rc).find(e => e.name === 'EntryRegistered');
     ranks.push(Number(ev.args.rank));
-    log(`registered ${m} at rank ${ev.args.rank} (${ev.args.weightBytes} bytes), ${rc.gasUsed.toLocaleString()} gas`);
+    log(`registered ${m} ${Number(ev.args.rank) ? `at rank ${ev.args.rank}` : 'off the board'} (${ev.args.weightBytes} bytes), ${rc.gasUsed.toLocaleString()} gas`);
   }
-  record('two entries registered', ranks.length === 2 && ranks[1] === ranks[0] + 1, `ranks ${ranks.join(' and ')}`);
+  // the challenger is the rank below the defender, or off the board right below a defender at the last rank
+  record('two entries registered', ranks.length === 2 && ranks[0] > 0 && (ranks[1] === ranks[0] + 1 || ranks[1] === 0), `ranks ${ranks.join(' and ')} (0 = off the board)`);
+  if (ranks[0] === 0) throw new Error('the board is full: the defender is off the board, so the challenge would revert OutOfRange');
 
   const balanceBeforePlay = await provider.getBalance(deployer.address);
-  const plays = [];
-  const stepsOf = rc => ladderEvents(rc).filter(e => e.name === 'Steps').reduce((n, e) => n + (e.args.actions.length - 2) / 2, 0);
-  let data = ladderIface.encodeFunctionData('challenge', [challenger, defender]);
-  let tx = await ladder.challenge(challenger, defender, { gasLimit: PLAY_GAS });
-  let rc = await mined(provider, tx.hash);
-  if (rc.status !== 1) throw new Error(`challenge reverted: ${tx.hash}`);
-  const started = ladderEvents(rc).find(e => e.name === 'ChallengeStarted');
-  const id = started.args.id;
-  plays.push({ hash: tx.hash, gasUsed: Number(rc.gasUsed), steps: stepsOf(rc), intrinsic: intrinsic(data), price: rc.gasPrice ?? 0n });
-  let info = await ladder.challengeInfo(id);
-  while (Number(info.status) === 1 && plays.length < 40) {
-    data = ladderIface.encodeFunctionData('advance', [id]);
-    tx = await ladder.advance(id, { gasLimit: PLAY_GAS });
-    rc = await mined(provider, tx.hash);
-    if (rc.status !== 1) throw new Error(`advance reverted: ${tx.hash}`);
-    plays.push({ hash: tx.hash, gasUsed: Number(rc.gasUsed), steps: stepsOf(rc), intrinsic: intrinsic(data), price: rc.gasPrice ?? 0n });
-    info = await ladder.challengeInfo(id);
-  }
+  const stepsOf = rc => ladderEvents(ladder, rc).filter(e => e.name === 'Steps').reduce((n, e) => n + (e.args.actions.length - 2) / 2, 0);
+  const { id, receipts, info } = await playChallenge(ladder, challenger, defender, { maxTransactions: MAX_PLAYS });
+  const plays = receipts.map((rc, i) => ({ hash: rc.hash, gasUsed: Number(rc.gasUsed), steps: stepsOf(rc), intrinsic: intrinsic(ladderIface.encodeFunctionData(...(i ? ['advance', [id]] : ['challenge', [challenger, defender]]))) }));
   const balanceAfterPlay = await provider.getBalance(deployer.address);
   const totalSteps = plays.reduce((n, p) => n + p.steps, 0);
   for (const [i, p] of plays.entries()) log(`play ${i + 1} ${p.hash}: ${p.steps} steps, ${p.gasUsed.toLocaleString()} gas used${p.steps ? `, ${Math.round((p.gasUsed - p.intrinsic) / p.steps).toLocaleString()} gas/step` : ''}`);

@@ -6,21 +6,17 @@
   "scripts": {
     "dev": "vite",
     "dev:chain": "node scripts/dev-chain.mjs",
-    "build": "vite build",
+    "build": "vite build && node ../frontend/build.mjs --hosted --out dist/studio/index.html",
     "preview": "vite preview",
     "test": "node --test"
   },
   "dependencies": {
     "@neondatabase/serverless": "1.2.0",
-    "@privy-io/react-auth": "3.51.0",
-    "ethers": "6.13.4",
-    "react": "19.3.1",
-    "react-dom": "19.3.1",
-    "viem": "2.57.13"
+    "ethers": "6.13.4"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.13",
-    "@vitejs/plugin-react": "5.2.0",
+    "@vitejs/plugin-vue": "6.0.9",
     "vite": "7.3.6"
   },
   "engines": {

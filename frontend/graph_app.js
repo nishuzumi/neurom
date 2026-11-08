@@ -6,7 +6,8 @@
 //     that it cannot read opens the conflict panel)
 //   - the per-node sessions hub that the module bodies use
 //   - the palette (kinds, templates, presets) and the template library drawer
-//   - the Python Workspace connection.
+//   - the Python Workspace connection (none in the hosted workbench of the ladder site: it trains in the browser only)
+//   - the wallet corner of the header: one Privy controller (frontend/wallet/privy.js) for the page, shared with the ladder.
 import { shallowRef } from 'vue';
 import './core/kinds/index.js';
 import { Workspace } from './core/store.js';
@@ -17,11 +18,13 @@ import { structureOf } from './core/loop.js';
 import { createTrainerSession, createCandidatesSession, createNetworkSession, createEvaluatorSession, createExecutionSession, createDeploymentSession, createDatasetSession, createDatasetStore, reclaimDatasets, WorkspaceClient } from './core/sessions/index.js';
 import { builtinTemplates, builtinTemplate } from './templates/index.js';
 import { builtinArtifacts } from './templates/artifacts/index.js';
-import { connect as connectWallet } from './chain.js';
+import { connect as connectWallet, PRIVY_APP_ID, PRIVY_NETWORKS, PRIVY_CHAIN_ID, privyProblem, STUDIO_HOSTED } from './chain.js';
+import { createPrivySession } from './wallet/privy.js';
 import { createVueEditor } from './editor/index.ts';
 import { createTemplateLibrary } from './ui/template-library.js';
 import { initLocale, locale, setLocale, onLocaleChange, t } from './i18n.js';
 import { liveText, translateStatic } from './ui/static-text.js';
+import { mountWalletHeader } from './ui/wallet.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
@@ -31,13 +34,16 @@ globalThis.neurom = { get store() { return store; }, get editor() { return edito
 const PYTHON_RETRY_MS = 15000;
 
 let store = new Workspace();
-let editor = null, library = null, unsubscribeStore = null, saveTimer = null, wallet = null;
+let editor = null, library = null, unsubscribeStore = null, saveTimer = null;
+/** the shared Privy controller (wallet/privy.js), when the page has a Privy App that it can serve. The ladder uses
+ *  the same App, so the same embedded wallet deploys here and plays there */
+let privy = null;
 /** the header notes (save state, Python connection): set at boot, they follow the language */
 let saveNote = null, pythonNote = null;
 const datasets = createDatasetStore();
 /** the artifacts of the local save (core/local-save.js): localStorage names them, IndexedDB holds them */
 const artifactStore = createArtifactStore();
-const python = { client: new WorkspaceClient(''), connected: shallowRef(false) };
+const python = { client: STUDIO_HOSTED ? null : new WorkspaceClient(''), connected: shallowRef(false) };
 
 // ------------------------------------------------------------------ sessions hub: one controller per (kind, node), disposed when the node leaves the graph
 // Sessions change durable state only through the Workspace. Its subscription (adopt) is the only persistence route.
@@ -64,11 +70,29 @@ function sweepSessions() {
   for (const [key, s] of sessions) { const nodeId = key.slice(key.indexOf(':') + 1); if (!store.graph.nodes.has(nodeId)) { s.dispose(); sessions.delete(key); } }
 }
 function disposeSessions() { for (const s of sessions.values()) s.dispose(); sessions.clear(); }
-async function connectChain(chainId) {
-  if (wallet && wallet.chainId === chainId) return wallet;
-  wallet = await connectWallet(chainId);
-  if (window.ethereum?.on && !connectChain.hooked) { connectChain.hooked = true; window.ethereum.on('accountsChanged', () => { wallet = null; }); window.ethereum.on('chainChanged', () => { wallet = null; }); }
-  return wallet;
+/** Every chain operation connects again: the current account of the wallet, never a cached signer. */
+const connectChain = chainId => connectWallet(chainId, { write: true, privy });
+
+// ------------------------------------------------------------------ wallet: one Privy controller for the page
+/** the address of the embedded wallet at the last snapshot, lower case, or null */
+let account = null;
+/** When the account changes (logout, another wallet), only the deployment sessions lose their chain session. The
+ *  training sessions do not use the wallet. The first login changes nothing: no session had an account. */
+function followAccount(snap) {
+  const next = snap.address ? snap.address.toLowerCase() : null;
+  if (next === account) return;
+  const had = account !== null; account = next;
+  if (had) for (const [key, s] of sessions) if (key.startsWith('deployment:')) s.accountChanged();
+}
+/** The controller, mounted into #privy-root (outside the canvas). Returns the cleanup for pagehide. */
+function mountWallet() {
+  const elements = { root: $('wallet'), login: $('wallet-login'), logout: $('wallet-logout'), address: $('wallet-address'), error: $('wallet-error') };
+  if (!PRIVY_APP_ID || privyProblem()) return mountWalletHeader(null, elements, privyProblem);
+  privy = createPrivySession({ appId: PRIVY_APP_ID, networks: PRIVY_NETWORKS, chainId: PRIVY_CHAIN_ID });
+  const unmount = privy.mount($('privy-root'));
+  const unsubscribe = privy.subscribe(followAccount);
+  const unmountHeader = mountWalletHeader(privy, elements);
+  return () => { unmountHeader(); unsubscribe(); unmount(); };
 }
 
 // ------------------------------------------------------------------ persistence
@@ -216,6 +240,7 @@ function status(text, tone = '') { const el = $('status'); el.textContent = text
 // ------------------------------------------------------------------ python workspace: connect on load, retry while disconnected
 let pythonTimer = null;
 async function connectPython() {
+  if (!python.client) { pythonNote.show('公网版只在浏览器里训练'); return; }
   try { await python.client.connect(); python.connected.value = true; pythonNote.show('Python 工作区已连接'); }
   catch { python.connected.value = false; pythonNote.show('Python 工作区未连接'); }
   clearTimeout(pythonTimer);
@@ -384,6 +409,16 @@ function clearWorkspace() {
   localStorage.removeItem(STORAGE_KEY); adopt(new Workspace()); persist(); closeDrawer(); status(t('工作区已清空。'), 'ok');
 }
 
+// ------------------------------------------------------------------ site navigation
+/** The site links (home, ladder, workbench, GitHub) show only when the page is served under /studio/ of the site
+ *  (ADR 0027: the ladder dev server and the Vercel build). Elsewhere (root `npm run dev`, the Python Workspace, a
+ *  file:// copy) the wordmark is plain text and the links stay hidden. */
+function showSiteNav() {
+  const onSite = location.pathname.startsWith('/studio/');
+  $('site-nav').hidden = !onSite;
+  if (!onSite) $('site-home').removeAttribute('href');
+}
+
 // ------------------------------------------------------------------ language
 function showLocale() {
   document.documentElement.lang = locale() === 'zh' ? 'zh-CN' : 'en';
@@ -400,6 +435,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initLocale();
   const relabelStatic = translateStatic(document.documentElement);
   saveNote = liveText($('save-note')); pythonNote = liveText($('python-note'));
+  showSiteNav();
   showLocale(); status(t('加载工作区…')); saveNote.show('本地工作区');
   const local = await restoreLocal();
   store = local.workspace; conflict = local.conflict;
@@ -412,7 +448,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     persist, download,
   });
   adopt(store);
-  window.addEventListener('pagehide', event => { saveWorkspace(true); if (!event.persisted) { unsubscribeStore?.(); disposeSessions(); editor.dispose(); } });
+  const unmountWallet = mountWallet();
+  window.addEventListener('pagehide', event => { saveWorkspace(true); if (!event.persisted) { unsubscribeStore?.(); disposeSessions(); editor.dispose(); unmountWallet(); } });
   // while artifacts go to IndexedDB, the final save holds them in its text, which can exceed the localStorage quota
   window.addEventListener('beforeunload', event => { if (storing) event.preventDefault(); });
   window.addEventListener('storage', followOtherTab);

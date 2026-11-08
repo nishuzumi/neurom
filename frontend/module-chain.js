@@ -10,6 +10,10 @@
 // same artifact is already deployed, the deployment reuses it after verification. The state of a tool is in the
 // session of the selector, after the state of the selector (the stateWidth of the module covers both). A code tool
 // cannot be deployed.
+// Every module carries a module id (ModuleSpec.moduleId): an English name that the deployer gives it, unique under the
+// deploying account. The Factory archives (deployer, moduleId) → module in the deployment transaction. The top module
+// takes the id of the `moduleId` option. A tool deployed fresh takes `tool-` + 48 hex digits of its artifact id. The
+// bridge refuses an invalid or already used id before it sends a transaction (tools included).
 // A deployment first looks up everything on chain. So when a deployment stops midway, deploying again resumes it.
 // planDeployment forecasts a deployment read-only (chunks necessary / on chain, transactions to send).
 // Persistent calls (step / reset) are reported as done only when all of these are true:
@@ -19,6 +23,7 @@
 import FactoryABI from './abi/ModuleFactory.json' with { type: 'json' };
 import ModuleABI from './abi/NeuromModule.json' with { type: 'json' };
 import { validateArtifact, artifactSpec } from './core/store.js';
+import { moduleIdProblem } from './core/kinds/deployment.js';
 import { modelProblem } from './core/sessions/executor.js';
 import { envHash } from './core/bundle.js';
 import { trainedOf, trainedTools } from './core/loop.js';
@@ -27,6 +32,7 @@ import { DENSE_KINDS as KINDS, encodeDenseWeights } from './runtime/dense-policy
 import { encodeThresholdWeights } from './runtime/threshold-layers.js';
 import { AbiCoder, Contract, getCreate2Address, isAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { t } from './i18n.js';
+import { describeChainError as describe } from './chain-error.js';
 
 const ZERO_ADDRESS = '0x' + '0'.repeat(40);
 const INT32 = 2147483648;
@@ -41,6 +47,12 @@ const MAX_TX_GAS = 30_000_000n;
  *  transaction executes on (the gas of a LIF step depends on its potentials). Monad charges the limit either way. */
 const withMargin = estimate => estimate + estimate / 10n;
 
+/** The module id of a tool module that the bridge deploys for tool artifact `artifact`: `tool-` + 48 hex digits of
+ *  its artifact id (53 characters). The same tool artifact gets the same id under every deployer. */
+export function toolModuleId(artifact) { return `tool-${String(artifact.id).slice(2, 50).toLowerCase()}`; }
+
+function requireModuleId(id) { const why = moduleIdProblem(id); if (why) throw new Error(why); return id; }
+
 // ------------------------------------------------------------------------------------------------ pure helpers
 
 function int(v, name, lo, hi) {
@@ -48,8 +60,6 @@ function int(v, name, lo, hi) {
   if (v < BigInt(lo) || v > BigInt(hi)) throw new Error(t('链上返回的 {name} 越界：{value}（允许 {lo}..{hi}）', { name, value: v, lo, hi }));
   return Number(v);
 }
-
-function describe(e) { return e.shortMessage || e.message || String(e); }
 
 function sameInts(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
 
@@ -252,7 +262,20 @@ export async function verifyModule(providerOrSigner, address, artifact, { artifa
     catch (e) { throw new Error(t('模块 {address} 的工具 {index} 不符：{error}', { address, index: k + 1, error: describe(e) })); }
     toolModules.push({ artifactId: id, address: h.tools[k] });
   }
-  return { ...h, engineVersion: { address: h.engineAddress, number, latest: latest.toLowerCase() === h.engineAddress.toLowerCase() }, toolModules };
+  const [moduleId, deployer] = await Promise.all([f.moduleIdOf(address), f.deployerOf(address)]);
+  return { ...h, moduleId, deployer, engineVersion: { address: h.engineAddress, number, latest: latest.toLowerCase() === h.engineAddress.toLowerCase() }, toolModules };
+}
+
+/** The module that `deployer` already archived under module id `id` on `factory`, else null. */
+async function moduleUnder(factory, deployer, id) {
+  const at = await factory.moduleById(deployer, id);
+  return at === ZERO_ADDRESS ? null : at;
+}
+
+/** Throws when `deployer` already uses module id `id` (the Factory would refuse the deployment after its tools). */
+async function requireFreeId(factory, deployer, id) {
+  const at = await moduleUnder(factory, deployer, id);
+  if (at) throw new Error(t('模块 ID “{id}” 已被账户 {deployer} 用于模块 {address}。换一个 ID', { id, deployer, address: at }));
 }
 
 /** The first module that the Factory recorded for artifact `artifact` and that verifies against it, else null. A module
@@ -265,14 +288,26 @@ async function reusableModule(runner, factory, factoryAddress, artifact, artifac
   return null;
 }
 
-/** A module of tool artifact `tool` on the Factory: the first recorded module of its artifact id that verifies. If there
- *  is none, a fresh deployment, its own tools first (`artifacts` resolves them).
- *  → `{ artifactId, address, reused, txHash?, gasUsed?, chunks?, transactions? }`. */
-async function toolModule(signer, factory, factoryAddress, tool, artifacts, onProgress) {
-  const address = await reusableModule(signer, factory, factoryAddress, tool, artifacts);
+/** The tool modules of `valid` on the Factory, tools of tools included, in deployment order: fills `reuse` (tool
+ *  artifact id → the verified module to reuse, null = deploy it fresh) and `fresh` (the module ids the fresh tools take). */
+async function toolLookup(runner, factory, factoryAddress, valid, artifacts, reuse, fresh) {
+  for (const id of deploymentOf(valid).tools) {
+    if (reuse.has(id)) continue;
+    const ta = await validateArtifact(toolArtifact(artifacts, id)), address = await reusableModule(runner, factory, factoryAddress, ta, artifacts);
+    reuse.set(id, address);
+    if (!address) { fresh.push({ artifactId: id, moduleId: toolModuleId(ta) }); await toolLookup(runner, factory, factoryAddress, ta, artifacts, reuse, fresh); }
+  }
+}
+
+/** A module of tool artifact `tool` on the Factory: the module `at.reuse` holds for it (toolLookup, or a tool this
+ *  deployment created before). If there is none, a fresh deployment under module id toolModuleId(tool), its own tools
+ *  first. → `{ artifactId, address, reused, moduleId?, txHash?, gasUsed?, chunks?, transactions? }`. */
+async function toolModule(signer, factory, factoryAddress, tool, at) {
+  const address = at.reuse.get(tool.id);
   if (address) return { artifactId: tool.id, address, reused: true };
-  const r = await deployModule(signer, factoryAddress, tool, { artifacts, onProgress });
-  return { artifactId: tool.id, address: r.address, reused: false, txHash: r.txHash, gasUsed: r.gasUsed, chunks: r.chunks, transactions: r.transactions };
+  const r = await deployTree(signer, factory, factoryAddress, tool, { ...at, version: null, moduleId: toolModuleId(tool) });
+  at.reuse.set(tool.id, r.address);
+  return { artifactId: tool.id, address: r.address, reused: false, moduleId: r.moduleId, txHash: r.txHash, gasUsed: r.gasUsed, chunks: r.chunks, transactions: r.transactions };
 }
 
 /** The most gas one transaction may use on the signer's chain: Monad's limit, or the block limit when lower. */
@@ -309,14 +344,15 @@ async function chunkSlots(runner, factoryAddress, weights) {
 }
 
 /** The ModuleSpec that the Factory gets for deployment `d` of artifact `valid` with its tool modules at `tools`, on engine
- *  version `version` (null: the latest of its engine id, ModuleSpec.version = address(0)). */
-async function specOf(d, valid, tools, slots, version) {
+ *  version `version` (null: the latest of its engine id, ModuleSpec.version = address(0)), under module id `moduleId`. */
+async function specOf(d, valid, tools, slots, version, moduleId) {
   return { engineId: nameId(d.engine), version: version ?? ZERO_ADDRESS, kind: KINDS.indexOf(d.kind), inputs: d.inputs, outputs: d.outputs, shape: d.shape,
-    tools, chunks: slots.map(c => c.id), artifactId: valid.id, taskId: await taskIdOf(valid) };
+    tools, chunks: slots.map(c => c.id), artifactId: valid.id, taskId: await taskIdOf(valid), moduleId };
 }
 
-async function checked(factory, spec, data) {
-  try { await factory.checkDeploy(spec, data); }
+/** checkDeploy as `from` (the deployer: the Factory checks the module id under msg.sender). */
+async function checked(factory, spec, data, from) {
+  try { await factory.checkDeploy(spec, data, { from }); }
   catch (e) { throw new Error(t('Factory 拒绝部署这个模块：{error}', { error: describe(e) })); }
 }
 
@@ -346,15 +382,15 @@ function splitByGas(missing, all, cap) {
 /** The work of planDeployment for one module (`valid`), its fresh tools first, appended to `plan`. `at` = { runner,
  *  factory, factoryAddress, artifacts, cap, as (estimate overrides: the deployer), reuse (tool artifact id → reused
  *  address), version (the engine version of the top module, null = latest. Tools take the latest of their own engine
- *  id) }. */
-async function planModule(at, plan, valid, tool) {
+ *  id) }. `moduleId` = the module id of this module (a fresh tool: toolModuleId, checked free under the deployer). */
+async function planModule(at, plan, valid, tool, moduleId) {
   const d = deploymentOf(valid);
   for (const id of d.tools) {
     if (at.reuse.has(id)) continue;
     const ta = await validateArtifact(toolArtifact(at.artifacts, id)), address = await reusableModule(at.runner, at.factory, at.factoryAddress, ta, at.artifacts);
     at.reuse.set(id, address);
-    plan.tools.push({ artifactId: id, address });
-    if (!address) await planModule(at, plan, ta, true);
+    plan.tools.push({ artifactId: id, address, moduleId: address ? null : toolModuleId(ta) });
+    if (!address) { await requireFreeId(at.factory, at.as.from, toolModuleId(ta)); await planModule(at, plan, ta, true, toolModuleId(ta)); }
   }
   const slots = await chunkSlots(at.runner, at.factoryAddress, d.weights);
   const earlier = new Set(plan.chunks.map(c => c.address));        // a chunk an earlier module of this plan creates
@@ -363,8 +399,8 @@ async function planModule(at, plan, valid, tool) {
   const tools = d.tools.map(id => at.reuse.get(id));
   let all = null;
   if (tools.every(Boolean) && missing.length === slots.filter(s => !s.repeat && !s.onChain).length) {   // else the Factory would refuse it today
-    const spec = await specOf(d, valid, tools, slots, tool ? null : at.version), data = slots.map(s => (missing.includes(s) ? s.data : '0x'));
-    await checked(at.factory, spec, data);
+    const spec = await specOf(d, valid, tools, slots, tool ? null : at.version, moduleId), data = slots.map(s => (missing.includes(s) ? s.data : '0x'));
+    await checked(at.factory, spec, data, at.as.from);
     all = await estimated(at.factory.deploy, [spec, data, at.as]);
   }
   for (const c of missing) c.gas = await at.factory.createChunk.estimateGas(c.data, at.as);
@@ -375,23 +411,28 @@ async function planModule(at, plan, valid, tool) {
 
 /**
  * What deployModule would send for `artifact` now, read-only. `runner`: a provider or signer. `from`: the deployer.
- * The deployer becomes the owner of the module, so the Factory refuses a deployment estimated without one. `version`:
- * as for deployModule.
- * → `{ artifactId, factory, cap, chunks, tools, transactions }`:
+ * The deployer becomes the owner of the module, so the Factory refuses a deployment estimated without one. `moduleId`:
+ * the module id of the top module, as for deployModule (invalid or already used by `from`: an error before any
+ * estimate, the same for the id of a tool deployed fresh). `version`: as for deployModule.
+ * → `{ artifactId, moduleId, deployer, factory, cap, chunks, tools, transactions }`:
  *   - `chunks` = the distinct weight chunks of every module that it creates (`{ artifactId, id, address, bytes, onChain }`,
  *     by their CREATE2 addresses)
- *   - `tools` = each distinct tool artifact with the verified module that it reuses (`address`, null = deployed first)
+ *   - `tools` = each distinct tool artifact with the verified module that it reuses (`address`, null = deployed first
+ *     under `moduleId`)
  *   - `transactions` = in sending order, `{ artifactId, tool, kind: 'chunk' | 'module', chunks (addresses it creates),
  *     bytes, gas (estimate, null when unknown) }`.
  * The grouping follows the rule of createModule, from gas estimates made before anything is sent (splitByGas).
  * deployModule estimates again before each transaction. So a forecast at a boundary can be one transaction off.
  */
-export async function planDeployment(runner, factoryAddress, artifact, { artifacts = null, from, version = null } = {}) {
+export async function planDeployment(runner, factoryAddress, artifact, { artifacts = null, from, version = null, moduleId } = {}) {
+  requireModuleId(moduleId);
   const valid = await validateArtifact(artifact);
   if (!from || !isAddress(from)) throw new Error(t('部署计划需要部署者地址（from）：模块的 owner 是部署者，估算要以它的身份进行'));
-  const factory = contractOf(runner, factoryAddress, FactoryABI, 'ModuleFactory'), cap = await txGasCap(runner);
-  const plan = { artifactId: valid.id, factory: factoryAddress, cap: cap.toString(), chunks: [], tools: [], transactions: [] };
-  await planModule({ runner, factory, factoryAddress, artifacts, cap, as: { from }, reuse: new Map(), version }, plan, valid, false);
+  const factory = contractOf(runner, factoryAddress, FactoryABI, 'ModuleFactory');
+  await requireFreeId(factory, from, moduleId);
+  const cap = await txGasCap(runner);
+  const plan = { artifactId: valid.id, moduleId, deployer: from, factory: factoryAddress, cap: cap.toString(), chunks: [], tools: [], transactions: [] };
+  await planModule({ runner, factory, factoryAddress, artifacts, cap, as: { from }, reuse: new Map(), version }, plan, valid, false, moduleId);
   return plan;
 }
 
@@ -403,11 +444,11 @@ export async function planDeployment(runner, factoryAddress, artifact, { artifac
  *  `onProgress({ artifactId, kind, chunks, bytes, stage: 'sending' })` before each transaction and
  *  `{ …, stage: 'mined', txHash, gasUsed }` when it is mined.
  *  → `{ rc, transactions: [{ kind: 'chunk' | 'module', txHash, gasUsed }] }` (rc = the receipt of the module transaction). */
-async function createModule(signer, factory, spec, chunks, onProgress) {
+async function createModule(signer, factory, spec, chunks, deployer, onProgress) {
   const cap = await txGasCap(signer), transactions = [];
   const data = chunks.map(c => (c.created === null ? c.data : '0x'));
   const report = (kind, sent, extra) => onProgress({ artifactId: spec.artifactId, kind, chunks: sent.map(c => c.address), bytes: sent.reduce((sum, c) => sum + c.bytes, 0), ...extra });
-  await checked(factory, spec, data);
+  await checked(factory, spec, data, deployer);
   let gasLimit = await fitting(factory.deploy, [spec, data], cap);
   while (gasLimit === null) {
     const next = data.findIndex(x => x !== '0x');
@@ -432,45 +473,60 @@ async function createModule(signer, factory, spec, chunks, onProgress) {
   return { rc, transactions };
 }
 
-/**
- * Deploy one artifact as one module through the Factory. The steps:
- *   1. Validate the artifact (content hash + bundle).
- *   2. Create the module with artifactId = artifact.id and taskId = taskIdOf(artifact), and the weight chunks that are
- *      not on chain yet (createModule: one transaction when it fits).
- *   3. Check the ModuleDeployed event.
- *   4. Verify the deployed module against the artifact.
- * The tools of a selector come first (`artifacts(id)` resolves their artifacts). When the Factory already holds a
- * module that verifies against a distinct tool artifact, the deployment reuses it. If not, it deploys one. `tools` in
- * the result lists them in layer and wire order. `chunks` lists the own weight chunks of the module and whether this
- * deployment created them. `transactions` lists the transactions of this module (chunks first, the module last).
- * The deployment first looks up everything on chain. So after a failed or abandoned deployment, deploying again sends
- * only what is still missing (chunks by their CREATE2 addresses, tools by verification). `onProgress` (createModule)
- * gets every transaction, also the transactions of the tools.
- * `version`: the engine version address that the module computes with. The Factory must list it for the engine id, or
- * the Factory refuses it. null = the latest when the module is created. Tools deployed fresh take the latest version
- * of their own engine id. `engineVersion` in the result comes from verifyModule.
- */
-export async function deployModule(signer, factoryAddress, artifact, { artifacts = null, onProgress = () => {}, version = null } = {}) {
-  requireSigner(signer);
-  const valid = await validateArtifact(artifact);
+/** The deployment of one validated artifact `valid` (deployModule's steps 2..4) under `at` = { artifacts, onProgress,
+ *  version, moduleId, deployer, reuse (toolLookup) }. The tools of the module come first through toolModule. */
+async function deployTree(signer, factory, factoryAddress, valid, at) {
   const d = deploymentOf(valid);
-  const factory = contractOf(signer, factoryAddress, FactoryABI, 'ModuleFactory');
   const byId = new Map();
-  for (const id of d.tools) if (!byId.has(id)) byId.set(id, await toolModule(signer, factory, factoryAddress, await validateArtifact(toolArtifact(artifacts, id)), artifacts, onProgress));
+  for (const id of d.tools) if (!byId.has(id)) byId.set(id, await toolModule(signer, factory, factoryAddress, await validateArtifact(toolArtifact(at.artifacts, id)), at));
   const tools = d.tools.map(id => byId.get(id));
   const chunks = (await chunkSlots(signer, factoryAddress, d.weights)).map(c => ({ ...c, created: c.repeat || c.onChain ? false : null }));   // a repeat comes with its first occurrence
-  const spec = await specOf(d, valid, tools.map(x => x.address), chunks, version);
-  const { rc, transactions } = await createModule(signer, factory, spec, chunks, onProgress);
+  const spec = await specOf(d, valid, tools.map(x => x.address), chunks, at.version, at.moduleId);
+  const { rc, transactions } = await createModule(signer, factory, spec, chunks, at.deployer, at.onProgress);
   const ev = eventOf(rc, factory, factoryAddress, 'ModuleDeployed')[0];
   if (!ev) throw new Error(t('deploy 成功但未找到 ModuleDeployed 事件：{hash}', { hash: rc.hash }));
   const a = ev.args;
-  if (a.artifactId.toLowerCase() !== valid.id.toLowerCase() || a.engineId.toLowerCase() !== spec.engineId.toLowerCase() || (version !== null && a.engine.toLowerCase() !== version.toLowerCase()) || Number(a.kind) !== spec.kind || Number(a.inputs) !== d.inputs || Number(a.outputs) !== d.outputs) {
+  if (a.artifactId.toLowerCase() !== valid.id.toLowerCase() || a.engineId.toLowerCase() !== spec.engineId.toLowerCase() || (at.version !== null && a.engine.toLowerCase() !== at.version.toLowerCase()) || Number(a.kind) !== spec.kind || Number(a.inputs) !== d.inputs || Number(a.outputs) !== d.outputs) {
     throw new Error(t('ModuleDeployed 事件与产物不符：{hash}', { hash: rc.hash }));
   }
   const address = a.module;
-  const { engineVersion } = await verifyModule(signer, address, valid, { artifacts, factory: factoryAddress });
-  return { address, id: a.id.toString(), engineVersion, txHash: rc.hash, gasUsed: transactions.reduce((sum, x) => sum + BigInt(x.gasUsed), 0n).toString(), artifactId: valid.id, engine: d.engine, kind: d.kind, inputs: d.inputs, outputs: d.outputs, tools,
+  const { engineVersion, moduleId, deployer } = await verifyModule(signer, address, valid, { artifacts: at.artifacts, factory: factoryAddress });
+  if (moduleId !== at.moduleId || deployer.toLowerCase() !== at.deployer.toLowerCase()) throw new Error(t('Factory 记录的模块 ID 与部署者不符：{hash}（链上 {id} / {deployer}）', { hash: rc.hash, id: moduleId, deployer }));
+  return { address, id: a.id.toString(), moduleId, deployer, engineVersion, txHash: rc.hash, gasUsed: transactions.reduce((sum, x) => sum + BigInt(x.gasUsed), 0n).toString(), artifactId: valid.id, engine: d.engine, kind: d.kind, inputs: d.inputs, outputs: d.outputs, tools,
     chunks: chunks.map(({ address, id, bytes, created, txHash }) => ({ address, id, bytes, created, txHash })), transactions };
+}
+
+/**
+ * Deploy one artifact as one module through the Factory under module id `moduleId`. The steps:
+ *   1. Validate the artifact (content hash + bundle) and the module id. Refuse before any transaction when the signer
+ *      already uses the id, or the id of a tool it deploys fresh (requireFreeId).
+ *   2. Create the module with artifactId = artifact.id, taskId = taskIdOf(artifact) and moduleId, and the weight chunks
+ *      that are not on chain yet (createModule: one transaction when it fits).
+ *   3. Check the ModuleDeployed event.
+ *   4. Verify the deployed module against the artifact, and the archived (moduleId, deployer) against the request.
+ * The tools of a selector come first (`artifacts(id)` resolves their artifacts). When the Factory already holds a
+ * module that verifies against a distinct tool artifact, the deployment reuses it. If not, it deploys one under
+ * toolModuleId. `tools` in the result lists them in layer and wire order. `chunks` lists the own weight chunks of the
+ * module and whether this deployment created them. `transactions` lists the transactions of this module (chunks
+ * first, the module last).
+ * The deployment first looks up everything on chain. So after a failed or abandoned deployment, deploying again with
+ * the same id sends only what is still missing (chunks by their CREATE2 addresses, tools by verification). The top
+ * module itself is never reused: a second deployment of the same artifact needs a different id. `onProgress`
+ * (createModule) gets every transaction, also the transactions of the tools.
+ * `version`: the engine version address that the module computes with. The Factory must list it for the engine id, or
+ * the Factory refuses it. null = the latest when the module is created. Tools deployed fresh take the latest version
+ * of their own engine id. `engineVersion`, `moduleId` and `deployer` in the result come from verifyModule.
+ */
+export async function deployModule(signer, factoryAddress, artifact, { artifacts = null, onProgress = () => {}, version = null, moduleId } = {}) {
+  requireSigner(signer);
+  requireModuleId(moduleId);
+  const valid = await validateArtifact(artifact);
+  const factory = contractOf(signer, factoryAddress, FactoryABI, 'ModuleFactory'), deployer = await signer.getAddress();
+  await requireFreeId(factory, deployer, moduleId);
+  const reuse = new Map(), fresh = [];
+  await toolLookup(signer, factory, factoryAddress, valid, artifacts, reuse, fresh);
+  for (const tool of fresh) await requireFreeId(factory, deployer, tool.moduleId);
+  return deployTree(signer, factory, factoryAddress, valid, { artifacts, onProgress, version, moduleId, deployer, reuse });
 }
 
 /**

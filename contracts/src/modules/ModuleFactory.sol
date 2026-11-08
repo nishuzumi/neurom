@@ -19,13 +19,17 @@ import "./Roles.sol";
 ///         (all or nothing). It refuses:
 ///           - an engine id without a latest version (when `spec.version` is zero), or a `spec.version` not listed
 ///             for `spec.engineId`
+///           - a module id that is not 3..64 bytes of a..z, 0..9, '-' and '_' starting with a..z, or one that
+///             msg.sender used before (an id is unique per deployer, not across deployers)
 ///           - a chunk that does not exist after that (it recomputes the chunk's address)
 ///           - a shape that the engine refuses, or whose weights are not exactly the chunks' bytes
 ///           - a tool that is not a module of this Factory, and tools nested deeper than MAX_TOOL_DEPTH.
-///         It records `isModule`, `depthOf`, the per-artifact index and ModuleDeployed. The module calls its engine
-///         version directly, for life. The deployer becomes the module's owner. When chunks and module do not fit one
-///         transaction, the deployer creates some chunks first with createChunk. The Factory is the only way to create
-///         either. It vouches for how a module was assembled, not for the quality of the model it carries.
+///         It records `isModule`, `depthOf`, the per-artifact index, the archive (moduleIdOf, deployerOf, moduleById,
+///         modulesByDeployer) and ModuleDeployed. The archive entry never changes: the module id and the deployer stay
+///         when the module's owner changes. The module calls its engine version directly, for life. The deployer
+///         becomes the module's owner. When chunks and module do not fit one transaction, the deployer creates some
+///         chunks first with createChunk. The Factory is the only way to create either. It vouches for how a module
+///         was assembled, not for the quality of the model it carries.
 contract ModuleFactory {
     /// @notice The largest number of input bits and of outputs of a module (ADR 0021).
     uint256 public constant MAX_PORT = 65535;
@@ -50,7 +54,9 @@ contract ModuleFactory {
     /// @notice What `deploy` creates. `version` is the engine version to compute with: address(0) = the latest of
     ///         `engineId` when the module is created, else one of `versionsOf(engineId)`. `shape` is the engine's
     ///         encoding. `tools` are the tool modules, ordered by layer, then by wire order. `chunks` are the content
-    ///         hashes (keccak256) of the weight chunks in blob order.
+    ///         hashes (keccak256) of the weight chunks in blob order. `moduleId` is the deployer's name for the module:
+    ///         MIN_ID_BYTES..MAX_ID_BYTES bytes, the first a..z, the rest a..z, 0..9, '-' or '_', unique among the
+    ///         deployer's modules.
     struct ModuleSpec {
         bytes32 engineId;
         address version;
@@ -62,7 +68,12 @@ contract ModuleFactory {
         bytes32[] chunks;
         bytes32 artifactId;
         bytes32 taskId;
+        string moduleId;
     }
+
+    /// @notice The shortest and the longest module id (bytes).
+    uint256 public constant MIN_ID_BYTES = 3;
+    uint256 public constant MAX_ID_BYTES = 64;
 
     /// @notice The Roles contract whose ADMIN manages engine versions (FactoryProxy upgrades only with the same Roles).
     address public immutable roles;
@@ -82,6 +93,12 @@ contract ModuleFactory {
     /// @notice The engine id `version` was added under, else bytes32(0).
     mapping(address => bytes32) public engineIdOf;
     mapping(bytes32 => address[]) private _versions;
+    // --- appended by the archive (ADR 0014 proxy storage: new slots only after the ones above) ---
+    mapping(address => string) private _moduleIdOf;
+    /// @notice The account that deployed `module` (the archive's namespace of its id), else address(0).
+    mapping(address => address) public deployerOf;
+    mapping(address => mapping(bytes32 => address)) private _byId;
+    mapping(address => address[]) private _byDeployer;
 
     event ModuleDeployed(uint256 indexed id, address indexed module, bytes32 indexed artifactId, bytes32 engineId, address engine, bytes32 taskId, uint8 kind, uint16 inputs, uint16 outputs, address deployer);
     event ChunkCreated(bytes32 indexed id, address chunk, uint256 size);
@@ -197,7 +214,16 @@ contract ModuleFactory {
         isModule[module] = true;
         depthOf[module] = uint8(depth);
         _byArtifact[spec.artifactId].push(module);
+        _archive(module, spec.moduleId);
         emit ModuleDeployed(count++, module, spec.artifactId, spec.engineId, engine, spec.taskId, spec.kind, spec.inputs, spec.outputs, msg.sender);
+    }
+
+    /// @dev The archive entry of `module`, just created by msg.sender under `moduleId` (checked free by _check).
+    function _archive(address module, string calldata moduleId) private {
+        _moduleIdOf[module] = moduleId;
+        deployerOf[module] = msg.sender;
+        _byId[msg.sender][keccak256(bytes(moduleId))] = module;
+        _byDeployer[msg.sender].push(module);
     }
 
     /// @notice Reverts with the reason that `deploy(spec, data)` would refuse for, and creates nothing. Returns
@@ -207,12 +233,13 @@ contract ModuleFactory {
         _check(spec, data);
     }
 
-    /// @dev Every refusal of deploy, before anything is created: the engine version, the tool words and depth, the chunk
-    ///      addresses and the state width of the module. A chunk counts with its code when it exists, else with the
-    ///      content in `data`.
+    /// @dev Every refusal of deploy, before anything is created: the engine version, the module id, the tool words and
+    ///      depth, the chunk addresses and the state width of the module. A chunk counts with its code when it exists,
+    ///      else with the content in `data`.
     function _check(ModuleSpec calldata spec, bytes[] calldata data)
         private view returns (address engine, uint256[] memory tools, address[] memory chunks, uint256 stateWidth, uint256 depth)
     {
+        _checkId(spec.moduleId);
         if (spec.version == address(0)) {
             engine = latestOf[spec.engineId];
             require(engine != address(0), "engine");
@@ -241,6 +268,19 @@ contract ModuleFactory {
         chunks = _chunkAddresses(spec.chunks, data, weightBytes);
     }
 
+    /// @dev `id` is well formed ("id") and msg.sender has not used it ("taken").
+    function _checkId(string calldata id) private view {
+        bytes calldata b = bytes(id);
+        require(b.length >= MIN_ID_BYTES && b.length <= MAX_ID_BYTES, "id");
+        for (uint256 i; i < b.length; i++) {
+            bytes1 c = b[i];
+            bool letter = c >= 0x61 && c <= 0x7a;                              // a..z
+            bool rest = (c >= 0x30 && c <= 0x39) || c == 0x2d || c == 0x5f;    // 0..9, '-', '_'
+            require(letter || (i != 0 && rest), "id");
+        }
+        require(_byId[msg.sender][keccak256(b)] == address(0), "taken");
+    }
+
     /// @dev The addresses of `ids`, each chunk existing or sent along in `data`, holding `weightBytes` bytes in all.
     function _chunkAddresses(bytes32[] calldata ids, bytes[] calldata data, uint256 weightBytes) private view returns (address[] memory chunks) {
         require(ids.length >= 1 && data.length == ids.length, "chunk");
@@ -267,4 +307,29 @@ contract ModuleFactory {
     /// @notice Every module deployed with `artifactId`, in deployment order. A deployer verifies a module against the
     ///         artifact before it reuses the module as a tool: the artifactId is the deployer's claim, not proof.
     function modulesOf(bytes32 artifactId) external view returns (address[] memory) { return _byArtifact[artifactId]; }
+
+    // ------------------------------------------------------------------------------------------- archive
+
+    /// @notice The module id `module` was deployed under, empty for an address that is no module or a module deployed
+    ///         before the archive.
+    function moduleIdOf(address module) external view returns (string memory) { return _moduleIdOf[module]; }
+
+    /// @notice The module `deployer` deployed under `moduleId`, else address(0).
+    function moduleById(address deployer, string calldata moduleId) external view returns (address) {
+        return _byId[deployer][keccak256(bytes(moduleId))];
+    }
+
+    /// @notice How many modules `deployer` deployed since the archive (the length of modulesByDeployer's list).
+    function deploymentCount(address deployer) external view returns (uint256) { return _byDeployer[deployer].length; }
+
+    /// @notice `deployer`'s modules `offset .. offset + limit` in deployment order: empty past the end, shorter at the
+    ///         end. Any `limit` is safe.
+    function modulesByDeployer(address deployer, uint256 offset, uint256 limit) external view returns (address[] memory page) {
+        address[] storage all = _byDeployer[deployer];
+        uint256 n = all.length;
+        if (offset >= n) return page;
+        uint256 end = n - offset < limit ? n : offset + limit;
+        page = new address[](end - offset);
+        for (uint256 k = offset; k < end; k++) page[k - offset] = all[k];
+    }
 }

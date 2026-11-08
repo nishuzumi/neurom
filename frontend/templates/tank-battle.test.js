@@ -655,6 +655,9 @@ test('the battle calls the networks on the stage 2 candidates and the scene that
   assert.deepEqual(['battle', 'view', 'play', '机器人'].map(from), [[[ids.scene, 'battle']], [[ids.scene, 'view']], [[ids.scene, 'play']], [[ids.scene, 'botMove']]]);
   assert.deepEqual([from('红方'), from('蓝方')], [[[ids.vs_mid_readout, 'run']], [[ids.vs_big_readout, 'run']]]);
   assert.deepEqual(from('设置'), [[ids.vs_settings, 'params']], 'the settings choose 蓝方');
+  assert.deepEqual(from('node'), [[ids.vs_node, 'node']], 'the practice challenge runs on the chain node');
+  assert.deepEqual(graph.node(ids.vs_node).config, { chainId: 1014300, write: true }, 'the chain node is the local fork of the ladder chain, with writes');
+  assert.deepEqual(graph.node(ids.vs_battle).config.files.map(f => f.name), ['main.js', 'game.js', 'views.js', 'data.js', 'practice.js', 'practice-view.js']);
   for (const [net, cands, of] of [['vs_mid_net', 's2_a_cands', 's2_a_net'], ['vs_big_net', 's2_b_cands', 's2_b_net']]) {
     assert.deepEqual(graph.producers(ids[net], 'weights').map(p => [p.node, p.port]), [[ids[cands], 'weights']], net);
     assert.deepEqual(graph.node(ids[net]).config, graph.node(ids[of]).config, `${net}: the structure of ${of}`);

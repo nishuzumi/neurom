@@ -4,7 +4,7 @@
    wider than the host. The tools also wired elsewhere are labels that jump to them. During an execution step the
    chosen tool is lit (--spike) and the other tools are dimmed. */
 .tcans{display:flex;flex-direction:column;gap:8px;margin-top:10px;min-width:0}
-.tcan{min-width:0;border:1px solid var(--line-strong);border-radius:8px;background:#101216}
+.tcan{min-width:0;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--bg)}
 .tcan-head{display:flex;align-items:center;gap:6px;min-height:30px;padding:2px 8px 2px 4px;min-width:0}
 .tcan-title{flex:none;font-size:12px;font-weight:700;white-space:nowrap}
 .tcan-count{flex:none;font-size:11px;color:var(--muted);white-space:nowrap}
@@ -12,20 +12,20 @@
 .tcan-head .tcan-plus{margin-left:auto}
 .tcan-add{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:0 8px 8px;min-width:0}
 .tcan-add select{flex:1 1 12em;min-width:0}
-.tcan-well{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));align-items:start;gap:12px 18px;padding:8px 10px;border-top:1px solid var(--line);border-radius:0 0 7px 7px;box-shadow:inset 0 3px 10px #000a;min-width:0}
+.tcan-well{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));align-items:start;gap:12px 18px;padding:8px 10px;border-top:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);background:var(--bg) radial-gradient(var(--grid-dot) 1px,transparent 1px) 0 0/18px 18px;box-shadow:inset 0 1px 3px rgba(24,24,27,.06);min-width:0}
 .tcan-empty{grid-column:1/-1;margin:0;color:var(--muted);font-size:11.5px}
 
 /* a tool card: a module host in miniature (header, port band, body). Its slots sit on its own edges */
-.tcard{position:relative;display:flex;flex-direction:column;min-width:0;background:var(--panel);border:1px solid var(--col);border-radius:6px;transition:opacity .15s,box-shadow .15s}
+.tcard{position:relative;display:flex;flex-direction:column;min-width:0;background:var(--panel);border:1px solid var(--col);border-radius:var(--radius);box-shadow:var(--shadow);transition:opacity .15s,box-shadow .15s}
 .tcard.code{grid-column:1/-1}
 .tcard.has-problem{border-style:dashed}
-.tcard-head{display:flex;align-items:center;gap:6px;height:28px;flex:none;min-width:0;padding:0 4px 0 8px;border-radius:5px 5px 0 0;background:color-mix(in srgb,var(--col) 18%,transparent)}
-.tcard.folded .tcard-head{border-radius:5px}
+.tcard-head{display:flex;align-items:center;gap:6px;height:28px;flex:none;min-width:0;padding:0 4px 0 8px;border-radius:var(--radius) var(--radius) 0 0;background:color-mix(in srgb,var(--col) 8%,#fff)}
+.tcard.folded .tcard-head{border-radius:var(--radius)}
 .tcard .ports{cursor:auto}
-.tcard .ports:last-child{border-radius:0 0 5px 5px}
-.tcard-body{display:flex;flex-direction:column;gap:6px;min-width:0;padding:8px;border-top:1px solid color-mix(in srgb,var(--col) 30%,transparent)}
+.tcard .ports:last-child{border-radius:0 0 var(--radius) var(--radius)}
+.tcard-body{display:flex;flex-direction:column;gap:6px;min-width:0;padding:8px;border-top:1px solid color-mix(in srgb,var(--col) 30%,var(--line))}
 .tcard-body>*{width:100%;box-sizing:border-box}
-.tcard-sub{padding-top:6px;border-top:1px solid var(--line);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--col)}
+.tcard-sub{padding-top:6px;border-top:1px solid var(--line);font:700 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--col)}
 .tcard-call{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0;padding:4px 8px;border-top:1px solid var(--line);color:var(--spike);font-size:11.5px}
 .tcard-call .mono{min-width:0;overflow-wrap:anywhere;color:var(--ink)}
 .tcard.chosen{border-color:var(--spike);box-shadow:0 0 0 max(1px,calc(2px / var(--zoom,1))) var(--spike)}
@@ -34,7 +34,7 @@
 /* tools also wired elsewhere: a label each, jumping to the card on the outer canvas */
 .tcan-outside{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
 .tcan-note{flex:none;font-size:11px;color:var(--muted)}
-.tjump{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0;max-width:100%;padding:2px 8px;border:1px dashed var(--line-strong);border-radius:5px;background:transparent;color:var(--ink);font:inherit;font-size:11.5px;text-align:left;cursor:pointer;overflow-wrap:anywhere;transition:opacity .15s}
+.tjump{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0;max-width:100%;padding:2px 8px;border:1px dashed var(--line-strong);border-radius:var(--radius);background:#fff;color:var(--ink);font:inherit;font-size:11.5px;text-align:left;cursor:pointer;overflow-wrap:anywhere;transition:opacity .15s}
 .tjump:hover{border-color:var(--focus)}
 .tjump.chosen{border:1px solid var(--spike);color:var(--spike)}
 .tjump-call{color:var(--ink)}

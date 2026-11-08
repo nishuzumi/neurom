@@ -4,8 +4,9 @@
 // inlined before the script as the global `Vue`. It is the full global build, with its template compiler. That is the
 // reason for 'unsafe-eval', which is harmless inside the sandbox. The script is inlined as its own classic <script>,
 // so a top-level `const component` / `function render` is visible to the host part after it.
-// A script module (ADR 0019) runs in a document of the same kind: scriptModuleDocument, with the sandbox side of its
-// loader (script-module-runtime.js) in place of the script.
+// A script module (ADR 0019) runs in a document of the same kind: scriptModuleDocument, with the global `viem` after
+// Vue (ADR 0028, the bundle of viem-global.js) and the sandbox side of its loader (script-module-runtime.js) in place
+// of the script.
 //
 // A script defines one of these:
 // - `component`: a Vue component that takes the prop `ctx` (template + setup…). It is mounted once on the root and
@@ -71,7 +72,7 @@ export function scriptDocument(source, vars, vue, scheme = 'normal') {
   const head = (/** @type {number} */ offset) => [
     ...meta,
     // the host sizes the frame to its content height, so the frame itself never scrolls (a scrollbar would narrow it)
-    `<style>:root{${rootStyle(vars, scheme)}}html,body{margin:0;overflow:hidden;background:transparent;color:var(--ink,#e6e8ec);font:12px/1.4 system-ui,sans-serif}#root{display:block}</style>`,
+    `<style>:root{${rootStyle(vars, scheme)}}html,body{margin:0;overflow:hidden;background:transparent;color:var(--ink,#18181b);font:12px/1.4 system-ui,sans-serif}#root{display:block}</style>`,
     guard(offset),
     `<script>${inline(vue)}</script>`,
     '</head><body><div id="root"></div>',
@@ -86,30 +87,32 @@ export function scriptDocument(source, vars, vue, scheme = 'normal') {
  *  workbench's controls */
 const MODULE_STYLE = [
   'html,body,#root{height:100%;margin:0}',
-  'body{overflow:hidden;background:transparent;color:var(--ink,#e6e8ec);font:12px/1.45 system-ui,"PingFang SC",sans-serif}',
+  'body{overflow:hidden;background:transparent;color:var(--ink,#18181b);font:12px/1.45 system-ui,"PingFang SC",sans-serif}',
   '*{box-sizing:border-box}',
   '.nm-grid{display:grid;gap:8px;height:100%;min-width:0;overflow:auto}',
   '.nm-auto{grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));grid-auto-rows:minmax(140px,1fr)}',
-  '.nm-view{min-width:0;min-height:0;overflow:auto;scrollbar-width:thin;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}',
-  'button{font:inherit;font-size:12px;padding:2px 10px;border:1px solid var(--line-strong);border-radius:6px;background:var(--soft);color:var(--ink);cursor:pointer;line-height:1.5}',
-  'button:hover{background:var(--line-strong)}',
+  '.nm-view{min-width:0;min-height:0;overflow:auto;scrollbar-width:thin;padding:8px;border:1px solid var(--line);border-radius:var(--radius,2px);background:var(--bg)}',
+  'button{font:inherit;font-size:12px;font-weight:500;padding:2px 10px;border:1px solid var(--line-strong);border-radius:var(--radius,2px);background:#fff;color:var(--ink);cursor:pointer;line-height:1.5}',
+  'button:hover{background:var(--bg)}',
   'button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}',
-  'button:disabled{opacity:.4;cursor:default}',
-  'button.on{border-color:var(--focus);color:var(--focus)}',
+  'button:disabled{opacity:.5;cursor:default}',
+  'button.on{border-color:var(--focus);color:var(--focus);background:var(--focus-soft,#fff)}',
   '.nm-controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}',
   '.nm-round{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}',
 ].join('');
 
 /**
- * The frame document of a script module (ADR 0019): the same CSP and colours as a view script, Vue, then `runtime`
- * (the text of script-module-runtime.js). The files arrive later, in the `load` message.
- * @param {Record<string, string>} vars  @param {string} vue  @param {string} runtime  @param {string} [scheme]
+ * The frame document of a script module (ADR 0019): the same CSP and colours as a view script, Vue, `viem` (the text
+ * of the viem-global.js bundle, the global `viem`), then `runtime` (the text of script-module-runtime.js). The files
+ * arrive later, in the `load` message.
+ * @param {Record<string, string>} vars  @param {{ vue: string, viem: string }} libraries  @param {string} runtime  @param {string} [scheme]
  */
-export function scriptModuleDocument(vars, vue, runtime, scheme = 'normal') {
+export function scriptModuleDocument(vars, { vue, viem }, runtime, scheme = 'normal') {
   return [
     ...meta,
     `<style>:root{${rootStyle(vars, scheme)}}${MODULE_STYLE}</style>`,
     `<script>${inline(vue)}</script>`,
+    `<script>${inline(viem)}</script>`,
     '</head><body><div id="root"></div>',
     `<script>${inline(runtime)}</script>`,
     '</body></html>',

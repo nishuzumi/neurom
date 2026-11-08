@@ -44,7 +44,7 @@ The engine ids are `dense-policy` and `threshold-layers`. On chain, each contrac
   - The shape is valid.
   - Every tool is an official module.
 
-  Then the factory records `isModule`, the per-artifact index and the `ModuleDeployed` event (ADR 0016).
+  Then the factory records `isModule`, the per-artifact index, the Deployment Archive and the `ModuleDeployed` event (ADR 0016). The archive fixes each module's deployer and Module ID in the deployment transaction. The ID is unique within that deployer's namespace. Ownership transfer does not change the archive. Account-based pages read the archive directly.
 - Any network can be a tool. This includes LIF networks and networks with their own tool layers. The state of a network tool belongs to the calling session. The outermost module contract keeps the tool state with the state of the caller itself. The tool state advances only on the steps on which the caller chooses the tool. It resets with the session. The nesting depth has a limit, so the gas of a step also has a limit.
 
 ## Considered Options

@@ -1,12 +1,14 @@
 // chain/client.test.js — the ladder client over a fresh anvil with the protocol and a TankLadder on it
 // (frontend/ladder.fixture.js). Two fixed 中 networks of the template (572 → 32 → 32 → 9, int16, different seeds) are
-// the entries: built as artifacts from the stage 1 trainer of the template, so the deployment goes the way of the
-// workbench. The challenges run under manual mining (one block every 150 ms, one 30M transaction per block), so the
-// pipeline really has transactions in flight. Skips with NO_FOUNDRY.
+// the entries: built as artifacts from the stage 1 trainer of the template and deployed through the chain bridge of
+// the workbench (module-chain.js deployModule, each under an English id of its deployer), the way the workbench
+// deploys; the client registers the addresses.
+// The challenges run under manual mining (one block every 150 ms, one 30M transaction per block), so the pipeline
+// really has transactions in flight. Skips with NO_FOUNDRY.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ethers } from 'ethers';
-import { NO_FOUNDRY } from '../../../frontend/anvil.fixture.js';
+import { NO_FOUNDRY, deployOut } from '../../../frontend/anvil.fixture.js';
 import { localLadder, LADDER_DEFAULTS } from '../../../frontend/ladder.fixture.js';
 import { ModuleGraph } from '../../../frontend/core/graph.js';
 import { instantiateInto } from '../../../frontend/core/template.js';
@@ -16,10 +18,11 @@ import { makeArtifact } from '../../../frontend/core/store.js';
 import { scriptCalls } from '../../../frontend/core/script-calls.js';
 import { createExecutor } from '../../../frontend/core/sessions/executor.js';
 import { DENSE_FORMAT } from '../../../frontend/runtime/dense-policy.js';
+import { deployModule } from '../../../frontend/module-chain.js';
 import stepGas from '../../data/step-gas.json' with { type: 'json' };
 import TankLadderABI from '../../../frontend/abi/TankLadder.json' with { type: 'json' };
 import { createLadderClient, decodeLadderError, episodeSeed, unpackActions, PLAY_GAS, MAX_IN_FLIGHT, STATUS, EPISODES } from './client.js';
-import { readProvider } from '../wallet/read-provider.js';
+import { readProvider } from '../../../frontend/chain.js';
 
 const [INPUTS, ACTIONS] = [572, 9];
 const iface = new ethers.Interface(TankLadderABI);
@@ -56,8 +59,8 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
   const { artifactOf, call } = template();
   const models = { a: fixedModel(INPUTS, [32, 32], ACTIONS, 11), b: fixedModel(INPUTS, [32, 32], ACTIONS, 13) };
   const [alice, bob] = [await provider.getSigner(1), await provider.getSigner(2)];
-  const clientOf = signer => createLadderClient({ provider, signer, ladder, factory, chainId, pollMs: 20 });
-  const [reader, asAlice, asBob] = [createLadderClient({ provider, ladder, factory, chainId }), clientOf(alice), clientOf(bob)];
+  const clientOf = signer => createLadderClient({ provider, signer, ladder, pollMs: 20 });
+  const [reader, asAlice, asBob] = [createLadderClient({ provider, ladder }), clientOf(alice), clientOf(bob)];
   /** Manual mining: a block every `ms` → stop(). */
   const mining = async ms => {
     await provider.send('evm_setAutomine', [false]);
@@ -65,6 +68,7 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
     return async () => { clearInterval(timer); await provider.send('evm_setAutomine', [true]); };
   };
   const mine = n => provider.send('anvil_mine', [ethers.toQuantity(n)]);
+  const sent = async signer => Number(await provider.send('eth_getTransactionCount', [await signer.getAddress(), 'latest']));
   const modules = {};
   try {
     await t.test('config reads the deployed configuration as numbers', async () => {
@@ -72,36 +76,68 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
       assert.deepEqual({ ...c, endBlock: undefined, factory: undefined }, { ...LADDER_DEFAULTS, ...OVERRIDES, endBlock: undefined, factory: undefined });
       assert.equal(c.factory, factory);
       assert.equal(typeof c.endBlock, 'number');
-      assert.deepEqual(await reader.ladder(), []);
+      assert.deepEqual(await reader.board(), []);
+      assert.deepEqual(await reader.entries(), []);
     });
 
-    await t.test('register deploys the artifact through the chain bridge and registers it; the ladder, entry and entriesOf read it back', async () => {
+    await t.test('register enters a module the Factory deployed and sends only the register transaction; the board, entries and entry read it back', async () => {
+      const deployed = await deployModule(alice, factory, await artifactOf(models.a), { moduleId: 'alice-mid' });
+      const before = await sent(alice);
       const status = [];
-      const a = await asAlice.register(await artifactOf(models.a), { onStatus: s => status.push(s) });
-      assert.match(a.module, /^0x[0-9a-fA-F]{40}$/);
+      const a = await asAlice.register(deployed.address.toLowerCase(), { onStatus: s => status.push(s) });
+      assert.equal(a.module, ethers.getAddress(deployed.address), 'the address comes back checksummed');
       assert.deepEqual({ rank: a.rank, owner: a.owner, weightBytes: a.weightBytes }, { rank: 1, owner: await alice.getAddress(), weightBytes: 39840 });
-      assert.ok(status.some(s => s.stage === 'deploy' && s.kind === 'module' && s.deployStage === 'mined'), 'the deployment reports its transactions');
-      assert.ok(status.every(s => typeof s.message === 'string'), 'every status has a message');
-      assert.deepEqual(status.map(s => s.stage).filter(s => s !== 'deploy'), ['deploying', 'registering', 'registered']);
-      const b = await asBob.register(await artifactOf(models.b));
+      assert.deepEqual(status.map(s => s.stage), ['registering', 'registered']);
+      assert.equal(await sent(alice), before + 1, 'registration is one transaction');
+      const tx = await provider.getTransaction(a.txHash);
+      assert.equal(tx.to, ladder, 'the one transaction goes to the ladder');
+      assert.equal(tx.data, iface.encodeFunctionData('register', [a.module]), 'and only registers: no chunks, no module');
+      const b = await asBob.register((await deployModule(bob, factory, await artifactOf(models.b), { moduleId: 'bob-mid' })).address);
       assert.deepEqual({ rank: b.rank, owner: b.owner }, { rank: 2, owner: await bob.getAddress() });
-      modules.a = a.module; modules.b = b.module;
-      const rows = await reader.ladder({ fromRank: 1 });
+      modules.a = a.module; modules.b = b.module; modules.aArtifact = deployed.artifactId.toLowerCase();
+      const rows = await reader.board();
       assert.deepEqual(rows, [
         { rank: 1, module: a.module, owner: a.owner, weightBytes: 39840, wins: 0, losses: 0, activeChallenge: 0 },
         { rank: 2, module: b.module, owner: b.owner, weightBytes: 39840, wins: 0, losses: 0, activeChallenge: 0 },
       ]);
-      assert.deepEqual(await reader.ladder({ fromRank: 2, count: 5 }), [rows[1]]);
-      assert.deepEqual(await reader.ladder({ fromRank: 3 }), []);
+      assert.deepEqual(await reader.entries(), rows, 'in the order of registration');
       assert.deepEqual(await reader.entry(b.module), rows[1]);
       assert.equal(await reader.entry(ladder), null);
-      assert.deepEqual(await reader.entriesOf(b.owner), [rows[1]]);
-      assert.deepEqual(await reader.entriesOf(ladder), []);
-      assert.equal(await reader.activeChallengeOf(a.module), null);
     });
 
-    await t.test('registering the same weights again is refused with DuplicateWeights, which decodeLadderError names', async () => {
-      await assert.rejects(asBob.register(await artifactOf(models.a)), e => decodeLadderError(e) === 'DuplicateWeights' && e.ladderError === 'DuplicateWeights');
+    await t.test('register refuses before sending: a duplicate of registered weights (DuplicateWeights), an address the official Factory did not deploy (NotOfficialModule), a non-address', async () => {
+      const twin = await deployModule(bob, factory, await artifactOf(models.a), { moduleId: 'bob-twin-of-alice' });
+      modules.twin = twin.address;
+      const before = await sent(bob);
+      await assert.rejects(asBob.register(twin.address), e => decodeLadderError(e) === 'DuplicateWeights' && e.ladderError === 'DuplicateWeights' && e.module === twin.address);
+      for (const notOfficial of [factory, ladder, await alice.getAddress()]) {
+        await assert.rejects(asBob.register(notOfficial), e => e.ladderError === 'NotOfficialModule', `${notOfficial} is not a module of the Factory`);
+      }
+      await assert.rejects(asBob.register(modules.a), e => e.ladderError === 'AlreadyEntered');
+      await assert.rejects(asBob.register('0x1234'), /not a module address/);
+      await assert.rejects(asBob.register(''), /not a module address/);
+      assert.equal(await sent(bob), before, 'a refusal sends nothing');
+      await assert.rejects(reader.register(twin.address), /needs a signer/);
+    });
+
+    await t.test('deploymentsOf lists the modules of one account from the archive of the Factory: English ids, descriptors, in deployment order, registered or not', async () => {
+      const [aliceAddress, bobAddress] = [await alice.getAddress(), await bob.getAddress()];
+      assert.deepEqual([await reader.deploymentCount(aliceAddress), await reader.deploymentCount(bobAddress), await reader.deploymentCount(ladder)], [1, 2, 0]);
+      const ofAlice = await reader.deploymentsOf(aliceAddress);
+      assert.deepEqual(ofAlice, [{ module: modules.a, moduleId: 'alice-mid', deployer: aliceAddress, engineId: ofAlice[0].engineId, engine: ofAlice[0].engine, artifactId: modules.aArtifact, taskId: ofAlice[0].taskId,
+        kind: 0, kindName: 'feedforward', inputs: INPUTS, outputs: ACTIONS, stateWidth: 0 }]);
+      assert.match(ofAlice[0].engine, /^0x[0-9a-fA-F]{40}$/);
+      const ofBob = await reader.deploymentsOf(bobAddress);
+      assert.deepEqual(ofBob.map(d => [d.module, d.moduleId, d.deployer]), [[modules.b, 'bob-mid', bobAddress], [modules.twin, 'bob-twin-of-alice', bobAddress]], 'in deployment order, the unregistered twin included');
+      assert.deepEqual({ ...ofBob[1], module: null, moduleId: null, deployer: null }, { ...ofAlice[0], module: null, moduleId: null, deployer: null }, 'the twin of alice carries her descriptor');
+      assert.notEqual(ofBob[0].artifactId, ofBob[1].artifactId);
+      // the registered state comes from the ladder, not from the archive
+      assert.equal((await reader.entry(ofBob[0].module)).rank, 2);
+      assert.equal(await reader.entry(ofBob[1].module), null);
+      assert.deepEqual((await reader.deploymentsOf(bobAddress, { offset: 1, limit: 5 })).map(d => d.moduleId), ['bob-twin-of-alice']);
+      assert.deepEqual(await reader.deploymentsOf(bobAddress, { offset: 2 }), []);
+      assert.deepEqual(await reader.deploymentsOf(ladder), []);
+      await assert.rejects(reader.deploymentsOf('0x1234'), /not an address/);
     });
 
     await t.test('targets lists the entries in range with the refusal of the moment', async () => {
@@ -113,6 +149,25 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
       assert.equal(forAlice.reason, 'NotOwner', 'alice does not own b');
       const [noSigner] = await reader.targets(modules.b);
       assert.equal(noSigner.reason, null, 'without a signer the owner is not checked');
+    });
+
+    await t.test('an entry off a full board targets the last ranks within range; register, entry and entries say rank 0', async () => {
+      // a second ladder on the same chain with a board of 1: a fills it, b stays off it
+      const cfg = await reader.config();
+      const small = await (await deployOut(chain.signer, 'TankLadder', { ...cfg, boardSize: 1 })).getAddress();
+      const on = signer => createLadderClient({ provider, signer, ladder: small, pollMs: 20 });
+      assert.equal((await on(alice).register(modules.a)).rank, 1);
+      const status = [];
+      const off = await on(bob).register(modules.b, { onStatus: s => status.push(s) });
+      assert.equal(off.rank, 0);
+      assert.match(status.at(-1).message, /off the board/);
+      const reads = on(undefined);
+      assert.deepEqual((await reads.board()).map(e => e.module), [modules.a]);
+      assert.deepEqual((await reads.entries()).map(e => [e.module, e.rank]), [[modules.a, 1], [modules.b, 0]]);
+      assert.equal((await reads.entry(modules.b)).rank, 0, 'off the board is still an entry');
+      const targets = await on(bob).targets(modules.b);
+      assert.deepEqual(targets.map(d => [d.module, d.rank, d.reason]), [[modules.a, 1, null]], 'rank 1 is one rank above the rank below the last');
+      assert.deepEqual(await on(alice).targets(modules.a), [], 'nobody above rank 1');
     });
 
     await t.test('estimate follows step-gas.json and the weight bytes', async () => {
@@ -159,7 +214,7 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
       const steps = progress.map(p => p.episode * 1000 + p.step);
       assert.ok(steps.every((s, k) => k === 0 || s >= steps[k - 1]), 'the progress never goes back');
       // the ranks: the winner is rank 1, the loser rank 2; wins and losses count
-      const rows = await reader.ladder();
+      const rows = await reader.board();
       const [winner, loser] = first.status === STATUS.CHALLENGER_WON ? [modules.b, modules.a] : [modules.a, modules.b];
       assert.deepEqual(rows.map(r => [r.rank, r.module, r.wins, r.losses, r.activeChallenge]), [[1, winner, 1, 0, 0], [2, loser, 0, 1, 0]]);
       assert.deepEqual(await asBob.resume(1), first, 'resume of a settled challenge returns it');
@@ -167,8 +222,8 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
     });
 
     await t.test('targets shows the cooldown of the pair, then it lifts', async () => {
-      const [{ rank: loserRank, module: loser }] = (await reader.ladder()).filter(r => r.rank === 2);
-      const [top] = await reader.ladder({ fromRank: 1, count: 1 });
+      const [{ rank: loserRank, module: loser }] = (await reader.board()).filter(r => r.rank === 2);
+      const [top] = await reader.board();
       const [target] = await clientOf(loser === modules.b ? bob : alice).targets(loser);
       const until = Number(await chain.ladderContract.cooldownUntil(loser, top.module));
       assert.equal(target.cooldownUntil, until);
@@ -180,7 +235,7 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
 
     let second = null;
     await t.test('resume continues a challenge that was interrupted with transactions in flight', async () => {
-      const [top, low] = await reader.ladder();
+      const [top, low] = await reader.board();
       const signer = low.owner.toLowerCase() === (await bob.getAddress()).toLowerCase() ? bob : alice;
       const client = clientOf(signer);
       const stop = await mining(150);
@@ -192,7 +247,7 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
         assert.equal(id, 2);
         if (settledEarly) { second = settledEarly; t.diagnostic('the start transaction settled challenge 2: nothing to resume'); return; }
         assert.equal((await reader.challengeInfo(id)).status, STATUS.PLAYING);
-        assert.equal(await reader.activeChallengeOf(low.module), id);
+        assert.equal((await reader.entry(low.module)).activeChallenge, id);
         const progress = [];
         second = await client.resume(id, { onProgress: p => { progress.push(p); assert.ok(p.inFlight <= MAX_IN_FLIGHT); } });
         assert.ok([STATUS.CHALLENGER_WON, STATUS.DEFENSE].includes(second.status));
@@ -200,7 +255,7 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
         assert.equal(progress.at(-1).status, second.status);
         assert.equal(progress.at(-1).inFlight, 0);
       } finally { await stop(); }
-      assert.equal(await reader.activeChallengeOf(low.module), null);
+      assert.equal((await reader.entry(low.module)).activeChallenge, 0);
       await assert.rejects(client.resume(3), /does not exist/);
     });
 
@@ -239,21 +294,88 @@ test('the ladder client on a local anvil', { skip: NO_FOUNDRY }, async t => {
       const recent = await reader.recentChallenges({ count: 5 });
       assert.deepEqual(recent.map(c => [c.id, c.challenger, c.defender, c.status, c.challengerWins, c.defenderWins, c.startBlock]),
         [second, first].map(i => [i.id, i.challenger, i.defender, i.status, i.challengerWins, i.defenderWins, i.startBlock]));
-      for (const c of recent) { assert.ok(c.gasUsed > 1_000_000 && c.transactions >= 1, `challenge ${c.id}: ${c.transactions} transactions, ${c.gasUsed} gas`); }
+      for (const c of recent) { assert.ok(c.gasUsed > 1_000_000, `challenge ${c.id}: ${c.gasUsed} gas`); }
       assert.deepEqual((await reader.recentChallenges({ count: 1 })).map(c => c.id), [2]);
     });
 
-    await t.test('with the read provider of the page, a key signer registers right after the deployment receipt', async () => {
+    await t.test('old challenges keep their replay and gas totals through an RPC with a 100-block log limit', async () => {
+      const expectedRecent = await reader.recentChallenges();
+      const expectedReplays = await Promise.all([reader.replay(first.id), reader.replay(second.id)]);
+      await mine(500);
+      const limited = readProvider(chain.url, chainId);
+      const send = limited.send.bind(limited);
+      limited.send = (method, params) => {
+        if (method === 'eth_getLogs') {
+          const [{ fromBlock, toBlock }] = params;
+          if (toBlock === 'latest' || BigInt(toBlock) - BigInt(fromBlock) >= 100n) {
+            throw new Error('Block range is too large');
+          }
+        }
+        return send(method, params);
+      };
+      const client = createLadderClient({ provider: limited, ladder });
+      try {
+        assert.deepEqual(await client.recentChallenges(), expectedRecent);
+        assert.deepEqual(await Promise.all([client.replay(first.id), client.replay(second.id)]), expectedReplays);
+      } finally { limited.destroy(); }
+    });
+    await t.test('resume settles an expired challenge without advance, and repeated settlement sends nothing', async subtest => {
+      const [top, low] = await reader.board();
+      const page = readProvider(chain.url, chainId);
+      subtest.after(() => page.destroy());
+      const signer = await page.getSigner(low.owner);
+      const client = createLadderClient({ provider: page, signer, ladder, pollMs: 20 });
+      let id;
+      await assert.rejects(client.challenge(low.module, top.module, { onProgress: p => {
+        if (p.id !== null) { id = p.id; throw new Error('interrupted after start'); }
+      } }), /interrupted after start/);
+      const before = await client.challengeInfo(id);
+      assert.equal(before.status, STATUS.PLAYING);
+      await assert.rejects(client.expire(id), e => decodeLadderError(e) === 'NotExpired');
+      const partial = await client.replay(id);
+      const block = Number(await provider.send('eth_blockNumber', []));
+      await mine(before.deadline - block + 1);
+      const nonce = await sent(signer);
+      const progress = [];
+      const result = await client.resume(id, { onProgress: p => progress.push(p) });
+      assert.equal(result.status, STATUS.EXPIRED);
+      assert.equal(await sent(signer), nonce + 1, 'only the settlement transaction is sent');
+      const tx = await page.getTransaction((await page.getBlock('latest')).transactions[0]);
+      assert.equal(iface.parseTransaction({ data: tx.data }).name, 'expire');
+      assert.ok(tx.gasLimit < BigInt(PLAY_GAS), 'settlement does not pay for a play transaction');
+      assert.equal(progress.at(-1).status, STATUS.EXPIRED);
+      assert.equal(progress.at(-1).inFlight, 0);
+      assert.equal((await reader.entry(low.module)).activeChallenge, 0);
+      assert.equal((await reader.entry(top.module)).activeChallenge, 0);
+      assert.deepEqual(await client.expire(id), result);
+      assert.equal(await sent(signer), nonce + 1);
+      const finalReplay = await client.replay(id);
+      assert.equal(finalReplay.status, STATUS.EXPIRED);
+      assert.deepEqual(finalReplay.episodes, partial.episodes);
+    });
+
+
+    await t.test('with the read provider of the page, a key signer registers right after the deployment receipt; the registrar owns the entry', async () => {
       // The dev signer of the page signs locally, so the read provider gives its nonces. Automine gives the receipt of
       // the deployment at once, so the register transaction follows it within the 250 ms request cache of ethers.
       const page = readProvider(chain.url, chainId);
       const key = ethers.HDNodeWallet.fromMnemonic(ethers.Mnemonic.fromPhrase('test test test test test test test test test test test junk'), "m/44'/60'/0'/0/4").connect(page);
-      const asKey = createLadderClient({ provider: page, signer: key, ladder, factory, chainId, pollMs: 20 });
+      const asKey = createLadderClient({ provider: page, signer: key, ladder, pollMs: 20 });
       try {
         for (const seed of [17, 19, 23]) {
-          const r = await asKey.register(await artifactOf(fixedModel(INPUTS, [32, 32], ACTIONS, seed)));
+          const { address } = await deployModule(key, factory, await artifactOf(fixedModel(INPUTS, [32, 32], ACTIONS, seed)), { moduleId: `key-seed-${seed}` });
+          const r = await asKey.register(address);
           assert.equal(r.owner, key.address);
         }
+        // the contract gives the entry to msg.sender, whoever deployed the module
+        const byBob = await deployModule(bob, factory, await artifactOf(fixedModel(INPUTS, [32, 32], ACTIONS, 29)), { moduleId: 'bob-for-key' });
+        const r = await asKey.register(byBob.address);
+        assert.equal(r.owner, key.address);
+        assert.equal((await reader.entry(byBob.address)).owner, key.address);
+        // the archive of the Factory keeps the deployer, whoever registered the module
+        assert.deepEqual((await reader.deploymentsOf(key.address)).map(d => d.moduleId), ['key-seed-17', 'key-seed-19', 'key-seed-23']);
+        const bobsLast = (await reader.deploymentsOf(await bob.getAddress())).at(-1);
+        assert.deepEqual({ module: bobsLast.module, moduleId: bobsLast.moduleId, deployer: bobsLast.deployer }, { module: byBob.address, moduleId: 'bob-for-key', deployer: await bob.getAddress() });
       } finally { page.destroy(); }
     });
   } finally { chain.stop(); }

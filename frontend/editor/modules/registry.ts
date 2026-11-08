@@ -19,6 +19,7 @@ import EvaluatorBody from './EvaluatorBody.vue';
 import ExecutionBody from './ExecutionBody.vue';
 import ViewBody from './ViewBody.vue';
 import DeploymentBody from './DeploymentBody.vue';
+import ChainNodeBody from './ChainNodeBody.vue';
 import BitsBody from './BitsBody.vue';
 import LoopBody from './LoopBody.vue';
 import ScriptBody from './ScriptBody.vue';
@@ -41,6 +42,7 @@ export const BODIES: Record<string, BodyEntry> = {
   view: { body: ViewBody },
   script: { body: ScriptBody },
   deployment: { body: DeploymentBody },
+  chain: { body: ChainNodeBody },
   bits: { body: BitsBody },
   loop: { body: LoopBody },
 };

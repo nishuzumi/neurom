@@ -12,7 +12,7 @@ export async function openDatabase(url) {
   if (!url) throw new Error('DATABASE_URL is not set');
   const { neon } = await import('@neondatabase/serverless');
   const sql = neon(url);
-  return { kind: 'neon', query: (text, params = []) => sql.query(text, params), close: async () => {} };
+  return { query: (text, params = []) => sql.query(text, params), close: async () => {} };
 }
 
 /** PGlite in memory, for tests. */
@@ -20,7 +20,7 @@ export async function openTestDatabase() {
   const { PGlite } = await import('@electric-sql/pglite');
   const pg = new PGlite();
   await pg.waitReady;
-  return { kind: 'pglite', query: async (text, params = []) => (await pg.query(text, params)).rows, close: () => pg.close() };
+  return { query: async (text, params = []) => (await pg.query(text, params)).rows, close: () => pg.close() };
 }
 
 const ready = new WeakMap();

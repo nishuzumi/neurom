@@ -10,6 +10,7 @@ import "./Vm.sol";
 ///   LADDER_MAX_WEIGHT_BYTES the largest weight size of an entry, default 216864
 ///   LADDER_DELTA_BPS        δ in basis points, default 1000 (10%)
 ///   LADDER_RANGE            how many ranks above itself an entry can challenge, default 10
+///   LADDER_BOARD_SIZE       how many ranks the board holds, default 20
 ///   LADDER_TIMEOUT_BLOCKS   blocks from the start of a challenge until it expires, default 400
 ///   LADDER_COOLDOWN_BLOCKS  blocks before the same challenger can challenge the same defender again, default 6000
 ///   LADDER_MIN_START_GAS    the gas left at the entry of `challenge`, default 24000000
@@ -22,6 +23,7 @@ contract DeployLadder {
             uint32(vm.envOr("LADDER_MAX_WEIGHT_BYTES", 216_864)),
             uint16(vm.envOr("LADDER_DELTA_BPS", 1000)),
             uint8(vm.envOr("LADDER_RANGE", 10)),
+            uint8(vm.envOr("LADDER_BOARD_SIZE", 20)),
             uint32(vm.envOr("LADDER_TIMEOUT_BLOCKS", 400)),
             uint32(vm.envOr("LADDER_COOLDOWN_BLOCKS", 6000)),
             uint32(vm.envOr("LADDER_MIN_START_GAS", 24_000_000)),

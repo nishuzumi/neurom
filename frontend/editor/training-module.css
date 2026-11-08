@@ -1,4 +1,4 @@
-/* editor/training-module.css — the training module frame (TrainingModuleNode.vue, ADR 0011): one uniform dark frame,
+/* editor/training-module.css — the training module frame (TrainingModuleNode.vue, ADR 0011): one uniform white frame,
    a header strip, the left column of sections (the trainer and its satellites: no cards, 1px dividers, one rhythm),
    the recessed well on the right (background only) with the feed handles on its left edge, and the outer slots.
    The view (index.ts / sizes.ts TRAIN_FRAME) gives the geometry through inline style and the --tm-* variables. The
@@ -9,19 +9,19 @@
 /* the flow node passes the pointer through (inline, index.ts): the well is canvas. These take it back. */
 .neurom-editor .vue-flow__node-trainmod :is(.tm-head,.tm-col,.tm-feed .vue-flow__handle,.tm-outs .vue-flow__handle){pointer-events:auto}
 
-.tmod{position:relative;display:flow-root;box-sizing:border-box;width:100%;min-height:inherit;background:#1a1d22;border:1px solid #3a3f48;border-radius:14px;box-shadow:0 12px 40px #000a,inset 0 1px 0 #ffffff0a;color:var(--ink);font-size:12px;line-height:1.4}
+.tmod{position:relative;display:flow-root;box-sizing:border-box;width:100%;min-height:inherit;background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);box-shadow:var(--shadow);color:var(--ink);font-size:12px;line-height:1.4}
 /* the selection ring keeps about 3 screen pixels at any zoom (--zoom: index.ts paintView). One selection colour (--spike) */
-.vue-flow__node-trainmod.selected .tmod{border-color:var(--spike);box-shadow:0 0 0 max(2px,calc(3px / var(--zoom,1))) var(--spike),0 12px 40px #000a}
+.vue-flow__node-trainmod.selected .tmod{border-color:var(--spike);box-shadow:0 0 0 max(2px,calc(3px / var(--zoom,1))) var(--spike)}
 
 /* header: the drag handle (.group-head is in NODE_DRAG_HANDLE). It is neutral and not kind-tinted */
-.tmod .tm-head{box-sizing:border-box;height:var(--tm-head);gap:8px;padding:0 10px 0 var(--tm-pad);color:var(--ink);background:transparent;border-bottom:1px solid var(--line);border-radius:13px 13px 0 0}
-.tm-badge{flex:none;display:inline-flex;align-items:baseline;gap:6px;font-size:13px;font-weight:700;letter-spacing:.02em}
+.tmod .tm-head{box-sizing:border-box;height:var(--tm-head);gap:8px;padding:0 10px 0 var(--tm-pad);color:var(--ink);background:transparent;border-bottom:1px solid var(--line);border-radius:var(--radius) var(--radius) 0 0}
+.tm-badge{flex:none;display:inline-flex;align-items:baseline;gap:6px;font-size:13px;font-weight:900;letter-spacing:-.01em;color:var(--head)}
 .tm-sep{color:var(--line-strong);font-weight:400}
 .tm-method{color:var(--muted);font-weight:600}
 .tmod .tm-title{font-size:13px}
 
-/* the well: a recessed sub-canvas, background only */
-.tm-well{position:absolute;box-sizing:border-box;border-radius:12px;border:1px solid #0a0b0d;background:#101216 radial-gradient(#252a31 1px,transparent 1px) 0 0/18px 18px;box-shadow:inset 0 4px 14px #000e,inset 0 0 0 1px #0008,0 1px 0 #ffffff10;pointer-events:none}
+/* the well: a recessed sub-canvas, background only. The grey ground with the canvas dot grid, inside a 1px line */
+.tm-well{position:absolute;box-sizing:border-box;border-radius:var(--radius);border:1px solid var(--line);background:var(--bg) radial-gradient(var(--grid-dot) 1px,transparent 1px) 0 0/18px 18px;box-shadow:inset 0 1px 3px rgba(24,24,27,.06);pointer-events:none}
 
 /* feeds: the dot's centre on the well's left edge, the label above it inside the well */
 .tm-feeds{position:absolute;width:0;height:0}
@@ -29,7 +29,7 @@
 .neurom-editor .tm-feed .vue-flow__handle.port-slot{left:-6px;right:auto;top:-6px}
 /* the well keeps a lane this wide clear of its members (TRAIN_FRAME.well.left), so no module covers a feed name */
 .tm-feed-name{position:absolute;left:8px;bottom:9px;max-width:136px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:1.2;color:var(--muted);pointer-events:none}
-.tm-feed.bound .tm-feed-name{color:#c3c9d2}
+.tm-feed.bound .tm-feed-name{color:var(--ink)}
 
 /* the left column: the host of the section bodies, split into section columns (view.columns) of TRAIN_FRAME.column each */
 .tm-col{position:relative;box-sizing:border-box;cursor:auto;user-select:text;-webkit-user-select:text}
@@ -40,11 +40,11 @@
 .tm-top+.tm-cols .tm-sec:first-child{padding-top:12px;border-top:1px solid var(--line)}
 .tm-sec:last-child{padding-bottom:0}
 /* the corner handle: drag to change the column count, double-click for the automatic one */
-.tmod .tm-resize{position:absolute;right:3px;bottom:3px;width:16px;height:16px;border-radius:0 0 11px 0;cursor:nwse-resize;pointer-events:auto;touch-action:none;
+.tmod .tm-resize{position:absolute;right:3px;bottom:3px;width:16px;height:16px;border-radius:0 0 var(--radius) 0;cursor:nwse-resize;pointer-events:auto;touch-action:none;
   background:linear-gradient(135deg,transparent 55%,var(--line-strong) 55%,var(--line-strong) 62%,transparent 62%,transparent 72%,var(--line-strong) 72%,var(--line-strong) 79%,transparent 79%)}
 .tmod .tm-resize:hover{background-color:color-mix(in srgb,var(--focus) 18%,transparent)}
 .tm-sec-head{display:flex;align-items:center;gap:8px;height:24px}
-/* a fixed kind column, so every section's title starts on the same line */
+/* a fixed kind column, so every section's title starts on the same line. Sans, not the mono label: the column is 4.5em and a mono word such as TRAINER does not fit */
 .tm-kind{flex:0 0 4.5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--col,var(--muted));cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
 .tm-kind:active{cursor:grabbing}
 /* a section that the user drags by its kind label, and where it would land: a line between sections, or a bar in the
@@ -53,16 +53,16 @@
 .tm-drop{position:absolute;z-index:5;border-radius:2px;background:var(--focus);pointer-events:none}
 .tm-drop.row{height:max(2px,calc(3px / var(--zoom,1)));transform:translateY(-50%)}
 .tm-drop.column{top:0;bottom:0;width:max(2px,calc(3px / var(--zoom,1)));transform:translateX(-50%)}
-.tm-sec-title{flex:1 1 auto;min-width:40px;margin-left:-5px;padding:2px 4px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--ink);font:inherit;font-size:13px;font-weight:600;line-height:18px}
+.tm-sec-title{flex:1 1 auto;min-width:40px;margin-left:-5px;padding:2px 4px;border:1px solid transparent;border-radius:var(--radius);background:transparent;color:var(--head);font:inherit;font-size:13px;font-weight:900;letter-spacing:-.01em;line-height:18px}
 .tm-sec-fill{flex:1 1 auto}
-.tm-sec-title:hover,.tm-sec-title:focus{border-color:var(--line-strong);background:var(--bg)}
+.tm-sec-title:hover,.tm-sec-title:focus{border-color:var(--line-strong);background:#fff}
 .tm-sec.folded .tm-sec-title{color:var(--muted)}
 .tm-sec.has-problem .tm-kind{color:var(--bad)}
 /* the picked section (a click on it, or 「选中」, which zooms to it): a tint and an accent bar drawn in the gutter left of it, clear
    of its text, visible at any zoom. Both reach past the border box of the section, so they cover its content whatever
    its padding (a column's first and last sections have none on that side). The extra 6px only covers a neighbour's
    padding. */
-.tm-sec.picked::before{content:"";position:absolute;z-index:-1;inset:-6px -8px -6px -14px;border-radius:8px;background:color-mix(in srgb,var(--spike) 6%,transparent);pointer-events:none}
+.tm-sec.picked::before{content:"";position:absolute;z-index:-1;inset:-6px -8px -6px -14px;border-radius:var(--radius);background:color-mix(in srgb,var(--spike) 6%,transparent);pointer-events:none}
 .tm-sec.picked::after{content:"";position:absolute;left:-14px;top:-2px;bottom:-2px;width:max(3px,calc(4px / var(--zoom,1)));border-radius:2px;background:var(--spike);pointer-events:none}
 .tm-body{display:flex;flex-direction:column;box-sizing:border-box;width:100%;margin-top:10px;font-size:12px;line-height:1.4}
 .tm-body>*{width:100%;box-sizing:border-box;flex:1 0 auto}
@@ -95,20 +95,20 @@
    picks it), then its 「+」 while open. The name stays because two slots can hold the same module (训练集 / 验证集 ·
    种子分区). Missing expected wires: full-width rows after the chips. */
 .tm-slots{display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px}
-.tm-chip{display:inline-flex;align-items:stretch;height:24px;box-sizing:border-box;border:1px solid var(--line-strong);border-radius:6px;background:var(--bg);overflow:hidden;font-size:11.5px;line-height:22px}
-.tm-chip-name{padding:0 7px;font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--muted);background:#ffffff08}
+.tm-chip{display:inline-flex;align-items:stretch;height:24px;box-sizing:border-box;border:1px solid var(--line-strong);border-radius:var(--radius);background:#fff;overflow:hidden;font-size:11.5px;line-height:22px}
+.tm-chip-name{padding:0 7px;font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--muted);background:var(--panel-head)}
 .tm-chip.missing{border-color:var(--bad);border-style:dashed}
 .tm-chip.missing .tm-chip-name{color:var(--bad)}
 .tm-chip.missing .tm-chip-name::after{content:" *"}
 .tm-chip :is(.tm-fill,.tm-add,.tm-empty){padding:0 8px;border:0;border-left:1px solid var(--line);border-radius:0;background:transparent;font:inherit;line-height:22px}
 .tm-fill{color:var(--ink);cursor:pointer}
 .tm-chip .tm-add{border-left-style:dashed}
-.tm-chip :is(.tm-fill,.tm-add):hover{background:color-mix(in srgb,var(--focus) 18%,transparent);color:var(--ink)}
-.tm-add,.tm-restore{padding:1px 7px;border-radius:5px;font:inherit;font-size:11.5px;line-height:18px;cursor:pointer}
+.tm-chip :is(.tm-fill,.tm-add):hover{background:var(--focus-soft);color:var(--ink)}
+.tm-add,.tm-restore{padding:1px 7px;border-radius:var(--radius);font:inherit;font-size:11.5px;line-height:18px;cursor:pointer}
 .tm-add{border:1px dashed var(--line-strong);background:transparent;color:var(--muted)}
 .tm-add:hover{border-color:var(--focus);color:var(--ink)}
 .tm-empty{color:var(--muted)}
 .tm-drift{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:22px;font-size:11.5px;color:var(--bad)}
 .tm-drift-text{min-width:0;overflow-wrap:anywhere}
 .tm-restore{border:1px solid var(--bad);background:transparent;color:var(--bad)}
-.tm-restore:hover{background:color-mix(in srgb,var(--bad) 14%,transparent)}
+.tm-restore:hover{background:color-mix(in srgb,var(--bad) 8%,#fff)}

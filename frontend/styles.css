@@ -1,94 +1,120 @@
-/* styles.css — NEUROM studio shell (dark, ComfyUI-flavoured): fixed top bar, left rail, floating library drawer,
-   full-screen board (see editor/editor.css), bottom-right zoom toolbar and bottom status strip. Everything after the
-   shell section is the shared vocabulary the drawer and the module bodies use (buttons, inputs, notes, pins, tones). */
-:root{--bg:#16171b;--panel:#22242a;--panel-head:#2a2c34;--ink:#e6e8ec;--muted:#98a0aa;--line:#33363f;--line-strong:#474b57;--soft:#2c2f37;--grid-dot:#2e3138;--focus:#7aa2f7;
-  --inh:#5e8fe8;--spike:#f2bc4a;--plastic:#d9a040;--mod:#9a8ce8;--ok:#4fbf7e;--bad:#f0684d;--wire:#b8a878;--sens:#5fb8a6;
+/* styles.css — NEUROM studio shell: fixed top bar, left rail, floating library drawer, full-screen board (see
+   editor/editor.css), bottom-right zoom toolbar and bottom status strip. Everything after the shell section is the
+   shared vocabulary the drawer and the module bodies use (buttons, inputs, notes, pins, tones).
+   The visual values are the ladder page's (ladder/src/styles.css, after mojo.devnads.com): light grey ground, white
+   panels with a 1px light border and 2px corners, one indigo accent, system sans headings at weight 900, monospace
+   numbers. The fonts, the accent (--focus) and the header type scale come from ui/brand.css, which the ladder page
+   also uses. Every colour in the workbench is one of the tokens below, so a view script (editor/renderers/script-frame.js
+   themeVars) reads the same palette. */
+@import "./ui/brand.css";
+:root{--bg:rgb(250,250,250);--panel:#fff;--panel-head:rgb(244,244,245);--ink:rgb(24,24,27);--head:oklch(0.21 0.034 264.665);--muted:rgb(113,113,122);--line:rgb(229,231,235);--line-strong:rgb(209,213,219);--soft:rgb(244,244,245);--grid-dot:rgb(212,212,216);
+  --focus:var(--brand-accent-light);--focus-soft:oklch(0.95 0.03 var(--brand-hue));
+  /* the tones: every one reads on white and on the grey ground (4.5:1 or more as text) */
+  --inh:#2563eb;--spike:#d97706;--plastic:#b45309;--mod:#9333ea;--ok:#16a34a;--bad:#dc2626;--wire:#a16207;--sens:#0d9488;
   /* the training family (trainer, candidates, evaluator): its own rose, so a trainer never reads as an error (--bad) */
-  --train:#e5799c;
-  /* wire palette (editor/wire-palette.js colorEdges): no two wires on one block share an entry. Low indices are used first */
-  --wire-0:#7aa2f7;--wire-1:#f7768e;--wire-2:#9ece6a;--wire-3:#e0af68;--wire-4:#bb9af7;--wire-5:#2ac3de;--wire-6:#ff9e64;--wire-7:#73daca;--wire-8:#f5d76e;--wire-9:#db4b4b;--wire-10:#ff79c6;--wire-11:#c0caf5;
-  --topbar-h:52px;--rail-h:48px;--status-h:28px;--mono:ui-monospace,Menlo,Consolas,"SF Mono",monospace;color-scheme:dark}
+  --train:#db2777;
+  /* the tank board of the view scripts (templates/tank-battle.yaml): bricks and water */
+  --brick:#b4643c;--water:#3b6fb6;
+  /* wire palette (editor/wire-palette.js colorEdges): no two wires on one block share an entry. Low indices are used
+     first. Every entry is 3:1 or more on white, and the twelve hues stay apart */
+  --wire-0:#2563eb;--wire-1:#dc2626;--wire-2:#16a34a;--wire-3:#d97706;--wire-4:#7c3aed;--wire-5:#0891b2;--wire-6:#ea580c;--wire-7:#0d9488;--wire-8:#78350f;--wire-9:#881337;--wire-10:#c026d3;--wire-11:#475569;
+  /* shape: the ladder's 2px corner. Shadows are light: a floating panel lifts a little, nothing glows */
+  --radius:2px;--shadow:0 1px 2px rgba(24,24,27,.06);--shadow-pop:0 12px 32px -12px rgba(24,24,27,.28),0 1px 3px rgba(24,24,27,.08);
+  --topbar-h:52px;--rail-h:48px;--status-h:28px;--mono:var(--brand-mono);color-scheme:light}
 *{box-sizing:border-box}
 html,body{height:100%;overflow:hidden;overscroll-behavior:none}
-body{margin:0;background:var(--bg);color:var(--ink);font:13.5px/1.55 "Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--bg);color:var(--ink);font:13.5px/1.55 var(--brand-sans);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
 [hidden]{display:none !important}
 a{color:var(--focus)}
-::selection{background:color-mix(in srgb,var(--focus) 35%,transparent)}
+::selection{background:color-mix(in srgb,var(--focus) 22%,transparent)}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
 
-/* ---------------------------------------------------------------- shell: top bar */
-header.app-header{position:fixed;top:0;left:0;right:0;height:var(--topbar-h);z-index:40;display:flex;align-items:center;gap:14px;padding:0 14px 0 12px;background:#131418;border-bottom:1px solid var(--line);box-shadow:0 1px 0 rgba(255,255,255,.02)}
-.app-header .brand{display:flex;align-items:baseline;gap:10px;min-width:0;flex:none}
-.app-header h1{margin:0;font-size:14px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
-.app-header .brand .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38vw}
+/* ---------------------------------------------------------------- shell: top bar (the ladder top bar: wordmark, site links with the accent underline, language toggle) */
+header.app-header{position:fixed;top:0;left:0;right:0;height:var(--topbar-h);z-index:40;display:flex;align-items:center;gap:14px;padding:0 14px 0 12px;background:rgba(250,250,250,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.app-header .brand{display:flex;align-items:center;gap:18px;min-width:0;flex:none}
+.app-header h1{margin:0;font-size:var(--brand-wordmark-size);font-weight:var(--brand-wordmark-weight);letter-spacing:var(--brand-wordmark-tracking);color:var(--head);white-space:nowrap}
+.app-header .wordmark{color:inherit;text-decoration:none}
+.app-header .brand .sub{display:inline-block;vertical-align:top;font-size:inherit;font-weight:var(--brand-sub-weight);letter-spacing:0;color:var(--muted);margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38vw}
+/* the site navigation (home, ladder, workbench, GitHub): shown only when the workbench is served under /studio/ (graph_app.js) */
+.app-header .topnav{display:flex;gap:18px;font-size:var(--brand-nav-size)}
+.app-header .topnav a{color:var(--muted);text-decoration:none;padding:4px 0;border-bottom:2px solid transparent;white-space:nowrap}
+.app-header .topnav a.on,.app-header .topnav a:hover{color:var(--ink);border-color:var(--focus)}
 .app-header .app-note{display:flex;gap:12px;min-width:0;flex:1;overflow:hidden;font-family:var(--mono);font-size:11px;color:var(--muted)}
 .app-header .sync-note{display:flex;align-items:center;gap:6px;white-space:nowrap;color:var(--spike)}
 .app-header .sync-note button{height:22px;padding:0 8px;font-size:11px}
 .app-header .app-actions{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto;overflow-x:auto;overflow-y:hidden;max-width:70vw;scrollbar-width:none}
 .app-header .app-actions button{height:30px;white-space:nowrap}
-.app-header .lang-toggle{flex:none;display:flex;align-items:center;gap:2px;height:30px;padding:0 3px;font-size:12px}
-.lang-toggle span{padding:1px 7px;border-radius:4px;color:var(--muted);line-height:1.6}
-.lang-toggle span.on{background:var(--panel-head);color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px var(--line-strong)}
+.app-header .wallet{display:flex;align-items:center;gap:6px;flex:none;min-width:0;max-width:30vw}
+.app-header .wallet button{height:30px;white-space:nowrap;flex:none}
+.app-header .wallet-address{font-family:var(--mono);font-size:11px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.app-header .wallet-error{font-size:11px;color:var(--bad);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* the React root of the Privy SDK: empty in flow, its login modal is a fixed overlay above the shell */
+.privy-root{position:relative;z-index:60}
+.app-header .lang-toggle{flex:none;display:flex;align-items:center;gap:2px;height:30px;padding:0 3px;border:1px solid var(--line-strong);border-radius:var(--radius);background:#fff;font-size:var(--brand-toggle-size)}
+.lang-toggle span{padding:1px 7px;border-radius:var(--radius);color:var(--muted);line-height:1.6}
+.lang-toggle span.on{background:var(--panel-head);color:var(--ink);font-weight:600}
 
 /* ---------------------------------------------------------------- shell: rail + drawer */
-nav.nav-rail{position:fixed;top:var(--topbar-h);left:0;bottom:var(--status-h);width:var(--rail-h);z-index:35;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0;background:#131418;border-right:1px solid var(--line)}
-.nav-rail .rail-btn{width:36px;height:36px;padding:0;display:grid;place-items:center;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.02em;line-height:1}
+nav.nav-rail{position:fixed;top:var(--topbar-h);left:0;bottom:var(--status-h);width:var(--rail-h);z-index:35;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0;background:#fff;border-right:1px solid var(--line)}
+.nav-rail .rail-btn{width:36px;height:36px;padding:0;display:grid;place-items:center;border:1px solid transparent;border-radius:var(--radius);background:transparent;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.02em;line-height:1}
 .nav-rail .rail-btn:hover{background:var(--soft);color:var(--ink)}
-.nav-rail .rail-btn.on{background:var(--panel-head);color:var(--ink);border-color:var(--line-strong);box-shadow:inset 3px 0 0 var(--focus)}
+.nav-rail .rail-btn.on{background:var(--focus-soft);color:var(--focus);border-color:transparent;box-shadow:inset 3px 0 0 var(--focus)}
 aside#library-drawer.drawer{position:fixed;top:calc(var(--topbar-h) + 10px);left:calc(var(--rail-h) + 10px);bottom:calc(var(--status-h) + 10px);width:min(360px,calc(100vw - var(--rail-h) - 20px));z-index:36;display:flex;flex-direction:column;
-  background:var(--panel);border:1px solid var(--line-strong);border-radius:12px;box-shadow:0 18px 48px -16px rgba(0,0,0,.9),0 2px 6px rgba(0,0,0,.5);overflow:hidden}
-.drawer .drawer-head{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 14px;border-bottom:1px solid var(--line);background:var(--panel-head)}
+  background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);box-shadow:var(--shadow-pop);overflow:hidden}
+.drawer .drawer-head{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 14px;border-bottom:1px solid var(--line);background:#fff}
 .drawer .drawer-head h2{margin:0;flex:1;font-size:13px}
-.drawer .drawer-close{width:28px;height:28px;padding:0;border-color:transparent;color:var(--muted)}
-.drawer .drawer-body{flex:1;min-height:0;overflow:auto;padding:12px 14px 16px}
+.drawer .drawer-close{width:28px;height:28px;padding:0;border-color:transparent;background:transparent;color:var(--muted)}
+.drawer .drawer-body{flex:1;min-height:0;overflow:auto;padding:12px 14px 16px;background:var(--bg)}
 
 /* ---------------------------------------------------------------- shell: conflict panel (a local save this workbench cannot read; ADR 0008) */
-dialog.conflict{width:min(560px,92vw);max-height:86vh;padding:0;border:1px solid var(--line-strong);border-radius:12px;background:var(--panel);color:var(--ink);box-shadow:0 24px 64px -16px rgba(0,0,0,.9);overflow:hidden}
+dialog.conflict{width:min(560px,92vw);max-height:86vh;padding:0;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--panel);color:var(--ink);box-shadow:var(--shadow-pop);overflow:hidden}
 dialog.conflict[open]{display:flex;flex-direction:column}
-dialog.conflict::backdrop{background:rgba(0,0,0,.6)}
+dialog.conflict::backdrop{background:rgba(24,24,27,.45)}
 .conflict .conflict-head{display:flex;align-items:center;min-height:40px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--panel-head)}
 .conflict .conflict-head h2{margin:0;font-size:13px;color:var(--spike)}
 .conflict .conflict-body{flex:1;min-height:0;overflow:auto;padding:4px 14px 14px}
-.conflict .conflict-reason{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:10px 0;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#191a1f;font-size:12px}
+.conflict .conflict-reason{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:10px 0;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);font-size:12px}
 .conflict .conflict-reason dt{color:var(--muted)}
 .conflict .conflict-reason dd{margin:0;font-family:var(--mono);overflow-wrap:anywhere}
-.conflict .conflict-confirm{margin-top:8px;padding:8px 10px;border:1px solid var(--bad);border-radius:6px}
+.conflict .conflict-confirm{margin-top:8px;padding:8px 10px;border:1px solid var(--bad);border-radius:var(--radius)}
 .conflict .conflict-confirm p{margin:0 0 4px}
 
 /* ---------------------------------------------------------------- shell: zoom toolbar + status strip */
-.canvas-toolbar{position:fixed;right:14px;bottom:calc(var(--status-h) + 12px);z-index:38;display:flex;align-items:center;gap:2px;padding:4px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line-strong);border-radius:10px;box-shadow:0 8px 24px -10px rgba(0,0,0,.9);backdrop-filter:blur(8px)}
-.canvas-toolbar button{min-width:32px;height:30px;padding:0 9px;border-color:transparent;background:transparent;color:var(--muted);font-size:12px;border-radius:6px;white-space:nowrap}
+.canvas-toolbar{position:fixed;right:14px;bottom:calc(var(--status-h) + 12px);z-index:38;display:flex;align-items:center;gap:2px;padding:4px;background:rgba(255,255,255,.92);border:1px solid var(--line-strong);border-radius:var(--radius);box-shadow:var(--shadow);backdrop-filter:blur(8px)}
+.canvas-toolbar button{min-width:32px;height:30px;padding:0 9px;border-color:transparent;background:transparent;color:var(--muted);font-size:12px;border-radius:var(--radius);white-space:nowrap}
 .canvas-toolbar button:hover{background:var(--soft);color:var(--ink)}
 #canvas-zoom-label{min-width:48px;text-align:center;font-family:var(--mono);font-size:11.5px;color:var(--ink)}
-.editor-toolbar{position:fixed;top:calc(var(--topbar-h) + 12px);left:calc(var(--rail-h) + 16px);z-index:34;display:flex;gap:3px;padding:5px;border:1px solid var(--line-strong);border-radius:9px;background:var(--panel);box-shadow:0 5px 18px #0005}
+.editor-toolbar{position:fixed;top:calc(var(--topbar-h) + 12px);left:calc(var(--rail-h) + 16px);z-index:34;display:flex;gap:3px;padding:5px;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--panel);box-shadow:var(--shadow)}
 .editor-toolbar button{font-size:12px;border-color:transparent;background:transparent;padding:4px 8px}
 .editor-toolbar button:hover{background:var(--soft)}
-footer.status-strip{position:fixed;left:0;right:0;bottom:0;height:var(--status-h);z-index:40;display:flex;align-items:center;gap:14px;padding:0 12px;background:#131418;border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden}
+footer.status-strip{position:fixed;left:0;right:0;bottom:0;height:var(--status-h);z-index:40;display:flex;align-items:center;gap:14px;padding:0 12px;background:#fff;border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden}
 .status-strip #status{flex:1;min-width:0;margin:0;font:inherit;color:var(--ink);overflow:hidden;text-overflow:ellipsis;min-height:0}
 .status-strip #status.ok{color:var(--ok)}.status-strip #status.bad{color:var(--bad)}.status-strip #status.warn{color:var(--plastic)}
 
-/* ---------------------------------------------------------------- shared vocabulary */
-h2{font-size:14px;margin:0 0 8px;font-weight:700}
-h3{font-size:12px;color:var(--muted);font-weight:600;margin:12px 0 6px;letter-spacing:.04em}
+/* ---------------------------------------------------------------- shared vocabulary (the ladder's .btn / .btn-primary / .pill / .msg / .label) */
+h2{font-size:14px;margin:0 0 8px;font-weight:900;letter-spacing:-.02em;color:var(--head)}
+h3{font:11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px}
 .sub{color:var(--muted);font-size:12px;font-weight:400}
 .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0;font-size:13px;min-width:0}
-button{font:inherit;font-size:12.5px;padding:4px 10px;border:1px solid var(--line-strong);border-radius:6px;background:var(--soft);color:var(--ink);cursor:pointer;line-height:1.4;max-width:100%}
-button:hover{background:var(--line-strong)}
+button{font:inherit;font-size:12.5px;font-weight:500;padding:4px 10px;border:1px solid var(--line-strong);border-radius:var(--radius);background:#fff;color:var(--ink);cursor:pointer;line-height:1.4;max-width:100%}
+button:hover{background:var(--bg)}
+button.primary{background:var(--focus);border-color:var(--focus);color:#fff}
+button.primary:hover{background:var(--focus);filter:brightness(1.08)}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
-button:disabled{opacity:.4;cursor:default}
-input,select,textarea{font:inherit;font-size:12.5px;padding:3px 7px;background:#191a1f;color:var(--ink);border:1px solid var(--line-strong);border-radius:5px;min-width:0;max-width:100%}
+button:disabled{opacity:.5;cursor:default}
+input,select,textarea{font:inherit;font-size:12.5px;padding:3px 7px;background:#fff;color:var(--ink);border:1px solid var(--line-strong);border-radius:var(--radius);min-width:0;max-width:100%}
 input[type=checkbox],input[type=radio]{accent-color:var(--focus);margin:0 2px 0 0}
 select{padding-right:4px}
 textarea{width:100%;font-family:var(--mono);font-size:12px}
 .note{font-size:12px;color:var(--muted);line-height:1.55;margin-top:6px;overflow-wrap:anywhere}
-.pin{display:inline-block;padding:0 6px;border:1px solid var(--line-strong);border-radius:4px;background:#191a1f;font-family:var(--mono);font-size:11.5px;max-width:100%;overflow-wrap:anywhere;word-break:break-all;vertical-align:baseline}
+.pin{display:inline-block;padding:0 6px;border:1px solid var(--line-strong);border-radius:var(--radius);background:#fff;font-family:var(--mono);font-size:11.5px;max-width:100%;overflow-wrap:anywhere;word-break:break-all;vertical-align:baseline}
 .warn{color:var(--bad)}.ok{color:var(--ok)}.bad{color:var(--bad)}.m{color:var(--muted)}.pl{color:var(--plastic)}
 .mini{font-size:12px;padding:2px 8px}
 
-/* list items inside the drawer (palette entries, template cards) */
-.card{border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0;background:var(--soft)}.card:hover{border-color:var(--mod)}.card .meta{font-size:12px;color:var(--muted)}
+/* list items inside the drawer (palette entries, template cards): white cards on the grey drawer ground */
+.card{border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;margin:6px 0;background:var(--panel)}.card:hover{border-color:var(--line-strong)}.card .meta{font-size:12px;color:var(--muted)}
 .card .mini{font-size:11px;padding:2px 6px;border-color:var(--line);color:var(--muted)}
-.pal{display:block;width:100%;text-align:left;margin:4px 0;padding:7px 10px;background:transparent;border-color:var(--line)}.pal:hover{background:var(--soft);border-color:var(--line-strong)}
+.pal{display:block;width:100%;text-align:left;margin:4px 0;padding:7px 10px;background:var(--panel);border-color:var(--line)}.pal:hover{background:var(--panel);border-color:var(--line-strong)}
 .pal-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 6px}
 .pal .m{font-family:var(--mono);font-size:10.5px}
 .card.tpl b{overflow-wrap:anywhere}.card.tpl-use{cursor:pointer}
@@ -99,9 +125,11 @@ details>summary{cursor:pointer;font-size:12.5px;color:var(--muted);user-select:n
   :root{--topbar-h:84px}
   header.app-header{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;padding:8px}
   .app-header .brand{grid-row:1;grid-column:1}
-  .app-header .brand .sub,.app-header .app-note{display:none}
+  .app-header .brand .sub,.app-header .app-note,.app-header .topnav{display:none}
   .app-header .app-actions{display:contents}
   .app-header .app-actions button{grid-row:2}
+  .app-header .wallet{grid-row:2;max-width:none}
+  .app-header .wallet-error{display:none}
   .status-strip .canvas-hint{display:none}
   .canvas-toolbar{right:8px;bottom:calc(var(--status-h) + 8px);max-width:calc(100vw - 16px);overflow-x:auto;scrollbar-width:none}
   .canvas-toolbar button{padding:0 7px}

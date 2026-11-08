@@ -1,11 +1,12 @@
 // The page side of the script module's call bridge (ADR 0019): a call of a declared function input runs outside the
-// sandbox. A code function runs its IR program, a frozen network its readout's `run`. A reply of a run that was reset
-// is dropped.
+// sandbox. A code function runs its IR program, a frozen network its readout's `run`, a chain node (ADR 0028) sends
+// one allowed request through the injected connection. A reply of a run that was reset is dropped.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import './kinds/index.js';
 import { ModuleGraph } from './graph.js';
-import { scriptCalls, callBridge } from './script-calls.js';
+import { scriptCalls, callBridge, chainError } from './script-calls.js';
+import { CHAINS } from '../chain.js';
 import { shapedArtifact } from './sessions/fixtures.js';
 import { createExecutor } from './sessions/executor.js';
 import { readoutBits } from './readout.js';
@@ -93,4 +94,52 @@ test('the bridge answers each call with its id, and drops the replies of a run t
   bridge.handle({ type: 'call', id: 3, name: 'g', args: [] }, () => { throw new Error('bad call'); });
   await settled();
   assert.deepEqual(posted, [{ type: 'reply', id: 2, result: { name: 'f', x: 3 } }, { type: 'reply', id: 3, error: 'bad call' }]);
+});
+
+const LOCAL = Number(Object.keys(CHAINS).find(id => CHAINS[id].local));
+/** a script with the function input `node` wired to a chain node on the local chain, and `request` recording each
+ *  request it gets */
+function chainGraph(write) {
+  const g = new ModuleGraph();
+  const chain = g.addNode({ kind: 'chain', config: { chainId: LOCAL, write } });
+  const script = g.addNode({ kind: 'script', config: { functions: ['node'], inputs: [] } });
+  g.connect({ kind: 'call', from: { node: chain.id, port: 'node' }, to: { node: script.id, port: 'node' } });
+  const sent = [];
+  const request = async (chainId, req) => { sent.push([chainId, req]); if (req.method === 'eth_call') throw Object.assign(new Error('execution reverted'), { info: { error: { data: '0xdeadbeef' } } }); return '0x10'; };
+  return { g, chain, script, sent, calls: () => scriptCalls(g, g.resolved(), script.id, { artifacts: () => null, request }) };
+}
+
+test('a chain node forwards an allowed request to the injected connection, with its chain id', async () => {
+  const { g, chain, sent, calls } = chainGraph(false);
+  assert.equal(await calls().call('node', [{ method: 'eth_blockNumber', params: [] }]), '0x10');
+  assert.equal(await calls().call('node', [{ method: 'eth_chainId' }]), '0x10', 'params default to []');
+  assert.deepEqual(sent, [[LOCAL, { method: 'eth_blockNumber', params: [] }], [LOCAL, { method: 'eth_chainId', params: [] }]]);
+  assert.deepEqual(calls().chains(), { node: { chainId: LOCAL, name: CHAINS[LOCAL].name, local: true, write: false, factory: CHAINS[LOCAL].factory, ladder: CHAINS[LOCAL].ladder } });
+  const e = await calls().call('node', [{ method: 'eth_call', params: [{}, 'latest'] }]).catch(x => x);
+  assert.equal(e.data, '0xdeadbeef', 'revert data stays on the error');
+  assert.match(e.message, /execution reverted data=0xdeadbeef/);
+  g.patchConfig(chain.id, { write: true });
+  assert.equal(await calls().call('node', [{ method: 'evm_snapshot', params: [] }]), '0x10', 'write opens the write methods');
+  assert.equal(calls().chains().node.write, true);
+});
+
+test('a chain node refuses a method outside its allowlist, a write without write, and a malformed request', () => {
+  const { g, script, sent, calls } = chainGraph(false);
+  assert.throws(() => calls().call('node', [{ method: 'eth_sign', params: [] }]), /链节点不允许 eth_sign/);
+  assert.throws(() => calls().call('node', [{ method: 'eth_sendTransaction', params: [{}] }]), /链节点不允许 eth_sendTransaction/);
+  assert.throws(() => calls().call('node', [{ method: 'evm_revert', params: ['0x1'] }]), /不允许 evm_revert/);
+  assert.throws(() => calls().call('node', ['eth_chainId']), /一次调用传一个 \{ method, params \}/);
+  assert.throws(() => calls().call('node', [{ method: 'eth_chainId' }, 1]), /一次调用传一个/);
+  assert.throws(() => calls().call('node', [{ method: 'eth_chainId', params: 'latest' }]), /一次调用传一个/);
+  assert.deepEqual(sent, [], 'nothing reached the chain');
+  const pageless = scriptCalls(g, g.resolved(), script.id, { artifacts: () => null });
+  assert.throws(() => pageless.call('node', [{ method: 'eth_chainId', params: [] }]), /不能连接链/);
+});
+
+test('the bridge forwards the revert data of a failed chain request', async () => {
+  const posted = [], bridge = callBridge(m => posted.push(m));
+  bridge.handle({ type: 'call', id: 1, name: 'node', args: [] }, () => { throw chainError(Object.assign(new Error('reverted'), { data: '0x08c379a0' })); });
+  bridge.handle({ type: 'call', id: 2, name: 'node', args: [] }, () => { throw new Error('plain'); });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(posted, [{ type: 'reply', id: 1, error: 'reverted data=0x08c379a0', data: '0x08c379a0' }, { type: 'reply', id: 2, error: 'plain' }]);
 });

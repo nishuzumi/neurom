@@ -35,7 +35,8 @@ export function highlight(text: string): string {
   return html;
 }
 
-/** The editors' dark theme on the studio's colours. `extra` adds rules (CodeEditor: its tooltips). */
+/** The editors' light theme on the studio's colours (styles.css tokens): the caret and the selection show on the grey
+ *  ground of the code box. `extra` adds rules (CodeEditor: its tooltips). */
 export const editorTheme = (extra: Parameters<typeof EditorView.theme>[0] = {}) => EditorView.theme({
   '&': { color: 'var(--ink)', backgroundColor: 'transparent' },
   '&.cm-focused': { outline: 'none' },
@@ -43,10 +44,10 @@ export const editorTheme = (extra: Parameters<typeof EditorView.theme>[0] = {}) 
   '.cm-content': { padding: '4px 0', caretColor: 'var(--ink)' },
   '.cm-line': { padding: '0 8px' },
   '.cm-cursor': { borderLeftColor: 'var(--ink)' },
-  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': { background: 'color-mix(in srgb, var(--focus) 35%, transparent)' },
-  '&.cm-focused .cm-matchingBracket': { backgroundColor: 'color-mix(in srgb, var(--focus) 25%, transparent)', outline: 'none' },
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': { background: 'color-mix(in srgb, var(--focus) 18%, transparent)' },
+  '&.cm-focused .cm-matchingBracket': { backgroundColor: 'color-mix(in srgb, var(--focus) 14%, transparent)', outline: 'none' },
   ...extra,
-}, { dark: true });
+}, { dark: false });
 
 /** { line (1-based), column (0-based) } in the edited text */
 export interface Loc { line: number; column: number }

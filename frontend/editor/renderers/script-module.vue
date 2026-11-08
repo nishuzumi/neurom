@@ -7,22 +7,23 @@
 // page sends `play` right after `load`, so that frame plays. Errors show above the frame, with the file and the line
 // when known.
 // `inputs` (core/script-calls.js scriptCalls) runs the calls the frame asks for and gives the values of the value
-// inputs. The frame gets the values before `load` and again when they change. The replies of a frame that was
-// replaced or reset are dropped (callBridge).
+// inputs and the chains of the function inputs wired to a chain node (ADR 0028). The frame gets them before `load`
+// and again when they change. The replies of a frame that was replaced or reset are dropped (callBridge).
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import vueSource from 'vue/dist/vue.global.prod.js?raw';
+import viemSource from 'virtual:viem-global';
 import runtimeSource from './script-module-runtime.js?raw';
 import { scriptModuleDocument, themeVars } from './script-frame.js';
 import { compileScript } from './script-module.js';
 import { callBridge } from '../../core/script-calls.js';
 import { t } from '../../i18n.js';
 
-type Inputs = { functions: string[]; call(name: string, args: unknown[]): unknown; values(): Record<string, unknown> };
+type Inputs = { functions: string[]; call(name: string, args: unknown[]): unknown; values(): Record<string, unknown>; chains(): Record<string, unknown> };
 const props = defineProps<{ files: { name: string; source: string }[]; run: number; play?: number; inputs: Inputs }>();
 const frame = ref<HTMLIFrameElement | null>(null);
 
 // read once (script.vue: a second document that replaces a loading first one can lose its colours)
-const html = scriptModuleDocument(themeVars(), vueSource, runtimeSource, getComputedStyle(document.documentElement).colorScheme || 'normal');
+const html = scriptModuleDocument(themeVars(), { vue: vueSource, viem: viemSource }, runtimeSource, getComputedStyle(document.documentElement).colorScheme || 'normal');
 // compared as text: an edit elsewhere in the graph gives a new `files` array with the same content, and no new run
 const filesText = computed(() => JSON.stringify(props.files));
 const compiled = computed(() => compileScript(JSON.parse(filesText.value)));
@@ -54,12 +55,12 @@ const shown = computed(() => {
 /** the texts of `@ui` and of the input errors in the UI language */
 const uiText = computed(() => ({
   reset: t('重置'), step: t('单步'), play: t('运行'), pause: t('暂停'), round: t('第 {n} 轮'), done: t('已结束'),
-  call: t('脚本模块没有声明函数输入 {name}', { name: '{name}' }), value: t('脚本模块没有声明值输入 {name}', { name: '{name}' }),
+  call: t('脚本模块没有声明函数输入 {name}', { name: '{name}' }), value: t('脚本模块没有声明值输入 {name}', { name: '{name}' }), chain: t('函数输入 {name} 没有接链节点', { name: '{name}' }),
 }));
 function post(message: Record<string, unknown>) { frame.value?.contentWindow?.postMessage(message, '*'); }
 const bridge = callBridge(post);
-/** the declarations and values of the inputs, evaluated one time per resolution */
-const inputValues = computed(() => ({ functions: [...props.inputs.functions], values: props.inputs.values() }));
+/** the declarations, values and chains of the inputs, evaluated one time per resolution */
+const inputValues = computed(() => ({ functions: [...props.inputs.functions], values: props.inputs.values(), chains: props.inputs.chains() }));
 // compared as text: a new resolution with the same declarations and values sends nothing
 const inputsText = computed(() => JSON.stringify(inputValues.value));
 const postValues = () => post({ type: 'values', ...inputValues.value });

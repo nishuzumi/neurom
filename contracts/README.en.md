@@ -74,7 +74,8 @@ CAUTION: Do not expose an unlocked node to the public network. If you do, anybod
   - The module's own storage holds the state of each (actor, session) and `owner()`. At first, `owner()` is the deployer.
   - The owner moves only after `nominateOwner` and then `acceptOwnership`. The owner has no other power.
   - The module holds no funds. A paying contract (the mining game) reads `owner()` and pays the owner.
-- **Factory** `ModuleFactory.deploy({ engineId, version, kind, inputs, outputs, shape, tools, chunks, artifactId, taskId }, data)`: deploys a module in one transaction.
+- **Factory** `ModuleFactory.deploy({ engineId, version, kind, inputs, outputs, shape, tools, chunks, artifactId, taskId, moduleId }, data)`: deploys a module in one transaction.
+  - `moduleId` is the deployer's name for the module. It has 3 to 64 ASCII bytes. The first byte is `a`-`z`. The other bytes are `a`-`z`, `0`-`9`, `-` or `_`. One account cannot use the same id twice. Two accounts can use the same id.
   - If `version` is address(0), the Factory uses the latest version of `engineId`. If not, `version` must be one of the listed versions of `engineId`.
   - The order in the transaction: first the Factory checks everything, then it creates the chunks that `data` brings, then it creates the module.
   - `data[k]` is the content of chunk k, and its hash must equal `chunks[k]`. If the chunk exists, the Factory skips it. An empty `data[k]` means that the chunk exists, or that an earlier slot sends the same chunk.
@@ -83,6 +84,8 @@ CAUTION: Do not expose an unlocked node to the public network. If you do, anybod
   - The Factory refuses these conditions (the refusal reason is in parentheses):
     - An engine id without a latest version (`engine`).
     - A `version` not listed for `engineId` (`version`).
+    - A `moduleId` with the wrong length or a wrong byte (`id`).
+    - A `moduleId` that the sender used before (`taken`). `checkDeploy` compares with the sender of the call, so the bridge calls it from the deploying account.
     - A chunk that does not exist after the creation step (`chunk`). The Factory calculates the address again from the content hash.
     - A shape that the engine refuses, for example `layers` / `hidden` / `ticks`.
     - Chunks whose total bytes do not match the shape (`weights`).
@@ -94,6 +97,8 @@ CAUTION: Do not expose an unlocked node to the public network. If you do, anybod
     - `isModule`.
     - The nesting depth of each module, `depthOf(module)`: 0 without tools, else 1 + the deepest depth of its tools.
     - The index per artifact, `modulesOf(artifactId)`. When the bridge deploys tools, it uses this index for reuse. An artifactId is only the deployer's claim, so the bridge verifies it before reuse.
+    - The archive, written in the same transaction: `moduleIdOf(module)`, `deployerOf(module)`, `moduleById(deployer, moduleId)`, `deploymentCount(deployer)` and `modulesByDeployer(deployer, offset, limit)`. The archive lists the deploying account, not the current owner. The entry never changes. A module from before the archive has an empty id and the deployer address(0).
+    - `modulesByDeployer` returns the modules in deployment order. An `offset` past the end gives an empty list. A `limit` past the end gives the rest.
     - The `ModuleDeployed` event, with the engine version.
   - Chunks and modules are created only through the Factory. `createChunk` has only two uses: to create some chunks first when one transaction cannot hold them all, and to resume.
   - Registration does not certify training quality.
@@ -398,25 +403,28 @@ The step in the benchmarks is smaller than the step in the table above, for two 
 
 ### Rules
 
-- An entry is a module of the official Factory. It has 572 input bits and 9 scores. Its tool depth is 0. Its weight size is the sum of the bytes of all its weight chunks (without the STOP byte), at most `maxWeightBytes`. Its chunk list differs from every other entry. The account that registers it is the owner. A new entry takes the last rank.
+- An entry is a module of the official Factory. It has 572 input bits and 9 scores. Its tool depth is 0. Its weight size is the sum of the bytes of all its weight chunks (without the STOP byte), at most `maxWeightBytes`. Its chunk list differs from every other entry. The account that registers it is the owner.
+- The board holds the ranks 1 to `boardSize`. A new entry takes the last rank when the board is not full. Else it is off the board (rank 0), and it still counts as an entry.
 - Only an EOA without code starts a challenge: `msg.sender == tx.origin` and `tx.origin.code.length == 0`. The code of a 7702 account is the 23-byte delegation designator, so it is refused. The gas left at the entry of the transaction is at least `minStartGas`. Send the transaction with a gas limit of 30M. A gas limit of 24M is not enough, because the base fee takes 21,000 first.
-- An entry challenges an entry 1 to `range` ranks above it. An entry has one active challenge at a time. A defender can have several challengers at the same time. The same pair of challenger and defender waits `cooldownBlocks` blocks before the next challenge.
+- An entry challenges an entry 1 to `range` ranks above it. An entry off the board challenges as the rank below the last, so it can challenge the ranks `boardSize + 1 − range` to `boardSize`. The defender must be on the board. An entry has one active challenge at a time. A defender can have several challengers at the same time. The same pair of challenger and defender waits `cooldownBlocks` blocks before the next challenge.
 - The seed is `keccak256(abi.encode(block.prevrandao, id))`. The seed of mirror pair i is `uint32(keccak256(abi.encode(seed, i)))`. In episode 2i the challenger is side 0, in episode 2i + 1 the sides change.
 - The first transaction plays until less than `reserveGas` gas is left, then saves the position. Anyone calls `advance(id)`. The transaction that ends episode 6 settles. When the challenge is not settled `timeoutBlocks` blocks after its start, `advance` reverts `Expired`, and anyone settles it as a defense with `expire(id)`.
-- Settlement: the challenger wins with more episodes than the defender. With the same number of episodes, it wins only when its weight size is at most (1 − δ) of the defender's. Then it takes the rank of the defender, and the defender and every entry between them move down one rank. The defender stays above the challenger until the settlement, so the insertion reads the ranks of that moment.
+- Settlement: the challenger wins with more episodes than the defender. With the same number of episodes, it wins only when its weight size is at most (1 − δ) of the defender's. Then it takes the rank of the defender, and the defender and every entry between them move down one rank. When the challenger comes from off the board, the last entry goes off the board. That entry comes back with a challenge.
+- When the defender is off the board at the settlement (it was pushed off while the challenge played), the challenger still wins the challenge, and the wins and losses count. But no rank changes. This occurs only when the challenger is off the board too.
 - From `endBlock` on, the ladder accepts no registration and no new challenge. A started challenge plays to its end.
-- Events: `EntryRegistered`, `ChallengeStarted`, `Steps` (the actions of each episode in each transaction, one byte per step `a0 * 9 + a1`, the actions that the two networks chose in their own maps, side 0 first), `EpisodeEnded`, `ChallengeSettled`. The page rebuilds a replay from the seed, the actions and the JS scene.
-- Every refusal is its own custom error: `NotOfficialModule`, `WrongShape(inputs, outputs)`, `TooLarge(weightBytes, maxWeightBytes)`, `DuplicateWeights(entry)`, `HasTools`, `AlreadyEntered`, `NotEntered`, `NotEoa`, `LowGas(gasLeft, minStartGas)`, `NotOwner`, `OutOfRange`, `Busy`, `Cooldown(untilBlock)`, `SeasonOver`, `NotPlaying`, `Expired`, `NotExpired`, `BadRank`, `ForwardFailed(module)`.
+- Events: `EntryRegistered` (`rank` 0 = off the board), `ChallengeStarted`, `Steps` (the actions of each episode in each transaction, one byte per step `a0 * 9 + a1`, the actions that the two networks chose in their own maps, side 0 first), `EpisodeEnded`, `ChallengeSettled` (`newRank` is the rank of the challenger after the settlement, 0 = off the board). The page rebuilds a replay from the seed, the actions and the JS scene.
+- Views: `entryCount()` counts the entries on and off the board. `board()` returns the `Entry[]` of the board in rank order. `entries(from, count)` pages all entries in registration order, `from` is 0-based, and an out-of-range `from` gives an empty array. `entry(module)` has `rank` 0 when the entry is off the board, and `owner` 0 when it is not entered.
+- Every refusal is its own custom error: `BadConfig`, `NotOfficialModule`, `WrongShape(inputs, outputs)`, `TooLarge(weightBytes, maxWeightBytes)`, `DuplicateWeights(entry)`, `HasTools`, `AlreadyEntered`, `NotEntered`, `NotEoa`, `LowGas(gasLeft, minStartGas)`, `NotOwner`, `OutOfRange`, `Busy`, `Cooldown(untilBlock)`, `SeasonOver`, `NotPlaying`, `Expired`, `NotExpired`, `ForwardFailed(module)`.
 
 ### Configuration and deployment
 
-The constructor takes one `Config`: `factory`, `maxWeightBytes` (216,864), `deltaBps` (1000), `range` (10), `timeoutBlocks` (400), `cooldownBlocks` (6000), `minStartGas` (24,000,000), `reserveGas` (2,000,000), `endBlock`. The values in parentheses are the defaults of the spec. `config()` returns every field.
+The constructor takes one `Config`: `factory`, `maxWeightBytes` (216,864), `deltaBps` (1000), `range` (10), `boardSize` (20), `timeoutBlocks` (400), `cooldownBlocks` (6000), `minStartGas` (24,000,000), `reserveGas` (2,000,000), `endBlock`. The values in parentheses are the defaults of the spec. The constructor reverts `BadConfig` when `boardSize` is 0. `config()` returns every field.
 
 ```sh
 LADDER_FACTORY=<official Factory> LADDER_END_BLOCK=<last block of the season> forge script script/DeployLadder.s.sol --rpc-url monad_testnet --private-key $PK --broadcast
 ```
 
-`LADDER_MAX_WEIGHT_BYTES`, `LADDER_DELTA_BPS`, `LADDER_RANGE`, `LADDER_TIMEOUT_BLOCKS`, `LADDER_COOLDOWN_BLOCKS`, `LADDER_MIN_START_GAS` and `LADDER_RESERVE_GAS` override the other fields. Local tests use `localLadder()` of `frontend/ladder.fixture.js`: it starts anvil, deploys the protocol and a TankLadder, and `enter(artifact)` deploys and registers an artifact. On a fresh anvil, account 0 runs `Deploy.s.sol` and then `DeployLadder.s.sol`, and the TankLadder is at `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318`. `localLadder()` deploys in the same order, so its address is the same.
+`LADDER_MAX_WEIGHT_BYTES`, `LADDER_DELTA_BPS`, `LADDER_RANGE`, `LADDER_BOARD_SIZE`, `LADDER_TIMEOUT_BLOCKS`, `LADDER_COOLDOWN_BLOCKS`, `LADDER_MIN_START_GAS` and `LADDER_RESERVE_GAS` override the other fields. Local tests use `localLadder()` of `frontend/ladder.fixture.js`: it starts anvil, deploys the protocol and a TankLadder, and `enter(artifact)` deploys and registers an artifact. On a fresh anvil, account 0 runs `Deploy.s.sol` and then `DeployLadder.s.sol`, and the TankLadder is at `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318`. `localLadder()` deploys in the same order, so its address is the same.
 
 ### Referee and parity
 
@@ -429,7 +437,7 @@ node contracts/test/fixtures/tank-episodes.mjs <中.json> <大.json>   # reposit
 cd contracts && forge test --network monad --match-path 'test/ladder/*'
 ```
 
-`TankLadder.t.sol` tests through the external functions only: every refusal of a registration, the EOA check (a contract, a 7702 designator with `vm.etch`, a real delegation with `vm.signDelegation`), the gas threshold, the range, one challenge per challenger and several per defender, the insertion order of concurrent challenges, δ, the cooldown, the timeout, the end of the season, the same result for every caller of `advance`, and a fuzz test: no seed and no gas limit above the reserve makes a transaction run out of gas.
+`TankLadder.t.sol` tests through the external functions only: every refusal of a registration, the EOA check (a contract, a 7702 designator with `vm.etch`, a real delegation with `vm.signDelegation`), the gas threshold, the range, a registration on a full board, a challenger from off the board that pushes the last entry off, a defender off the board at the settlement, one challenge per challenger and several per defender, the insertion order of concurrent challenges, δ, the cooldown, the timeout, the end of the season, the same result for every caller of `advance`, and a fuzz test: no seed and no gas limit above the reserve makes a transaction run out of gas.
 
 ### Gas per step
 
@@ -446,4 +454,4 @@ ANVIL=/tmp/foundry-1.8.0/anvil FORGE=/tmp/foundry-1.8.0/forge node contracts/scr
 | 中 vs 大 | 590,448 / 607,464 | 676,426 / 676,426 | 48 | 13 |
 | 大 vs 中 | 572,821 / 578,936 | 678,551 / 687,452 | 49 | 13 |
 
-Derived: one warm `forward` is about 105k for 中 and 450k for 大. The scene, the input encoding, the argmax and the loop take about 20k to 25k per step. The prototype spent about 100k per step on the input encoding, now it is about 8k. The largest single step is 1,017,299, and the reserve of 2,000,000 holds one step plus the settlement. The settlement costs about 5k per rank the challenger climbs.
+Derived: one warm `forward` is about 105k for 中 and 450k for 大. The scene, the input encoding, the argmax and the loop take about 20k to 25k per step. The prototype spent about 100k per step on the input encoding, now it is about 8k. The largest single step is 1,017,299, and the reserve of 2,000,000 holds one step plus the settlement. The settlement costs about 1k gas per rank that moves, because the ranks of the board are in adjacent slots. The scan of the board at the start costs about 25k.

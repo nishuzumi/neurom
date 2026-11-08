@@ -4,6 +4,9 @@
 //   as a bundle runs it.
 // - A network runs through its readout's `run` as a tool of a tool layer runs (loop.js netTool), on its accepted
 //   weights. Each call starts from zero potentials, so the network keeps no memory across calls.
+// - A chain node (ADR 0028) takes one EIP-1193 request `{ method, params }`. The page sends it through `request`, the
+//   injected connection, after the node's method allowlist (core/kinds/chain-node.js) accepts it. The sandbox never
+//   decides that.
 // The arguments have no static type: a call is typed from its values each time, with the same callee hook as a call
 // wire (core/resolve.js res.callees). A JavaScript array of numbers can be an IR array or a vector. A code function
 // tries the array first and then the vector. A network reads one bit vector.
@@ -12,6 +15,7 @@ import { netTool, statelessTool } from './loop.js';
 import { compileEntry } from './sessions/common.js';
 import { canonicalJSON } from './canonical.js';
 import { NUMBER, BOOLEAN, STRING, array, bits, checkValue, record, sameType, vector } from './types.js';
+import { chainMethodProblem, chainNetwork } from './kinds/chain-node.js';
 import { t } from '../i18n.js';
 
 const plain = v => v !== null && typeof v === 'object' && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
@@ -40,15 +44,18 @@ function typeOfValue(v, numbers) {
 
 /**
  * The function and value inputs of script module `scriptId` in the graph `res` resolves. `artifacts(id)` looks up an
- * artifact (the accepted weights of a network).
- * → `{ functions, call(name, args) → result, values() → { <name>: { value } | { error } } }`. `functions`: the declared
- * function inputs. `call` throws an Error with the reason when the call cannot run. Each typed call is compiled one time.
+ * artifact (the accepted weights of a network). `request(chainId, { method, params })` sends a request of a chain node
+ * to the chain and resolves its result.
+ * → `{ functions, call(name, args) → result, values() → { <name>: { value } | { error } }, chains() → { <name>: network } }`.
+ * `functions`: the declared function inputs. `call` throws an Error with the reason when the call cannot run. Each
+ * typed call is compiled one time. `chains`: the function inputs wired to a chain node, with what the sandbox knows of
+ * the chain (chainNetwork).
  * @param {any} graph
  * @param {any} res
  * @param {string} scriptId
- * @param {{ artifacts: (id: string) => any }} options
+ * @param {{ artifacts: (id: string) => any, request?: (chainId: number, req: { method: string, params: unknown[] }) => Promise<unknown> }} options
  */
-export function scriptCalls(graph, res, scriptId, { artifacts }) {
+export function scriptCalls(graph, res, scriptId, { artifacts, request }) {
   const ports = res.portsOf(scriptId).inputs;
   const functions = ports.filter(p => p.wire === 'call').map(p => p.id), inputs = ports.filter(p => p.wire === 'value').map(p => p.id);
   const runners = new Map();
@@ -76,11 +83,23 @@ export function scriptCalls(graph, res, scriptId, { artifacts }) {
     return run;
   }
 
+  /** a call of a chain node: one `{ method, params }`, sent when the node allows the method */
+  function chainRequest(name, site, args) {
+    const r = site.callee.call([], { exact: false, caller: scriptId });
+    if (r.error) throw r.error;
+    const [req] = args;
+    if (args.length !== 1 || !plain(req) || typeof req.method !== 'string' || (req.params !== undefined && !Array.isArray(req.params))) throw new Error(t('{name} 接的是链节点：一次调用传一个 { method, params }', { name }));
+    const problem = chainMethodProblem(req.method, r.carries.write);
+    if (problem) throw new Error(problem);
+    if (!request) throw new Error(t('这个页面不能连接链'));
+    return request(r.carries.chainId, { method: req.method, params: req.params ?? [] }).catch(e => { throw chainError(e); });
+  }
   function call(name, args) {
     if (!functions.includes(name)) throw new Error(t('脚本模块没有声明函数输入 {name}', { name }));
     const [site] = res.callees(scriptId, name);
     if (!site) throw new Error(t('必需输入 {port} 尚未连接', { port: name }));
-    if (!site.callee) throw new Error(t('调用端口 {port} 需要接代码模块导出的函数或读出的 run', { port: name }));
+    if (!site.callee) throw new Error(t('调用端口 {port} 需要接代码模块导出的函数、读出的 run 或链节点', { port: name }));
+    if (site.node.kind === 'chain') return chainRequest(name, site, args);
     const readings = Number.isInteger(site.callee.width) ? ['vector'] : ['array', 'vector'];
     let first = null;
     for (const numbers of readings) {
@@ -107,12 +126,33 @@ export function scriptCalls(graph, res, scriptId, { artifacts }) {
     return out;
   }
 
-  return { functions, call, values };
+  return { functions, call, values, chains };
+
+  /** @returns {Record<string, ReturnType<typeof chainNetwork>>} */
+  function chains() {
+    const out = {};
+    for (const name of functions) {
+      const [site] = res.callees(scriptId, name);
+      if (site?.node.kind === 'chain') out[name] = chainNetwork(site.node.config);
+    }
+    return out;
+  }
+}
+
+/** the revert data of a failed request, as ethers reports it: on the error, or on the RPC error inside it */
+const revertData = e => [e?.data, e?.info?.error?.data, e?.error?.data].find(d => typeof d === 'string' && /^0x[0-9a-fA-F]*$/.test(d)) ?? null;
+/** The error of a failed request with its revert data on `data` and in the message, so a script can decode it. */
+export function chainError(e) {
+  const data = revertData(e), message = String(e?.shortMessage ?? e?.message ?? e);
+  const out = new Error(data && !message.includes(data) ? `${message} data=${data}` : message);
+  if (data) out.data = data;
+  return out;
 }
 
 /**
  * The page side of the call messages of one frame. `handle(message, call)` runs `call(name, args)` for a
  * `{ type:'call', id, name, args }` message and posts `{ type:'reply', id, result }` or `{ type:'reply', id, error }`.
+ * An error with revert `data` (chainError) carries it as `data`, so a script can decode it.
  * `reset()` starts a new run: a reply of a call from before it is dropped.
  */
 export function callBridge(post) {
@@ -122,7 +162,7 @@ export function callBridge(post) {
       const own = run;
       Promise.resolve().then(() => call(name, args)).then(
         result => { if (own === run) post({ type: 'reply', id, result }); },
-        error => { if (own === run) post({ type: 'reply', id, error: String(error?.message ?? error) }); });
+        error => { if (own === run) post({ type: 'reply', id, error: String(error?.message ?? error), ...(typeof error?.data === 'string' ? { data: error.data } : {}) }); });
     },
     reset() { run++; },
   };

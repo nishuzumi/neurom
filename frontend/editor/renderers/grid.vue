@@ -37,6 +37,6 @@ const trail = computed(() => model.value.trail.map(p => `${p[0] * C + C / 2},${p
     <rect v-if="model.base" :x="model.base[0] * C + 1" :y="model.base[1] * C + 1" :width="C - 3" :height="C - 3" fill="none" stroke="var(--ok)" stroke-width="2" />
     <rect v-if="model.target" :x="model.target[0] * C + 4" :y="model.target[1] * C + 4" :width="C - 9" :height="C - 9" fill="none" stroke="var(--plastic)" stroke-width="2" stroke-dasharray="4 3" />
     <polyline v-if="model.trail.length > 1" :points="trail" fill="none" stroke="var(--spike)" stroke-width="2" opacity=".8" />
-    <circle v-if="model.agent" :cx="model.agent[0] * C + C / 2" :cy="model.agent[1] * C + C / 2" :r="C / 4" fill="var(--spike)" stroke="#000" />
+    <circle v-if="model.agent" :cx="model.agent[0] * C + C / 2" :cy="model.agent[1] * C + C / 2" :r="C / 4" fill="var(--spike)" stroke="var(--ink)" />
   </svg>
 </template>

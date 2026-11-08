@@ -15,11 +15,15 @@ The weights of a deployed module are public weight chunks, and anyone can read t
 The workbench can check only one thing: who created the module. Thus on each chain the workbench trusts exactly one official factory. A module is genuine only when `isModule` of that factory says so. The rules are:
 
 - Deployment targets are only Monad chains: mainnet (143), testnet (10143) and local `anvil --network monad` (31337). The contracts need MIP-8 paged storage and the 128 KB code limit.
-- Each chain has one official factory, deployed separately on that chain. The address of the factory is part of the entry of the chain in `frontend/chain.js`.
+- Each chain has one official factory, deployed separately on that chain. The workbench and ladder share its address in `ladder/data/deployments.json`. `frontend/chain.js` derives `CHAINS` from this registry.
 - The workbench deploys, verifies and uses tools again only through the official factory. It refuses modules of all other factories, also when their code and weights are identical. The user cannot enter a factory address.
 - Verification checks a module against the official factory of the chain. It does not check against the factory that the descriptor of the module names. That factory must be the same as the official factory.
 - The official factory on local Anvil is `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0`. This is the proxy that `contracts/script/Deploy.s.sol` creates on a fresh node from the default account 0 (its third contract, nonce 2).
 - Testnet and mainnet have no official factory until someone deploys it there. Until then, the workbench deploys and verifies nothing on them.
+- Each deployment includes a Module ID of 3–64 ASCII characters. It starts with a lowercase letter. Other characters are lowercase letters, digits, `-` and `_`.
+- The ID is immutable and unique within the deploying account. Different accounts can use the same ID.
+- The factory archives the module address, deployer and ID in the deployment transaction. It exposes account-based pages and ID lookup. Neither ownership transfer nor a factory upgrade changes the archive.
+- Archive storage is appended after existing storage. Modules from before this feature retain their original indexes but do not enter the archive automatically.
 
 ### 2. The factory proxy and its upgrades
 

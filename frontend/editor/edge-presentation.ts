@@ -58,7 +58,7 @@ const MIN_WIRE = 40;
 /** longest reroute chain a wire may carry */
 export const MAX_ROUTE = 16;
 /** what a colour picker shows while the wire (or the canvas) is on the automatic palette */
-export const PICKER_SWATCH = '#7aa2f7';
+export const PICKER_SWATCH = '#2563eb';
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const clampReach = (v: number) => Math.max(-ROUTE_REACH, Math.min(ROUTE_REACH, v));
 /** a chain keeps only finite, reach-clamped points */

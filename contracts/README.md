@@ -74,7 +74,8 @@ forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:18545 --unlocked --s
   - 模块自己的存储里有各 (actor, session) 的状态和 `owner()`。`owner()` 起初是部署者。
   - 只有 `nominateOwner` 提名、`acceptOwnership` 接受之后，owner 才转让。owner 没有别的权力。
   - 模块不存钱。付钱的合约（挖矿游戏）读 `owner()`，然后付钱给 owner。
-- **Factory** `ModuleFactory.deploy({ engineId, version, kind, inputs, outputs, shape, tools, chunks, artifactId, taskId }, data)`：在一笔交易里部署一个模块。
+- **Factory** `ModuleFactory.deploy({ engineId, version, kind, inputs, outputs, shape, tools, chunks, artifactId, taskId, moduleId }, data)`：在一笔交易里部署一个模块。
+  - `moduleId` 是部署者给模块起的名字。它有 3 到 64 个 ASCII 字节。第一个字节是 `a`-`z`。其余字节是 `a`-`z`、`0`-`9`、`-` 或 `_`。一个账户不能两次使用同一个 id。两个账户可以使用同一个 id。
   - 如果 `version` 是 address(0)，Factory 用 `engineId` 的最新版本。否则 `version` 必须是 `engineId` 列出的版本之一。
   - 交易的顺序：先检查全部条件，再创建 `data` 带来的权重块，最后创建模块。
   - `data[k]` 是第 k 块的内容，它的哈希必须等于 `chunks[k]`。块已存在时，Factory 跳过它。`data[k]` 为空表示块已存在，或者前面的位置已经发了同一块。
@@ -83,6 +84,8 @@ forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:18545 --unlocked --s
   - Factory 拒绝下面这些情况（括号里是拒绝理由）：
     - 没有最新版本的引擎 id（`engine`）。
     - 不在 `engineId` 版本列表里的 `version`（`version`）。
+    - 长度不对或者含有不允许字节的 `moduleId`（`id`）。
+    - 发送者用过的 `moduleId`（`taken`）。`checkDeploy` 按调用的发送者比较，所以桥接用部署账户调用它。
     - 创建之后仍不存在的权重块（`chunk`）。Factory 按内容哈希重算地址。
     - 引擎拒绝的形状，例如 `layers` / `hidden` / `ticks`。
     - 权重块总字节数与形状不符（`weights`）。
@@ -94,6 +97,8 @@ forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:18545 --unlocked --s
     - `isModule`。
     - 每个模块的嵌套深度 `depthOf(module)`：没有工具时为 0，否则为 1 + 其工具的最大深度。
     - 按产物的索引 `modulesOf(artifactId)`。部署工具时，桥接据此复用模块。artifactId 只是部署者的声明，所以复用前要核对。
+    - 存档，和模块在同一笔交易里写入：`moduleIdOf(module)`、`deployerOf(module)`、`moduleById(deployer, moduleId)`、`deploymentCount(deployer)` 和 `modulesByDeployer(deployer, offset, limit)`。存档记录部署账户，不记录当前 owner。记录写入后不再改变。存档之前的模块的 id 为空，deployer 为 address(0)。
+    - `modulesByDeployer` 按部署顺序返回模块。`offset` 超过末尾时返回空列表。`limit` 超过末尾时返回剩下的全部。
     - `ModuleDeployed` 事件，事件带引擎版本。
   - 权重块和模块只能经 Factory 创建。`createChunk` 只有两种用途：一笔交易放不下时先建一部分块，以及续传。
   - 登记不代表训练质量认证。
@@ -398,25 +403,28 @@ int8 让权重块小了约一半。计算上，一个 int8 列词按行号模 4 
 
 ### 规则
 
-- 出战模型是官方 Factory 创建的模块。输入是 572 位，输出是 9 个分数。工具深度是 0。权重字节数是全部权重块的字节数之和（不算 STOP 字节），不超过 `maxWeightBytes`。权重块地址列表不能和已有出战模型相同。注册者是拥有者。新出战模型排在最后一名。
+- 出战模型是官方 Factory 创建的模块。输入是 572 位，输出是 9 个分数。工具深度是 0。权重字节数是全部权重块的字节数之和（不算 STOP 字节），不超过 `maxWeightBytes`。权重块地址列表不能和已有出战模型相同。注册者是拥有者。
+- 擂台榜有 1 到 `boardSize` 名。榜没满时，新出战模型排在最后一名。榜满了，新出战模型在榜外（名次 0），仍然算一个出战模型。
 - 只有没有代码的 EOA 能发起挑战：`msg.sender == tx.origin`，并且 `tx.origin.code.length == 0`。7702 账户的代码是 23 字节的委托标记，所以被拒绝。发起交易入口处的剩余 gas 不低于 `minStartGas`。交易的 gas limit 要用 30M。24M 的 gas limit 不够，因为基础费先扣掉了 21,000。
-- 只能挑战高 1 到 `range` 名的出战模型。一个出战模型同一时间只能发起一场挑战。一个擂主可以同时被几个人挑战。同一对“挑战者 + 擂主”在 `cooldownBlocks` 个块内不能再次发起。
+- 只能挑战高 1 到 `range` 名的出战模型。榜外的出战模型按最后一名的下一名算，所以它能挑战第 `boardSize + 1 − range` 到第 `boardSize` 名。擂主必须在榜上。一个出战模型同一时间只能发起一场挑战。一个擂主可以同时被几个人挑战。同一对“挑战者 + 擂主”在 `cooldownBlocks` 个块内不能再次发起。
 - 种子是 `keccak256(abi.encode(block.prevrandao, id))`。第 i 个镜像对的种子是 `uint32(keccak256(abi.encode(seed, i)))`。第 2i 局挑战者是第 0 方，第 2i + 1 局交换。
 - 发起交易一直打到剩余 gas 低于 `reserveGas`，然后保存局面。`advance(id)` 任何人都能调用。打完第 6 局的那笔交易结算。发起后 `timeoutBlocks` 个块内没打完，`advance` 回滚 `Expired`，任何人用 `expire(id)` 结算成守擂成功。
-- 结算：挑战者赢的局数多于擂主，挑战成功。局数相等时，挑战者的权重字节数不大于擂主的 (1 − δ) 倍才成功。成功时挑战者占擂主当时的名次，擂主和中间的出战模型各降 1 名。擂主在结算前一直排在挑战者上面，所以插入只看当时的名次。
+- 结算：挑战者赢的局数多于擂主，挑战成功。局数相等时，挑战者的权重字节数不大于擂主的 (1 − δ) 倍才成功。成功时挑战者占擂主当时的名次，擂主和中间的出战模型各降 1 名。榜外的挑战者成功时，最后一名被挤到榜外。被挤出去的出战模型可以靠挑战回来。
+- 如果擂主在结算时已经在榜外（挑战进行中被挤出去了），挑战者仍然赢下这场挑战，胜负都计数，但是名次不变。这只在挑战者也在榜外时发生。
 - 到了 `endBlock`，合约不再接受注册和新挑战。已经开始的挑战照常打完。
-- 事件：`EntryRegistered`、`ChallengeStarted`、`Steps`（每笔交易里每局的动作，每步一个字节 `a0 * 9 + a1`，两方在自己地图里选的动作，第 0 方在前）、`EpisodeEnded`、`ChallengeSettled`。页面用种子、动作和 JS 场景重建回放。
-- 拒绝原因是自定义错误，每种一个：`NotOfficialModule`、`WrongShape(inputs, outputs)`、`TooLarge(weightBytes, maxWeightBytes)`、`DuplicateWeights(entry)`、`HasTools`、`AlreadyEntered`、`NotEntered`、`NotEoa`、`LowGas(gasLeft, minStartGas)`、`NotOwner`、`OutOfRange`、`Busy`、`Cooldown(untilBlock)`、`SeasonOver`、`NotPlaying`、`Expired`、`NotExpired`、`BadRank`、`ForwardFailed(module)`。
+- 事件：`EntryRegistered`（`rank` 0 是榜外）、`ChallengeStarted`、`Steps`（每笔交易里每局的动作，每步一个字节 `a0 * 9 + a1`，两方在自己地图里选的动作，第 0 方在前）、`EpisodeEnded`、`ChallengeSettled`（`newRank` 是挑战者结算后的名次，0 是榜外）。页面用种子、动作和 JS 场景重建回放。
+- 只读函数：`entryCount()` 是榜上加榜外的出战模型数。`board()` 按名次返回榜上的 `Entry[]`。`entries(from, count)` 按注册顺序分页返回全部出战模型，`from` 从 0 起，越界返回空数组。`entry(module)` 在榜外时 `rank` 是 0，没注册时 `owner` 是 0。
+- 拒绝原因是自定义错误，每种一个：`BadConfig`、`NotOfficialModule`、`WrongShape(inputs, outputs)`、`TooLarge(weightBytes, maxWeightBytes)`、`DuplicateWeights(entry)`、`HasTools`、`AlreadyEntered`、`NotEntered`、`NotEoa`、`LowGas(gasLeft, minStartGas)`、`NotOwner`、`OutOfRange`、`Busy`、`Cooldown(untilBlock)`、`SeasonOver`、`NotPlaying`、`Expired`、`NotExpired`、`ForwardFailed(module)`。
 
 ### 配置和部署
 
-构造函数收一个 `Config`：`factory`、`maxWeightBytes`（216,864）、`deltaBps`（1000）、`range`（10）、`timeoutBlocks`（400）、`cooldownBlocks`（6000）、`minStartGas`（24,000,000）、`reserveGas`（2,000,000）、`endBlock`。括号里是规格的默认值。`config()` 读出全部字段。
+构造函数收一个 `Config`：`factory`、`maxWeightBytes`（216,864）、`deltaBps`（1000）、`range`（10）、`boardSize`（20）、`timeoutBlocks`（400）、`cooldownBlocks`（6000）、`minStartGas`（24,000,000）、`reserveGas`（2,000,000）、`endBlock`。括号里是规格的默认值。`boardSize` 是 0 时构造函数回滚 `BadConfig`。`config()` 读出全部字段。
 
 ```sh
 LADDER_FACTORY=<官方 Factory> LADDER_END_BLOCK=<赛季结束块> forge script script/DeployLadder.s.sol --rpc-url monad_testnet --private-key $PK --broadcast
 ```
 
-其余字段用 `LADDER_MAX_WEIGHT_BYTES`、`LADDER_DELTA_BPS`、`LADDER_RANGE`、`LADDER_TIMEOUT_BLOCKS`、`LADDER_COOLDOWN_BLOCKS`、`LADDER_MIN_START_GAS`、`LADDER_RESERVE_GAS` 覆盖。本地测试用 `frontend/ladder.fixture.js` 的 `localLadder()`：它启动 anvil，部署协议和 TankLadder，`enter(artifact)` 部署并注册一个产物。在新启动的 anvil 上用账户 0 先跑 `Deploy.s.sol` 再跑 `DeployLadder.s.sol`，TankLadder 的地址是 `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318`。`localLadder()` 的部署顺序相同，地址也相同。
+其余字段用 `LADDER_MAX_WEIGHT_BYTES`、`LADDER_DELTA_BPS`、`LADDER_RANGE`、`LADDER_BOARD_SIZE`、`LADDER_TIMEOUT_BLOCKS`、`LADDER_COOLDOWN_BLOCKS`、`LADDER_MIN_START_GAS`、`LADDER_RESERVE_GAS` 覆盖。本地测试用 `frontend/ladder.fixture.js` 的 `localLadder()`：它启动 anvil，部署协议和 TankLadder，`enter(artifact)` 部署并注册一个产物。在新启动的 anvil 上用账户 0 先跑 `Deploy.s.sol` 再跑 `DeployLadder.s.sol`，TankLadder 的地址是 `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318`。`localLadder()` 的部署顺序相同，地址也相同。
 
 ### 裁判和 parity
 
@@ -429,7 +437,7 @@ node contracts/test/fixtures/tank-episodes.mjs <中.json> <大.json>   # 仓库�
 cd contracts && forge test --network monad --match-path 'test/ladder/*'
 ```
 
-`TankLadder.t.sol` 只通过外部函数测：注册的每种拒绝，EOA 检查（合约、`vm.etch` 的 7702 标记、`vm.signDelegation` 的真实委托），gas 门槛，范围，一个挑战者一场、一个擂主多场，并发挑战的插入顺序，δ，冷却，超时，赛季结束，任何人 `advance` 结果相同，以及模糊测试：任何种子、任何高于预留值的 gas limit 都不会让交易因为 gas 用完而回滚。
+`TankLadder.t.sol` 只通过外部函数测：注册的每种拒绝，EOA 检查（合约、`vm.etch` 的 7702 标记、`vm.signDelegation` 的真实委托），gas 门槛，范围，满榜的注册，榜外挑战者把最后一名挤出去，结算时擂主在榜外，一个挑战者一场、一个擂主多场，并发挑战的插入顺序，δ，冷却，超时，赛季结束，任何人 `advance` 结果相同，以及模糊测试：任何种子、任何高于预留值的 gas limit 都不会让交易因为 gas 用完而回滚。
 
 ### 每步的 gas
 
@@ -446,4 +454,4 @@ ANVIL=/tmp/foundry-1.8.0/anvil FORGE=/tmp/foundry-1.8.0/forge node contracts/scr
 | 中 vs 大 | 590,448 / 607,464 | 676,426 / 676,426 | 48 | 13 |
 | 大 vs 中 | 572,821 / 578,936 | 678,551 / 687,452 | 49 | 13 |
 
-推算：一次热的 `forward` 中约 105k，大约 450k。场景、输入编码、argmax 和循环开销每步约 20k 到 25k。原型每步在输入编码上花约 100k，现在约 8k。单步最大 1,017,299，预留值 2,000,000 够一步加结算。结算每升一名约 5k。
+推算：一次热的 `forward` 中约 105k，大约 450k。场景、输入编码、argmax 和循环开销每步约 20k 到 25k。原型每步在输入编码上花约 100k，现在约 8k。单步最大 1,017,299，预留值 2,000,000 够一步加结算。结算每移动一名约 1k，榜的名次存在相邻的槽里。发起时扫描榜约 25k。

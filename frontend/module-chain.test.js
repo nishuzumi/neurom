@@ -19,7 +19,8 @@ import { readout } from './core/readout.js';
 import { builtinTemplate } from './templates/index.js';
 import { builtinArtifacts } from './templates/artifacts/index.js';
 import FactoryABI from './abi/ModuleFactory.json' with { type: 'json' };
-import { deploymentOf, shapeOf, taskIdOf, deployModule, planDeployment, verifyModule, inferModule, stepModule, resetModule, moduleState, sessionId, weightChunks, chunkAddress, CHUNK_BYTES } from './module-chain.js';
+import { deploymentOf, shapeOf, taskIdOf, deployModule, planDeployment, verifyModule, inferModule, stepModule, resetModule, moduleState, sessionId, weightChunks, chunkAddress, toolModuleId, CHUNK_BYTES } from './module-chain.js';
+import { moduleIdProblem } from './core/kinds/deployment.js';
 import { CHAINS } from './chain.js';
 
 /** An artifact that carries an I → H → O dense model (default 12 → 8 → 4) on the counter loop (the trained network and
@@ -120,6 +121,15 @@ test('deploymentProblem mirrors the on-chain limits', () => {
   assert.match(deploymentProblem({ engine: 'other' }), /other/);
 });
 
+test('module ID validation accepts its boundaries and rejects invalid inputs', () => {
+  for (const id of ['abc', 'my-tank-v1', 'a_b', 'a'.repeat(64)]) {
+    assert.equal(moduleIdProblem(id), null, id);
+  }
+  for (const id of [undefined, '', 'ab', 'a'.repeat(65), '1abc', '-abc', 'Abc', 'a b', 'abc.d', 'ab\u00e9', '模块']) {
+    assert.notEqual(moduleIdProblem(id), null, String(id));
+  }
+});
+
 // ------------------------------------------------------------------------------------------------ on a local chain
 // The contracts on anvil (anvil.fixture.js), driven through this module exactly as the deployment session drives it.
 // Skipped without Foundry.
@@ -139,13 +149,13 @@ test('the combiner on chain: ADD4 / SUB4 / MUL4 deploy once, a second selector r
     const combiner = builtin('arithmetic-combiner-policy'), toolIds = ['add4', 'sub4', 'mul4'].map(n => builtin(`arithmetic-${n}`).id);
     const factory = new ethers.Contract(chain.factory, FactoryABI, chain.provider), sent = () => chain.provider.getTransactionCount(chain.signer.address);
     let nonce = await sent();
-    const first = await deployModule(chain.signer, chain.factory, combiner, { artifacts });
+    const first = await deployModule(chain.signer, chain.factory, combiner, { artifacts, moduleId: 'combiner-1' });
     assert.deepEqual(first.tools.map(x => [x.artifactId, x.reused]), toolIds.map(id => [id, false]), 'tools deployed first, in wire order');
     assert.equal(await factory.count(), 4n);
     assert.equal(await sent() - nonce, 4, 'one transaction per module, its weight chunk included');
     assert.deepEqual([...first.tools, first].map(x => x.transactions.map(tx => tx.kind)), [['module'], ['module'], ['module'], ['module']]);
     nonce = await sent();
-    const second = await deployModule(chain.signer, chain.factory, combiner, { artifacts });
+    const second = await deployModule(chain.signer, chain.factory, combiner, { artifacts, moduleId: 'combiner-2' });
     assert.equal(await sent() - nonce, 1, 'the second selector: one transaction');
     assert.deepEqual(second.tools.map(x => [x.address, x.reused]), first.tools.map(x => [x.address, true]), 'the second selector reuses the three tool modules');
     assert.equal(await factory.count(), 5n, 'only the selector was deployed again');
@@ -175,6 +185,62 @@ test('the combiner on chain: ADD4 / SUB4 / MUL4 deploy once, a second selector r
   } finally { chain.stop(); }
 });
 
+test('module ids on chain: the Factory archives (deployer, id) → module; a used id is refused before any transaction, tools and chunks included; the same artifact deploys again under another id; the same id is free under another account', { skip: NO_FOUNDRY, timeout: 180_000 }, async () => {
+  const chain = await localChain();
+  try {
+    const combiner = builtin('arithmetic-combiner-policy'), toolIds = ['add4', 'sub4', 'mul4'].map(n => builtin(`arithmetic-${n}`).id);
+    const factory = new ethers.Contract(chain.factory, FactoryABI, chain.provider), me = chain.signer.address;
+    const sent = async signer => chain.provider.getTransactionCount(await signer.getAddress());
+    const from = { from: me }, before = await sent(chain.signer);
+    for (const bad of ['', 'ab', 'Abc', '1st']) {
+      await assert.rejects(deployModule(chain.signer, chain.factory, combiner, { artifacts, moduleId: bad }), /模块 ID/, `deploy refuses ${JSON.stringify(bad)}`);
+      await assert.rejects(planDeployment(chain.provider, chain.factory, combiner, { artifacts, ...from, moduleId: bad }), /模块 ID/, `plan refuses ${JSON.stringify(bad)}`);
+    }
+    await assert.rejects(deployModule(chain.signer, chain.factory, combiner, { artifacts }), /模块 ID/, 'the id is required');
+    assert.equal(await sent(chain.signer), before, 'no transaction for a refused id');
+
+    const plan = await planDeployment(chain.provider, chain.factory, combiner, { artifacts, ...from, moduleId: 'combiner' });
+    assert.deepEqual([plan.moduleId, plan.deployer], ['combiner', me]);
+    assert.deepEqual(plan.tools.map(x => x.moduleId), toolIds.map(id => toolModuleId({ id })), 'the plan names the ids of the tools it deploys fresh');
+    const first = await deployModule(chain.signer, chain.factory, combiner, { artifacts, moduleId: 'combiner' });
+    assert.deepEqual([first.moduleId, first.deployer], ['combiner', me]);
+    assert.deepEqual(first.tools.map(x => x.moduleId), toolIds.map(id => toolModuleId({ id })), 'each fresh tool got its deterministic id');
+    assert.equal(await factory.moduleIdOf(first.address), 'combiner');
+    assert.equal(await factory.deployerOf(first.address), me);
+    assert.equal(await factory.moduleById(me, 'combiner'), first.address, 'the archive maps (deployer, id) to the module');
+    assert.equal(await factory.deploymentCount(me), 4n, 'the three tools and the selector are archived under the deployer');
+    assert.deepEqual(Array.from(await factory.modulesByDeployer(me, 0, 10)), [...first.tools.map(x => x.address), first.address], 'in deployment order');
+    for (const tool of first.tools) assert.equal(await factory.moduleById(me, tool.moduleId), tool.address);
+    const h = await verifyModule(chain.provider, first.address, combiner, { artifacts, factory: chain.factory });
+    assert.deepEqual([h.moduleId, h.deployer], ['combiner', me], 'verification reports the archived identity');
+
+    // A used id: refused before the tools and chunks of the deployment are looked at, with nothing sent.
+    const nonce = await sent(chain.signer);
+    await assert.rejects(planDeployment(chain.provider, chain.factory, combiner, { artifacts, ...from, moduleId: 'combiner' }), /已被账户/, 'the plan refuses a used id');
+    await assert.rejects(deployModule(chain.signer, chain.factory, combiner, { artifacts, moduleId: 'combiner' }), /已被账户/, 'deploy refuses a used id');
+    const big = await denseArtifact({ ...FF, weightBits: 16, I: 240, H: 256, O: 16 });
+    await assert.rejects(deployModule(chain.signer, chain.factory, big, { artifacts, moduleId: 'combiner' }), /已被账户/, 'a used id with chunks to send: refused before the first chunk');
+    assert.equal(await sent(chain.signer), nonce, 'nothing was sent');
+    assert.equal(await factory.count(), 4n);
+
+    // The same artifact again under another id: a new module (the top module is never reused), the tools reused.
+    const second = await deployModule(chain.signer, chain.factory, combiner, { artifacts, moduleId: 'combiner-again' });
+    assert.notEqual(second.address, first.address);
+    assert.deepEqual(second.tools.map(x => x.reused), [true, true, true]);
+    assert.equal(await factory.moduleById(me, 'combiner-again'), second.address);
+    assert.equal(await factory.deploymentCount(me), 5n);
+
+    // Another account owns its own namespace: the id is free there. Its tools are reused from the Factory (any deployer).
+    const other = await chain.provider.getSigner(1), otherAddress = await other.getAddress();
+    assert.equal(await factory.moduleById(otherAddress, 'combiner'), ethers.ZeroAddress);
+    const theirs = await deployModule(other, chain.factory, combiner, { artifacts, moduleId: 'combiner' });
+    assert.deepEqual([theirs.moduleId, theirs.deployer], ['combiner', otherAddress]);
+    assert.deepEqual(theirs.tools.map(x => [x.address, x.reused]), first.tools.map(x => [x.address, true]));
+    assert.deepEqual(Array.from(await factory.modulesByDeployer(otherAddress, 0, 10)), [theirs.address]);
+    assert.equal(await factory.deploymentCount(me), 5n, 'the deployer of the first module is unchanged');
+  } finally { chain.stop(); }
+});
+
 test('the official factory on local dev: contracts/script/Deploy.s.sol broadcast from account 0 on a fresh anvil, and the fixture deploying in its order, both put the factory proxy at the address frontend/chain.js lists for 31337', { skip: NO_FOUNDRY, timeout: 180_000 }, async () => {
   const drift = 'the deployment order or account changed: update CHAINS[31337].factory together with Deploy.s.sol and anvil.fixture.js';
   const node = await startAnvil();
@@ -195,15 +261,15 @@ test('only the official factory: modules of a second factory with the same code 
   const chain = await localChain();
   try {
     const combiner = builtin('arithmetic-combiner-policy'), add4 = builtin('arithmetic-add4'), other = await chain.otherFactory();
-    const copy = await deployModule(chain.signer, other, combiner, { artifacts });
+    const copy = await deployModule(chain.signer, other, combiner, { artifacts, moduleId: 'combiner-other' });
     const there = await verifyModule(chain.provider, copy.address, combiner, { artifacts, factory: other });
     assert.deepEqual(there.toolModules.map(x => x.address), copy.tools.map(x => x.address), 'genuine on its own factory: the same code and weights');
     await assert.rejects(verifyModule(chain.provider, copy.address, combiner, { artifacts, factory: chain.factory }), /factory/, 'the selector of another factory does not verify');
     await assert.rejects(verifyModule(chain.provider, copy.tools[0].address, add4, { artifacts, factory: chain.factory }), /factory/, 'nor its tool');
 
-    const plan = await planDeployment(chain.provider, chain.factory, combiner, { artifacts, from: chain.signer.address });
+    const plan = await planDeployment(chain.provider, chain.factory, combiner, { artifacts, from: chain.signer.address, moduleId: 'combiner-mine' });
     assert.deepEqual(plan.tools.map(x => x.address), [null, null, null], 'the other factory\'s tool modules are not offered for reuse');
-    const mine = await deployModule(chain.signer, chain.factory, combiner, { artifacts });
+    const mine = await deployModule(chain.signer, chain.factory, combiner, { artifacts, moduleId: 'combiner-mine' });
     assert.ok(mine.tools.every((x, k) => x.reused === false && x.address !== copy.tools[k].address), 'the official deployment creates its own tool modules');
     const checked = await verifyModule(chain.provider, mine.address, combiner, { artifacts, factory: chain.factory });
     assert.deepEqual(checked.toolModules.map(x => x.address), mine.tools.map(x => x.address));
@@ -217,7 +283,7 @@ test('the default mining-sized network (FF 185 → 32 → 7) deploys in one tran
     for (const weightBits of [8, 16]) {
       const net = await denseArtifact({ ...FF, weightBits, I: 185, H: 32, O: 7 });
       const nonce = await chain.provider.getTransactionCount(chain.signer.address);
-      const r = await deployModule(chain.signer, chain.factory, net, { artifacts });
+      const r = await deployModule(chain.signer, chain.factory, net, { artifacts, moduleId: `mining-int${weightBits}` });
       assert.equal(await chain.provider.getTransactionCount(chain.signer.address) - nonce, 1);
       assert.deepEqual(r.transactions.map(tx => [tx.kind, tx.txHash]), [['module', r.txHash]]);
       assert.deepEqual(r.chunks.map(c => [c.created, c.txHash, c.bytes]), [[true, r.txHash, denseWeightBytes(185, [{ hidden: 32 }], 7, weightBits)]], `int${weightBits}: the chunk came with the module`);
@@ -230,8 +296,8 @@ test('the default mining-sized network (FF 185 → 32 → 7) deploys in one tran
   } finally { chain.stop(); }
 });
 
-/** The deployment plan of `artifact` read through the provider, as the deployer would send it (the deployment session's way). */
-const planOf = (chain, artifact) => planDeployment(chain.provider, chain.factory, artifact, { artifacts, from: chain.signer.address });
+/** The deployment plan of `artifact` under module id `moduleId` read through the provider, as the deployer would send it (the deployment session's way). */
+const planOf = (chain, artifact, moduleId = 'planned') => planDeployment(chain.provider, chain.factory, artifact, { artifacts, from: chain.signer.address, moduleId });
 /** The kinds of a plan's transactions, each with the number of chunks it creates. */
 const planned = plan => plan.transactions.map(tx => [tx.kind, tx.chunks.length]);
 const counts = plan => ({ needed: plan.chunks.length, onChain: plan.chunks.filter(c => c.onChain).length });
@@ -249,7 +315,7 @@ test('weights too big for one transaction: the plan and the deployment send the 
     assert.ok(BigInt(plan.transactions[0].gas) > 0n, 'the chunk transaction has its gas estimate');
     const moduleGas = plan.transactions[1].gas;   // known only when the whole deployment fits the node's estimate allowance (anvil: the 30M block limit), which it straddles
     assert.ok(moduleGas === null || BigInt(moduleGas) > 0n, 'the module transaction: an estimate, or pending');
-    const first = await deployModule(chain.signer, chain.factory, big, { artifacts });
+    const first = await deployModule(chain.signer, chain.factory, big, { artifacts, moduleId: 'big-1' });
     assert.deepEqual(first.transactions.map(tx => tx.kind), ['chunk', 'module'], 'split by gas: chunk 1 alone, chunk 2 with the module');
     assert.deepEqual(first.chunks.map(c => [c.bytes, c.created, c.txHash]), [[CHUNK_BYTES, true, first.transactions[0].txHash], [bytes - CHUNK_BYTES, true, first.txHash]]);
     const local = browserExecutor(big);
@@ -262,7 +328,7 @@ test('weights too big for one transaction: the plan and the deployment send the 
     assert.notEqual(twin.id, big.id);
     const twinPlan = await planOf(chain, twin);
     assert.deepEqual([counts(twinPlan), planned(twinPlan)], [{ needed: 2, onChain: 2 }, [['module', 0]]]);
-    const second = await deployModule(chain.signer, chain.factory, twin, { artifacts });
+    const second = await deployModule(chain.signer, chain.factory, twin, { artifacts, moduleId: 'big-twin' });
     assert.notEqual(second.address, first.address);
     assert.deepEqual(second.chunks.map(c => [c.address, c.created]), first.chunks.map(c => [c.address, false]), 'every chunk reused');
     assert.deepEqual(second.transactions.map(tx => tx.kind), ['module'], 'one transaction: the module alone');
@@ -274,7 +340,7 @@ test('weights too big for one transaction: the plan and the deployment send the 
     assert.notEqual(siblingPlan.chunks[1].address, first.chunks[1].address, 'the output biases sit in the second');
     assert.deepEqual([counts(siblingPlan), planned(siblingPlan)], [{ needed: 2, onChain: 1 }, [['module', 1]]]);
     assert.ok(BigInt(siblingPlan.transactions[0].gas) > 0n, 'with chunk 1 on chain the whole deployment can be estimated');
-    const third = await deployModule(chain.signer, chain.factory, sibling, { artifacts });
+    const third = await deployModule(chain.signer, chain.factory, sibling, { artifacts, moduleId: 'big-sibling' });
     assert.deepEqual(third.chunks.map(c => c.created), [false, true], 'only the new chunk is created');
     assert.deepEqual(third.transactions.map(tx => tx.kind), ['module'], 'with the module, in one transaction');
     const bits = Array.from({ length: 240 }, (_, i) => (i % 3 === 0 ? 1 : 0)), want = browserExecutor(sibling).step(bits);
@@ -302,12 +368,12 @@ test('an interrupted split deployment resumes: the second of three transactions 
     assert.equal(new Set(before.chunks.map(c => c.address)).size, 3, 'three distinct chunks');
     assert.deepEqual([counts(before), planned(before)], [{ needed: 3, onChain: 0 }, [['chunk', 1], ['chunk', 1], ['module', 1]]]);
     const events = [];
-    await assert.rejects(deployModule(failingAt(chain.signer, 2), chain.factory, net, { artifacts, onProgress: e => events.push([e.stage, e.kind, e.chunks.length]) }), /simulated failure/);
+    await assert.rejects(deployModule(failingAt(chain.signer, 2), chain.factory, net, { artifacts, moduleId: 'split-net', onProgress: e => events.push([e.stage, e.kind, e.chunks.length]) }), /simulated failure/);
     assert.deepEqual(events, [['sending', 'chunk', 1], ['mined', 'chunk', 1], ['sending', 'chunk', 1]], 'progress per transaction: the first mined, the second failed');
     const after = await planOf(chain, net);
     assert.deepEqual(after.chunks.map(c => c.onChain), [true, false, false]);
     assert.deepEqual(planned(after), [['chunk', 1], ['module', 1]], 'what is left: chunk 2, then chunk 3 with the module');
-    const resumed = [], r = await deployModule(chain.signer, chain.factory, net, { artifacts, onProgress: e => { if (e.stage === 'mined') resumed.push([e.kind, e.txHash, e.gasUsed]); } });
+    const resumed = [], r = await deployModule(chain.signer, chain.factory, net, { artifacts, moduleId: 'split-net', onProgress: e => { if (e.stage === 'mined') resumed.push([e.kind, e.txHash, e.gasUsed]); } });
     assert.deepEqual(r.chunks.map(c => c.created), [false, true, true], 'the chunk already on chain is not sent again');
     assert.deepEqual(resumed, r.transactions.map(tx => [tx.kind, tx.txHash, tx.gasUsed]));
     assert.deepEqual(resumed.map(x => x[0]), ['chunk', 'module']);
@@ -327,7 +393,7 @@ test('identical chunks of one artifact are created once: all-zero weights over t
   const chain = await localChain();
   try {
     const flat = await denseArtifact({ ...FF, weightBits: 16, I: 256, H: 256, O: 256, zero: true });
-    const r = await deployModule(chain.signer, chain.factory, flat, { artifacts });
+    const r = await deployModule(chain.signer, chain.factory, flat, { artifacts, moduleId: 'flat-zero' });
     assert.equal(r.chunks.length, 3);
     assert.equal(r.chunks[0].address, r.chunks[1].address, 'chunks 1 and 2 hold the same zeros');
     assert.deepEqual(r.chunks.map(c => c.created), [true, false, true], 'the repeat is never sent');
@@ -346,7 +412,7 @@ test('networks wider than 256 decide on chain bit for bit as in the browser at b
     for (const [kind, weightBits, I, H] of [['feedforward', 8, 1020, 300], ['feedforward', 16, 300, 300], ['lif', 8, 1020, 200], ['lif', 16, 300, 200]]) {
       const net = await denseArtifact({ ...(kind === 'feedforward' ? FF : {}), weightBits, I, H, O: 300, best: 287, provenance: { test: 'module-chain', wide: `${kind} ${weightBits}` } });
       assert.equal(deploymentOf(net).shape[0], BigInt(H - 1), 'layer 0: hidden − 1 in 16 bits');
-      const { address } = await deployModule(chain.signer, chain.factory, net, { artifacts });
+      const { address } = await deployModule(chain.signer, chain.factory, net, { artifacts, moduleId: `wide-${kind}-${weightBits}` });
       const local = browserExecutor(net);
       for (let t = 0; t < 6; t++) {
         const bits = Array.from({ length: I }, (_, i) => ((5 * t + 3 * i) % (t + 7) < 2 ? 1 : 0)), want = local.peek(bits);
@@ -364,7 +430,7 @@ test('a one-layer LIF artifact steps on chain exactly as the browser executor at
   try {
     for (const weightBits of [8, 16]) {
       const lif = await denseArtifact({ weightBits }), I = trainedOf(lif.bundle.loop).structure.inputs, local = browserExecutor(lif);
-      const { address } = await deployModule(chain.signer, chain.factory, lif, { artifacts });
+      const { address } = await deployModule(chain.signer, chain.factory, lif, { artifacts, moduleId: `lif-int${weightBits}` });
       let spikes = 0;
       for (let t = 0; t < 6; t++) {
         const bits = Array.from({ length: I }, (_, i) => ((7 * t + 3 * i) % 5 < 2 ? 1 : 0));
@@ -382,17 +448,17 @@ test('engine versions: a deployment takes the latest unless it names an older ve
   try {
     const lif = await denseArtifact(), I = trainedOf(lif.bundle.loop).structure.inputs, id = ethers.id('dense-policy'), v1 = chain.engines['dense-policy'];
     const factory = new ethers.Contract(chain.factory, FactoryABI, chain.signer);
-    const first = await deployModule(chain.signer, chain.factory, lif, { artifacts });
+    const first = await deployModule(chain.signer, chain.factory, lif, { artifacts, moduleId: 'versions-1' });
     assert.deepEqual(first.engineVersion, { address: v1, number: 1, latest: true });
     const v2 = await (await deployOut(chain.signer, 'DensePolicyEngine')).getAddress();
     await (await factory.addVersion(id, v2)).wait();
     await (await factory.setLatest(id, v2)).wait();
-    const plan = await planDeployment(chain.provider, chain.factory, lif, { artifacts, from: chain.signer.address });
+    const plan = await planDeployment(chain.provider, chain.factory, lif, { artifacts, from: chain.signer.address, moduleId: 'versions-2' });
     assert.deepEqual([plan.chunks.every(c => c.onChain), plan.transactions.length], [true, 1], 'the module alone');
-    const second = await deployModule(chain.signer, chain.factory, lif, { artifacts });
+    const second = await deployModule(chain.signer, chain.factory, lif, { artifacts, moduleId: 'versions-2' });
     assert.deepEqual(second.engineVersion, { address: v2, number: 2, latest: true }, 'a new deployment takes the latest');
     assert.ok(second.chunks.every(c => !c.created), 'on the chunks already on chain');
-    const older = await deployModule(chain.signer, chain.factory, lif, { artifacts, version: v1 });
+    const older = await deployModule(chain.signer, chain.factory, lif, { artifacts, version: v1, moduleId: 'versions-older' });
     assert.deepEqual(older.engineVersion, { address: v1, number: 1, latest: false }, 'an older version can be named');
     const h = await verifyModule(chain.provider, first.address, lif, { artifacts, factory: chain.factory });
     assert.deepEqual([h.engineAddress, h.engineVersion], [v1, { address: v1, number: 1, latest: false }], 'the first module keeps version 1');
@@ -405,7 +471,7 @@ test('engine versions: a deployment takes the latest unless it names an older ve
       }
       await resetModule(chain.signer, address, session);
     }
-    await assert.rejects(deployModule(chain.signer, chain.factory, lif, { artifacts, version: chain.engines['threshold-layers'] }), /version/, 'a version of another engine id is refused');
+    await assert.rejects(deployModule(chain.signer, chain.factory, lif, { artifacts, version: chain.engines['threshold-layers'], moduleId: 'versions-wrong' }), /version/, 'a version of another engine id is refused');
 
     // A Factory whose list no longer holds the version of the module (only a faulty upgrade could cause this). Empty
     // the dense-policy list in the storage of the proxy. Verification then refuses the module.
@@ -425,7 +491,7 @@ test('stateful and nested tools on chain: a LIF selector with a LIF tool and a s
       const made = await toolNetworkArtifacts({ add4: builtin('arithmetic-add4'), sub4: builtin('arithmetic-sub4'), mul4: builtin('arithmetic-mul4'), combiner: builtin('arithmetic-combiner-policy') }, { weightBits });
       const known = id => Object.values(made).find(a => a.id === id) ?? artifacts(id);
       for (const [name, artifact, width, depth] of [['LIF selector', made.lifSelector, 16 + 6, 1], ['nested selector', made.nestedSelector, 6, 2]]) {
-        const label = `${name} int${weightBits}`, d = await deployModule(chain.signer, chain.factory, artifact, { artifacts: known });
+        const label = `${name} int${weightBits}`, d = await deployModule(chain.signer, chain.factory, artifact, { artifacts: known, moduleId: `nested-${depth}-int${weightBits}` });
         const h = await verifyModule(chain.provider, d.address, artifact, { artifacts: known, factory: chain.factory });
         assert.deepEqual([h.stateWidth, Number(await factory.depthOf(d.address))], [width, depth], `${label}: the selector keeps its tools' state; depth ${depth}`);
         const I = trainedOf(artifact.bundle.loop).structure.inputs, local = browserExecutor(artifact), other = browserExecutor(artifact);
@@ -453,7 +519,7 @@ test('a threshold artifact with two hidden layers decides on chain exactly as th
   try {
     for (const weightBits of [8, 16]) {
       const deep = await deepThresholdArtifact(builtin('arithmetic-add4'), { weightBits }), local = browserExecutor(deep), second = new Set();
-      const { address } = await deployModule(chain.signer, chain.factory, deep, { artifacts });
+      const { address } = await deployModule(chain.signer, chain.factory, deep, { artifacts, moduleId: `deep-int${weightBits}` });
       for (let x = 0; x < 256; x++) {
         const bits = Array.from({ length: 8 }, (_, i) => (x >> i) & 1), want = local.step(bits);
         const got = await inferModule(chain.provider, address, bits);

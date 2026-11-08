@@ -1,8 +1,9 @@
 // ladder/errors.js — the text of every refusal the page can meet: the custom errors of TankLadder
 // (contract-interface.md), the error codes of the name service (ladder/README.md) and the errors of the chain bridge.
 // `describeError(error, context)` gives one sentence for the user. The context carries the numbers the sentence
-// needs (the configuration, the weight size of the artifact), so the page never prints a limit from code.
+// needs (the configuration, the weight size of the module), so the page never prints a limit from code.
 import { decodeLadderError } from '../chain/client.js';
+import { describeChainError } from '../../../frontend/chain-error.js';
 import { t } from '../i18n.js';
 import { formatInt } from './format.js';
 
@@ -27,7 +28,6 @@ export function ladderErrorMessage(name, ctx = {}) {
     case 'NotExpired': return t('这场挑战还没有超时');
     case 'Expired': return t('这场挑战已经超时，算擂主守擂成功');
     case 'NotPlaying': return t('这场挑战已经结束');
-    case 'BadRank': return t('名次不存在');
     case 'ForwardFailed': return t('出战模型的 forward 调用失败');
     case 'BadConfig': return t('合约配置无效');
     default: return null;
@@ -54,13 +54,18 @@ export function nameErrorMessage(code, details = {}) {
   }
 }
 
-/** One sentence for any error the page catches. `ctx` as ladderErrorMessage. */
+/** One sentence for any error the page catches. `ctx` as ladderErrorMessage. The custom errors of the contract and
+ *  the codes of the name service come first; every other wallet / RPC error goes through the shared formatter of the
+ *  workbench (frontend/chain-error.js), which digs the concrete cause out of nested provider errors. */
 export function describeError(error, ctx = {}) {
   if (!error) return '';
   const custom = decodeLadderError(error);
-  if (custom) return ladderErrorMessage(custom, ctx) ?? t('合约拒绝了操作：{name}', { name: custom });
+  if (custom) {
+    const details = custom === 'TooLarge' && error.ladderArgs
+      ? { ...ctx, weightBytes: error.ladderArgs.weightBytes, config: { ...ctx.config, maxWeightBytes: error.ladderArgs.maxWeightBytes } }
+      : ctx;
+    return ladderErrorMessage(custom, details) ?? t('合约拒绝了操作：{name}', { name: custom });
+  }
   if (error.nameCode) return nameErrorMessage(error.nameCode, error.details);
-  if (error.code === 'INSUFFICIENT_FUNDS') return t('余额不够付 gas');
-  if (error.code === 'ACTION_REJECTED') return t('签名被拒绝');
-  return error.shortMessage || error.message || String(error);
+  return describeChainError(error);
 }

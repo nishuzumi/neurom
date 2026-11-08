@@ -24,6 +24,11 @@
             "type": "uint8"
           },
           {
+            "internalType": "uint8",
+            "name": "boardSize",
+            "type": "uint8"
+          },
+          {
             "internalType": "uint32",
             "name": "timeoutBlocks",
             "type": "uint32"
@@ -133,6 +138,69 @@
     "name": "advance",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "board",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "module",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "owner",
+            "type": "address"
+          },
+          {
+            "internalType": "uint32",
+            "name": "weightBytes",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "rank",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint16",
+            "name": "wins",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "losses",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint256",
+            "name": "activeChallenge",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct TankLadder.Entry[]",
+        "name": "out",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "boardSize",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -270,6 +338,11 @@
             "type": "uint8"
           },
           {
+            "internalType": "uint8",
+            "name": "boardSize",
+            "type": "uint8"
+          },
+          {
             "internalType": "uint32",
             "name": "timeoutBlocks",
             "type": "uint32"
@@ -370,7 +443,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "fromRank",
+        "name": "from",
         "type": "uint256"
       },
       {
@@ -478,25 +551,6 @@
         "internalType": "struct TankLadder.Entry",
         "name": "",
         "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "rank",
-        "type": "uint256"
-      }
-    ],
-    "name": "entryAt",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -813,11 +867,6 @@
   {
     "inputs": [],
     "name": "BadConfig",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "BadRank",
     "type": "error"
   },
   {

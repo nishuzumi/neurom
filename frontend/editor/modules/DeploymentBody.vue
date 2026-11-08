@@ -1,8 +1,10 @@
 <script setup lang="ts">
 // DeploymentBody.vue — the deployment module over sessions/deployment.js. It shows the network (workspace setting)
 // and its official Factory (explorer-linked where the network has an explorer, ADR 0016), the wallet and the session
-// label. Then it shows the deployment record on this network (deploy / verify / read state). Next come the deployment
-// plan (chunks needed / on chain, the transactions mined and still to send) and the status line with explorer link.
+// label. Then it shows the module id of the next deployment (an English name, unique under the deploying account, that
+// the Factory archives with the module) and the deployment record on this network with its archived id and deployer
+// (deploy / verify / read state). Next come the deployment plan (chunks needed / on chain, the transactions mined and
+// still to send) and the status line with explorer link.
 // Last comes one of two parts. Stateless modules get free inference + step transactions on explicit input bits.
 // Other modules get the episode mirrored on chain (preview / reset / step) with the decision and the chain-step history.
 import { computed, shallowRef, watch } from 'vue';
@@ -30,9 +32,9 @@ const can = computed(() => (snap.value.can as Record<string, boolean>) ?? {});
 const reasons = computed(() => (snap.value.reasons as Record<string, string | null>) ?? {});
 const status = computed(() => (snap.value.status as { tone: string; text: string; tx: Tx | null }) ?? { tone: 'info', text: '', tx: null });
 const chains = computed(() => (snap.value.chains as { id: number; name: string; local: boolean }[]) ?? []);
-const deployment = computed(() => snap.value.deployment as { address: string; artifactId: string; txHash?: string; tx: Tx | null; stale: boolean } | null);
+const deployment = computed(() => snap.value.deployment as { address: string; artifactId: string; txHash?: string; moduleId?: string; deployer?: string; tx: Tx | null; stale: boolean } | null);
 type EngineVersion = { address: string; number: number; latest: boolean };
-const chainSession = computed(() => snap.value.session as { chainId: number; address: string; artifactId: string; account: string; sessionHex: string; tools: ToolModule[]; engineVersion: EngineVersion | null } | null);
+const chainSession = computed(() => snap.value.session as { chainId: number; address: string; artifactId: string; account: string; sessionHex: string; tools: ToolModule[]; engineVersion: EngineVersion | null; moduleId: string | null; deployer: string | null } | null);
 type PlanTx = { kind: string; tool: boolean; label: string; gas: string | null };
 const plan = computed(() => snap.value.deployPlan as { needed: number; onChain: number; bytes: number; transactions: PlanTx[] } | null);
 const run = computed(() => snap.value.deployRun as { done: { kind: string; label: string; tx: Tx }[]; sending: boolean; failed: string | null; finished: boolean } | null);
@@ -60,6 +62,9 @@ const actionLabel = (a: number | null | undefined, name?: string | null) => (a =
 // ------------------------------------------------------------------ inputs committed to the session
 const labelInput = shallowRef(String(snap.value.label ?? ''));
 watch(() => snap.value.label, v => { labelInput.value = String(v ?? ''); });
+const moduleIdInput = shallowRef(String(snap.value.moduleId ?? ''));
+watch(() => snap.value.moduleId, v => { moduleIdInput.value = String(v ?? ''); });
+const moduleIdProblem = computed(() => (snap.value.moduleIdProblem as string | null) ?? null);
 const bits = computed<number[]>(() => (snap.value.inputBits as number[] | null) ?? new Array(artifact.value?.inputs ?? 0).fill(0));
 function toggleBit(i: number) { const b = bits.value.slice(); b[i] = b[i] ? 0 : 1; act(() => session.setInputBits(b)); }
 const selRole = shallowRef('training'), selIndex = shallowRef('0'), seedInput = shallowRef('1');
@@ -77,6 +82,7 @@ function pickSeed() { const seed = Number(seedInput.value); if (!Number.isIntege
       <button type="button" class="mini" :disabled="!can.connect" :title="reasons.connect ?? t('连接钱包 / 本地节点')" @click="act(() => session.connect())">{{ t('连接') }}</button>
       <label class="bhint">{{ t('会话标签') }} <input v-model="labelInput" class="dlabel" :aria-label="t('会话标签')" :title="String(snap.sessionId ?? t('会话 id = keccak256(标签)'))" @change="act(() => session.setLabel(labelInput))" @keydown.enter.prevent="act(() => session.setLabel(labelInput))" /></label>
     </div>
+    <div class="bhint">{{ t('同一模块按“钱包地址 + 会话标签”隔离运行状态。默认值可直接使用。它不是模块 ID，也不是登录账号。') }}</div>
     <div class="brow bhint dfactory">
       {{ t('官方 Factory') }}
       <template v-if="snap.factory"><a v-if="snap.factoryUrl" class="mono" target="_blank" rel="noopener" :href="String(snap.factoryUrl)">{{ snap.factory }}</a><span v-else class="pin">{{ snap.factory }}</span></template>
@@ -86,7 +92,7 @@ function pickSeed() { const seed = Number(seedInput.value); if (!Number.isIntege
       <span v-if="artifact"><span class="pin" :title="artifact.id">{{ artifact.short }}</span> {{ structureLabel(artifact) }}</span>
       <span v-else>{{ snap.artifactProblem }}</span>
       <span class="bgrow"></span>
-      <span v-if="chainSession">{{ t('会话：') }}<span class="pin" :title="chainSession.address">{{ shortId(chainSession.address) }}</span> · {{ t('调用者') }} <span class="pin" :title="chainSession.account">{{ shortId(chainSession.account) }}</span>
+      <span v-if="chainSession">{{ t('会话：') }}<span class="pin" :title="chainSession.address">{{ shortId(chainSession.address) }}</span><template v-if="chainSession.moduleId"> · {{ t('模块 ID') }} <b class="ink">{{ chainSession.moduleId }}</b></template> · {{ t('调用者') }} <span class="pin" :title="chainSession.account">{{ shortId(chainSession.account) }}</span>
         <template v-if="chainSession.engineVersion"> · {{ t('引擎版本 {number}', { number: chainSession.engineVersion.number }) }} <span class="pin" :title="chainSession.engineVersion.address">{{ shortId(chainSession.engineVersion.address) }}</span>{{ chainSession.engineVersion.latest ? t('（最新）') : t('（不是最新）') }}</template></span>
       <span v-else>{{ t('没有链上会话') }}</span>
     </div>
@@ -100,14 +106,23 @@ function pickSeed() { const seed = Number(seedInput.value); if (!Number.isIntege
     <div v-if="snap.deployProblem" class="bproblem">{{ snap.deployProblem }}</div>
     <div v-if="error" class="bproblem">{{ error }}</div>
 
+    <!-- the module id of the next deployment -->
+    <div class="brow">
+      <label class="bhint">{{ t('模块 ID') }} <input v-model="moduleIdInput" class="dmid" :aria-label="t('模块 ID')" :disabled="!!snap.busy" placeholder="my-tank-v1" spellcheck="false" maxlength="64" :title="t('3..64 个字符。小写字母开头，只用小写字母、数字、“-”和“_”。同一账户下不能重复。')" @change="act(() => session.setModuleId(moduleIdInput))" @keydown.enter.prevent="act(() => session.setModuleId(moduleIdInput))" /></label>
+      <span class="bhint">{{ t('部署时 Factory 把这个 ID 和部署账户一起存档。擂台按部署账户列出模块，不用复制地址。') }}</span>
+    </div>
+    <div v-if="moduleIdProblem" class="bhint bad">{{ moduleIdProblem }}</div>
+    <div v-if="snap.deployedNote" class="bhint">{{ snap.deployedNote }}</div>
+
     <!-- record on this network -->
     <div class="drecord">
       <div v-if="deployment" class="bhint">
         {{ t('本网络上的模块合约') }} <span class="pin" :title="deployment.address">{{ deployment.address }}</span> · {{ t('产物') }} {{ shortId(deployment.artifactId) }}
+        <template v-if="deployment.moduleId"> · {{ t('模块 ID') }} <b class="ink">{{ deployment.moduleId }}</b><template v-if="deployment.deployer"> · {{ t('部署者') }} <span class="pin" :title="deployment.deployer">{{ shortId(deployment.deployer) }}</span></template></template>
         <span v-if="deployment.stale" class="bad">{{ t('（部署的产物不是当前已接受的产物。再部署一次可以更新）') }}</span>
         <template v-if="deployment.tx"> · <TxLink :tx="deployment.tx" /></template>
       </div>
-      <div v-else class="bhint">{{ t('这个网络上还没有部署。一份产物 = 一个模块合约（Factory 记录 artifactId / taskId / engineId 与权重字节）。工具层的每个网络工具也有自己的模块合约。') }}</div>
+      <div v-else class="bhint">{{ t('这个网络上还没有部署。一份产物 = 一个模块合约（Factory 记录 artifactId / taskId / engineId、模块 ID、部署者与权重字节）。工具层的每个网络工具也有自己的模块合约。') }}</div>
       <div class="brow">
         <button type="button" :disabled="!can.deploy" :title="reasons.deploy ?? t('通过 Factory 部署当前已接受产物，并核对链上字节')" @click="act(() => session.deploy())">{{ t('部署当前产物') }}</button>
         <button type="button" :disabled="!can.verify" :title="reasons.verify ?? t('核对链上模块 = 当前产物，并以当前账户建立会话')" @click="act(() => session.verify())">{{ t('核对链上模块') }}</button>
@@ -131,7 +146,7 @@ function pickSeed() { const seed = Number(seedInput.value); if (!Number.isIntege
     <!-- status -->
     <div class="dstatus" :class="status.tone" :role="status.tone === 'warn' ? 'alert' : 'status'" aria-live="polite">
       <span v-if="snap.busy" class="pl">{{ t(String(snap.busy)) }}…</span>
-      <span>{{ status.text || (chainSession ? t('会话就绪。') : t('先点“连接”，再点“部署当前产物”或“核对链上模块”，建立会话。')) }}</span>
+      <span>{{ status.text || (chainSession ? t('会话就绪。') : t('已有部署时，点“连接”自动核对。新部署先设置模块 ID。然后点“部署当前产物”。')) }}</span>
       <TxLink v-if="status.tx" :tx="status.tx" />
     </div>
 

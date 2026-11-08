@@ -111,10 +111,17 @@ flowchart LR
 - 第一行下面是 `renderers/script-module.vue`。它是 `.bfill`，填满宿主剩下的高度。宿主没有显式高度时，这一块高 440px。
 - 页面用 `@babel/parser` 改写每个文件的 `import` 和 `export`（`renderers/script-module.js`），行号不变。沙箱里的加载器（`renderers/script-module-runtime.js`）运行改写后的文件，并把视图画进 `layout` 的 CSS grid。沙箱的文档来自 `script-frame.js`，CSP 和权限和视图脚本相同。
 - 脚本出错时，错误显示在 iframe 上面，写出文件和行号。
-- 调用桥：沙箱发出 `{ type: 'call', id, name, args }`。页面用 `core/script-calls.js` 在沙箱外执行调用，回复 `{ type: 'reply', id, result }` 或 `{ type: 'reply', id, error }`。值输入的值用 `{ type: 'values', functions, values }` 送进沙箱，在 `load` 之前送一次，值变化时再送。重置和换新的 iframe 以后，旧一轮的回复被丢弃。
+- 调用桥：沙箱发出 `{ type: 'call', id, name, args }`。页面用 `core/script-calls.js` 在沙箱外执行调用，回复 `{ type: 'reply', id, result }` 或 `{ type: 'reply', id, error }`（链请求失败时还带 revert 的 `data`）。值输入的值用 `{ type: 'values', functions, values, chains }` 送进沙箱，在 `load` 之前送一次，值变化时再送。`chains` 列出接了链节点的函数输入和脚本能知道的链信息。重置和换新的 iframe 以后，旧一轮的回复被丢弃。
 - 宿主拖动大小时带 `resizing` 类。这时 iframe 不接收指针，所以拖动经过 iframe 时手势不会中断。
 
 坦克大战模板的“坦克对战”是一个脚本模块。它有 3 个文件：`main.js`、`game.js` 和 `views.js`。布局是 `'board side' / 'log log'`：左上是战场，右上是侧栏（`Controls`、结果和双方的状态），下面是日志。
+
+链节点的内容组件是 `ChainNodeBody.vue`（`core/kinds/chain-node.js`，ADR 0028）。它只有一个调用输出 `node`，接到脚本模块的函数输入上。
+
+- 第一行：网络（注册表 `ladder/data/deployments.json` 的条目）、「允许写入」（只有本地节点可以勾选）、「连接」。
+- 状态行：页面用 `chain.js readConnection` 检查节点。链 id 必须等于配置的链 id。通过时显示区块号，以及注册表里的 Factory 和擂台在这个节点上有没有代码。
+- 选的是 fork 条目而节点连不上时，显示启动指南：`forkCommand` 给出的 anvil 命令、节点地址和链 id（都有复制按钮），以及三个步骤（运行命令并保持终端打开 → 在「链上部署」里选这个 fork 并部署 → 在「坦克对战」里运行模拟挑战）。
+- 沙箱里，接了链节点的函数输入是 `ctx.chain.<名字>`：一个 viem 客户端（全局 `viem` 由 `vite.config.ts viemGlobal` 在构建时打包进沙箱文档）。它的每个请求是这个输入的一次调用，参数是 `{ method, params }`。页面只放行链节点允许的方法（`READ_METHODS`，开了写入时再加 `WRITE_METHODS`）。`ctx.call.<名字>` 是原始的请求函数。
 
 ## `NodePorts.vue`
 

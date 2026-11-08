@@ -6,18 +6,18 @@
 .body .mono{font-family:var(--mono);font-size:11.5px}
 .body .ink{color:var(--ink)}
 .body input.bad{border-color:var(--bad)}
-.body a{color:var(--plastic)}
+.body a{color:var(--focus)}
 .body input[type=number]{appearance:textfield}
 .body input[type=number]::-webkit-inner-spin-button,.body input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 
 /* ------------------------------------------------------------------ bits (deployment inputs / observations) */
 .bitgrid{display:flex;flex-wrap:wrap;gap:2px;min-width:0}
-.bit{width:22px;height:20px;padding:0;font-family:var(--mono);font-size:10px;line-height:1;color:var(--muted);background:var(--soft);border:1px solid var(--line);border-radius:3px;display:inline-flex;align-items:center;justify-content:center}
-.bit.on{background:var(--spike);color:#000;border-color:var(--spike)}
+.bit{width:22px;height:20px;padding:0;font-family:var(--mono);font-size:10px;line-height:1;color:var(--muted);background:#fff;border:1px solid var(--line-strong);border-radius:var(--radius);display:inline-flex;align-items:center;justify-content:center}
+.bit.on{background:var(--spike);color:#fff;border-color:var(--spike)}
 .bits-line{display:flex;align-items:center;gap:8px;min-width:0}
 .bits-line>span:first-child{white-space:nowrap;flex:0 0 auto}
 .bits{display:inline-flex;flex-wrap:wrap;gap:1px;max-width:100%;min-width:0}
-.bits i{display:block;width:6px;height:9px;background:var(--soft);border-radius:1px}
+.bits i{display:block;width:6px;height:9px;background:var(--line);border-radius:1px}
 .bits i.on{background:var(--spike)}
 
 /* ------------------------------------------------------------------ scores (deployment decisions) */
@@ -25,13 +25,13 @@
 .score{display:grid;grid-template-columns:minmax(0,5em) minmax(0,1fr) 3em;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
 .score.pick{color:var(--ink);font-weight:600}
 .score-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.score-bar{position:relative;height:6px;background:var(--soft);border-radius:3px;overflow:hidden}
+.score-bar{position:relative;height:6px;background:var(--line);border-radius:3px;overflow:hidden}
 .score-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--inh);opacity:.7}
 .score.pick .score-bar i{background:var(--spike);opacity:1}
 .score-val{text-align:right;font-family:var(--mono)}
 
 /* ------------------------------------------------------------------ history lists */
-.hist-list{list-style:none;margin:4px 0 0;padding:0;border:1px solid var(--line);border-radius:6px;background:var(--bg);max-height:200px;overflow:auto;min-width:0}
+.hist-list{list-style:none;margin:4px 0 0;padding:0;border:1px solid var(--line);border-radius:var(--radius);background:#fff;max-height:200px;overflow:auto;min-width:0}
 .hist-row{display:flex;gap:8px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;padding:2px 8px;font-size:11.5px;align-items:baseline;min-width:0;color:var(--ink)}
 .hist-row>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 button.hist-row:hover{background:var(--soft)}
@@ -40,7 +40,7 @@ button.hist-row:hover{background:var(--soft)}
 .hist-i{font-family:var(--mono);color:var(--muted);min-width:28px;flex:0 0 auto}
 
 /* ------------------------------------------------------------------ progress bar */
-.tbar{position:relative;height:6px;background:var(--soft);border-radius:3px;overflow:hidden}
+.tbar{position:relative;height:6px;background:var(--line);border-radius:3px;overflow:hidden}
 .tbar i{position:absolute;left:0;top:0;bottom:0;background:var(--plastic)}
 
 /* ------------------------------------------------------------------ trainer */
@@ -49,7 +49,7 @@ button.hist-row:hover{background:var(--soft)}
 .tpy.ok,.tgate.ok{border-left-color:var(--ok);color:var(--ok)}.tpy.warn{border-left-color:var(--plastic);color:var(--plastic)}.tpy.bad,.tgate.bad{border-left-color:var(--bad);color:var(--bad)}
 .tgate-form select{min-width:0;max-width:100%}.tgate-form input[type=number]{width:5em}
 .truns{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
-.trun{padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);display:flex;flex-direction:column;gap:3px;min-width:0}
+.trun{padding:5px 8px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;display:flex;flex-direction:column;gap:3px;min-width:0}
 .trun.st-running,.trun.st-queued{border-color:var(--plastic)}.trun.st-done{border-color:var(--ok)}.trun.st-failed{border-color:var(--bad)}
 /* a run: status, when and the actions on the first line (the actions never wrap away), metric and candidates below */
 .trun-head{flex-wrap:nowrap}
@@ -61,13 +61,13 @@ button.hist-row:hover{background:var(--soft)}
 
 /* ------------------------------------------------------------------ candidates */
 .cands{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
-.cands li{padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);display:flex;flex-direction:column;gap:2px;min-width:0}
+.cands li{padding:5px 8px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;display:flex;flex-direction:column;gap:2px;min-width:0}
 .cands li.accepted{border-color:var(--ok)}.cands li.previewing{border-color:var(--plastic);border-style:dashed}.cands li.incompatible{opacity:.75}
-.ctag{font-size:10.5px;padding:0 6px;border-radius:4px;border:1px solid var(--line-strong);color:var(--muted);white-space:nowrap}
-.ctag.ok{border-color:var(--ok);color:var(--ok)}.ctag.bad{border-color:var(--bad);color:var(--bad)}
-.cimport{display:flex;flex-direction:column;gap:4px;padding:6px;border:1px dashed var(--line-strong);border-radius:6px}
+.ctag{display:inline-block;padding:0 7px;border-radius:999px;font-size:10.5px;font-family:var(--mono);border:1px solid var(--line-strong);color:var(--muted);background:#fff;white-space:nowrap}
+.ctag.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,#fff);background:color-mix(in srgb,var(--ok) 8%,#fff)}.ctag.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 50%,#fff);background:color-mix(in srgb,var(--bad) 8%,#fff)}
+.cimport{display:flex;flex-direction:column;gap:4px;padding:6px;border:1px dashed var(--line-strong);border-radius:var(--radius)}
 .cimport textarea{width:100%;font-family:var(--mono);font-size:11px}
-.cfile{display:inline-block;cursor:pointer;border:1px solid var(--line-strong);border-radius:6px;background:var(--soft);padding:2px 8px;align-self:flex-start}
+.cfile{display:inline-block;cursor:pointer;border:1px solid var(--line-strong);border-radius:var(--radius);background:#fff;padding:2px 8px;align-self:flex-start}
 .cfile input[type=file]{display:none}
 .pin.ok{border-color:var(--ok)}
 
@@ -79,13 +79,13 @@ button.hist-row:hover{background:var(--soft)}
 .xidx{width:5em}
 .xms{width:5em}
 .xrec{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.xstep{display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);min-width:0}
+.xstep{display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;min-width:0}
 .xvolts{overflow-wrap:anywhere}
 .xmanual button{padding:1px 6px}
 
 /* ------------------------------------------------------------------ view */
 .vbody select{flex:0 0 auto}
-.vempty{padding:10px;border:1px dashed var(--line);border-radius:6px;text-align:center}
+.vempty{padding:10px;border:1px dashed var(--line-strong);border-radius:var(--radius);text-align:center;color:var(--muted)}
 .vscrub input[type=range]{min-width:0}
 /* the renderer is the view's growable area: in a sized host the grid scales to fit, the chart and table stretch */
 .vfill{display:flex;flex-direction:column;min-width:0}
@@ -99,17 +99,19 @@ button.hist-row:hover{background:var(--soft)}
 
 /* ------------------------------------------------------------------ deployment */
 .dlabel{width:8em}
+.dmid{width:16em;font-family:var(--mono)}
 .dfactory{min-width:0;overflow-wrap:anywhere}
-.drecord{padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);display:flex;flex-direction:column;gap:4px;min-width:0}
+.drecord{padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;display:flex;flex-direction:column;gap:4px;min-width:0}
 .drecord .pin{overflow-wrap:anywhere}
-.dstatus{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel);font-size:12px;min-width:0;overflow-wrap:anywhere}
-.dstatus.warn{border-color:var(--bad)}.dstatus.busy{border-color:var(--plastic)}.dstatus.ok{border-color:var(--ok)}
-.dstage{display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);min-width:0}
+/* the deployment status: the ladder's .msg (white, 1px line, a tone on its border) */
+.dstatus{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;font-size:12px;min-width:0;overflow-wrap:anywhere}
+.dstatus.warn{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,#fff)}.dstatus.busy{color:var(--plastic);border-color:color-mix(in srgb,var(--plastic) 40%,#fff)}.dstatus.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,#fff)}
+.dstage{display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;min-width:0}
 
 /* ------------------------------------------------------------------ renderers */
-.rgrid{display:block;width:100%;max-width:320px;height:auto;background:var(--soft);border:1px solid var(--line);border-radius:4px}
+.rgrid{display:block;width:100%;max-width:320px;height:auto;background:#fff;border:1px solid var(--line);border-radius:var(--radius)}
 .rseries{display:flex;flex-direction:column;gap:2px;min-width:0}
-.rseries svg{display:block;width:100%;height:80px;background:var(--soft);border-radius:4px}
+.rseries svg{display:block;width:100%;height:80px;background:#fff;border:1px solid var(--line);border-radius:var(--radius)}
 .rseries-axis{position:relative;height:13px;font-family:var(--mono);font-size:10px;color:var(--muted)}
 .rseries-x{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
 .rseries-x:first-child{transform:none}

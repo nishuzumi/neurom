@@ -60,7 +60,7 @@ contract NetworkSize is ModulesTest {
         }
         ModuleFactory.ModuleSpec memory spec = ModuleFactory.ModuleSpec(
             DENSE, address(0), 0, 185, 7, _denseShape(l, bits, 1, 0, 1, 0), new address[](0), ids,
-            keccak256(abi.encode(hidden, bits, chunk)), TASK
+            keccak256(abi.encode(hidden, bits, chunk)), TASK, _id()
         );
         NeuromModule m = NeuromModule(factory.deploy(spec, new bytes[](count)));
 

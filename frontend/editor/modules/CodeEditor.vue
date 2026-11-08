@@ -61,10 +61,10 @@ const showProblems = () => {
 };
 
 const theme = editorTheme({
-  '.cm-tooltip': { background: 'var(--panel)', border: '1px solid var(--line-strong)', borderRadius: '6px', color: 'var(--ink)', boxShadow: '0 6px 20px #0007' },
+  '.cm-tooltip': { background: 'var(--panel)', border: '1px solid var(--line-strong)', borderRadius: 'var(--radius)', color: 'var(--ink)', boxShadow: 'var(--shadow-pop)' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--mono)', fontSize: '12px', maxHeight: '14lh' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '1px 8px' },
-  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'color-mix(in srgb, var(--focus) 35%, transparent)', color: 'var(--ink)' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--focus-soft)', color: 'var(--focus)' },
   '.cm-completionDetail': { marginLeft: '1.5em', fontStyle: 'normal', color: 'var(--muted)' },
   '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--focus)' },
   '.cm-completionInfo': { padding: '5px 9px', maxWidth: '360px', fontSize: '12px', lineHeight: '1.45' },

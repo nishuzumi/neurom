@@ -1,0 +1,20 @@
+/* ui/brand.css — the brand tokens that the ladder page (ladder/src/styles.css) and the workbench (frontend/styles.css)
+   share: the two font stacks, the accent and the header type scale. Both pages are light. Each page keeps its own
+   layout, and each declares its own ground, ink and line tokens with the same values.
+   No web font: both stacks name installed fonts only, so the single-file workbench works from file:// and offline.
+   Sizing rule (AGENTS.md): this file sets no width. */
+:root {
+  /* system sans first (SF Pro, Segoe UI, Roboto), then the Chinese system fonts of macOS, Windows and Linux */
+  --brand-sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+  --brand-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* indigo: the accent on the light grey ground (6.2:1 on #fafafa). --brand-hue is for color-mix and oklch tints */
+  --brand-hue: 276.966;
+  --brand-accent-light: oklch(0.511 0.262 276.966);
+  /* header type scale: the wordmark `NEUROM` with its sub title, the nav links, the language toggle */
+  --brand-wordmark-size: 15px;
+  --brand-wordmark-weight: 900;
+  --brand-wordmark-tracking: 0.04em;
+  --brand-sub-weight: 500;
+  --brand-nav-size: 13px;
+  --brand-toggle-size: 12px;
+}

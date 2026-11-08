@@ -5,10 +5,12 @@
 // no bundle, trainer or environment hash reads it, and it has no Python version.
 //
 // The ports come only from the declarations (ADR 0006). Each name of `functions` is a call port: the script calls
-// `await ctx.call.<name>(…)`, and the page runs the call outside the sandbox (core/script-calls.js). Each name of
-// `inputs` is a value port: the script reads `ctx.values.<name>`. The calls are typed at run time from the arguments,
-// so a call port has no signature. Only a network behind a readout's `run` is checked here, with the bits it reads:
-// its callee applies the tool-layer rule (a trainer must not train it).
+// `await ctx.call.<name>(…)`, and the page runs the call outside the sandbox (core/script-calls.js). A call port
+// wired to a chain node (ADR 0028) is `ctx.chain.<name>` in the script: a viem client. Each name of `inputs` is a
+// value port: the script reads `ctx.values.<name>`. The calls are typed at run time from the arguments, so a call port
+// has no signature. Only a network behind a readout's `run` is checked here, with the bits it reads: its callee
+// applies the tool-layer rule (a trainer must not train it). A chain node's callee reports its own problem (writes
+// on a public chain).
 import { registerKind } from '../registry.js';
 import { bits } from '../types.js';
 import { joinList, t } from '../../i18n.js';
@@ -91,9 +93,9 @@ registerKind({
     for (const port of portNames(node.config).functions) {
       const [site] = ctx.callees(node.id, port);
       if (!site) continue;   // the required port reports it
-      if (!site.callee) out.push({ port, wire: site.wire.id, message: t('调用端口 {port} 需要接代码模块导出的函数或读出的 run', { port }) });
-      else if (Number.isInteger(site.callee.width)) {
-        const r = site.callee.call([bits(site.callee.width)], { exact: false, caller: node.id });
+      if (!site.callee) out.push({ port, wire: site.wire.id, message: t('调用端口 {port} 需要接代码模块导出的函数、读出的 run 或链节点', { port }) });
+      else if (Number.isInteger(site.callee.width) || site.node.kind === 'chain') {
+        const r = site.callee.call(Number.isInteger(site.callee.width) ? [bits(site.callee.width)] : [], { exact: false, caller: node.id });
         if (r.error) out.push({ port, wire: site.wire.id, error: r.error });
       }
     }

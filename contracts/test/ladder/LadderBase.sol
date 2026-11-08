@@ -14,13 +14,7 @@ interface IVm {
     struct SignedDelegation { uint8 v; bytes32 r; bytes32 s; uint64 nonce; address implementation; }
     function readFile(string calldata path) external view returns (string memory);
     function parseJsonUint(string calldata json, string calldata key) external pure returns (uint256);
-    function parseJsonUintArray(string calldata json, string calldata key) external pure returns (uint256[] memory);
-    function parseJsonInt(string calldata json, string calldata key) external pure returns (int256);
     function parseJsonBytes(string calldata json, string calldata key) external pure returns (bytes memory);
-    function parseJsonBytes32(string calldata json, string calldata key) external pure returns (bytes32);
-    function parseJsonString(string calldata json, string calldata key) external pure returns (string memory);
-    function parseJsonStringArray(string calldata json, string calldata key) external pure returns (string[] memory);
-    function keyExists(string calldata json, string calldata key) external view returns (bool);
     function prevrandao(bytes32 value) external;
     function roll(uint256 blockNumber) external;
     function prank(address sender, address origin) external;
@@ -30,15 +24,12 @@ interface IVm {
     function expectRevert(bytes4 selector) external;
     function expectPartialRevert(bytes4 selector) external;
     function expectRevert(bytes calldata data) external;
-    function expectEmit() external;
     function recordLogs() external;
     function getRecordedLogs() external returns (Log[] memory);
     function addr(uint256 privateKey) external pure returns (address);
     function signDelegation(address implementation, uint256 privateKey) external returns (SignedDelegation memory);
     function attachDelegation(SignedDelegation calldata signed) external;
     function toString(uint256 value) external pure returns (string memory);
-    function pauseGasMetering() external;
-    function resumeGasMetering() external;
 }
 
 /// Prints with `forge test -vv`.
@@ -46,10 +37,6 @@ library Console {
     address constant CONSOLE = 0x000000000000000000636F6e736F6c652e6c6f67;
     function log(string memory what, uint256 value) internal view {
         (bool ok,) = CONSOLE.staticcall(abi.encodeWithSignature("log(string,uint256)", what, value));
-        ok;
-    }
-    function log(string memory what) internal view {
-        (bool ok,) = CONSOLE.staticcall(abi.encodeWithSignature("log(string)", what));
         ok;
     }
 }
@@ -96,13 +83,24 @@ contract LadderBase {
 
     struct FixtureModule { bytes32 engineId; uint8 kind; uint16 inputs; uint16 outputs; uint256[] shape; bytes[] chunks; bytes32 artifactId; bytes32 taskId; }
 
+    /// The module id of a test module with artifact id `art`: "m-" and the first 16 bytes of `art` in hex. Every
+    /// helper below deploys one module per artifact id, so the ids of one deployer are distinct.
+    function idOf(bytes32 art) internal pure returns (string memory) {
+        bytes memory hex_ = "0123456789abcdef";
+        bytes memory b = new bytes(34);
+        b[0] = "m"; b[1] = "-";
+        for (uint256 k; k < 16; k++) { b[2 + 2 * k] = hex_[uint8(art[k]) >> 4]; b[3 + 2 * k] = hex_[uint8(art[k]) & 0xf]; }
+        return string(b);
+    }
+
     /// The ModuleSpec of fixture module `tag` (`mid` or `big`) with its chunk contents. `salt` changes the artifact id
     /// (the module's decisions stay, so a second deployment reuses the chunks: a copy with the same weights).
     function fixtureSpec(string memory tag, bytes32 salt) internal view returns (ModuleFactory.ModuleSpec memory spec, bytes[] memory data) {
         FixtureModule memory m = abi.decode(vm.parseJsonBytes(fixture, string.concat(".modules.", tag, ".data")), (FixtureModule));
         bytes32[] memory ids = new bytes32[](m.chunks.length);
         for (uint256 k; k < ids.length; k++) ids[k] = keccak256(m.chunks[k]);
-        spec = ModuleFactory.ModuleSpec(m.engineId, address(0), m.kind, m.inputs, m.outputs, m.shape, new address[](0), ids, salt == bytes32(0) ? m.artifactId : salt, m.taskId);
+        bytes32 art = salt == bytes32(0) ? m.artifactId : salt;
+        spec = ModuleFactory.ModuleSpec(m.engineId, address(0), m.kind, m.inputs, m.outputs, m.shape, new address[](0), ids, art, m.taskId, idOf(art));
         data = m.chunks;
     }
 
@@ -137,7 +135,7 @@ contract LadderBase {
         data[0] = blob;
         bytes32[] memory ids = new bytes32[](1);
         ids[0] = keccak256(blob);
-        spec = ModuleFactory.ModuleSpec(DENSE, address(0), 0, inputs, outputs, shape, new address[](0), ids, art, keccak256("tank"));
+        spec = ModuleFactory.ModuleSpec(DENSE, address(0), 0, inputs, outputs, shape, new address[](0), ids, art, keccak256("tank"), idOf(art));
     }
 
     /// A tiny module (tinySpec) deployed: 572 → 1 → 9 with `mark` by default. Its weight size is 18,400 bytes.
@@ -164,17 +162,25 @@ contract LadderBase {
         data[0] = blob;
         bytes32[] memory ids = new bytes32[](1);
         ids[0] = keccak256(blob);
-        return factory.deploy(ModuleFactory.ModuleSpec(DENSE, address(0), 0, 572, 9, shape, tools, ids, keccak256(abi.encode("selector", mark)), keccak256("tank")), data);
+        bytes32 art = keccak256(abi.encode("selector", mark));
+        return factory.deploy(ModuleFactory.ModuleSpec(DENSE, address(0), 0, 572, 9, shape, tools, ids, art, keccak256("tank"), idOf(art)), data);
     }
 
     /// The default configuration of the spec, with `endBlock` far away.
     function defaultConfig() internal view returns (TankLadder.Config memory) {
-        return TankLadder.Config(address(factory), 216_864, 1000, 10, 400, 6000, 24_000_000, 2_000_000, type(uint64).max);
+        return TankLadder.Config(address(factory), 216_864, 1000, 10, 20, 400, 6000, 24_000_000, 2_000_000, type(uint64).max);
     }
 
     function newLadder() internal returns (TankLadder) { return new TankLadder(defaultConfig()); }
 
-    /// The id of the first `Steps` event: keccak256("Steps(uint256,uint8,uint8,bytes)").
+    /// Plays challenge `id` of `l` to its end with 30M transactions from this contract (not an EOA) → the
+    /// transactions of the challenge, the one that started it included.
+    function settle(TankLadder l, uint256 id) internal returns (uint256 transactions) {
+        transactions = 1;
+        while (l.challengeInfo(id).status == l.STATUS_PLAYING()) { l.advance{gas: GAS_LIMIT}(id); transactions++; }
+    }
+
+    /// The first topic of the events: keccak256 of their signature.
     bytes32 constant STEPS_SIG = keccak256("Steps(uint256,uint8,uint8,bytes)");
     bytes32 constant EPISODE_ENDED_SIG = keccak256("EpisodeEnded(uint256,uint8,int8,uint8)");
     bytes32 constant SETTLED_SIG = keccak256("ChallengeSettled(uint256,uint8,uint8,uint8,uint32)");

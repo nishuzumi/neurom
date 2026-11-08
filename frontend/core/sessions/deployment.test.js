@@ -14,11 +14,12 @@ const VERSION = { address: '0x' + '3'.repeat(40), number: 2, latest: false };
 /** An in-memory chain for the session's control flow: it runs the deployed artifact's integer model itself (what
  *  the contracts do), keyed by session. Parity with the Solidity modules is the anvil tests' job (below). Every
  *  artifact has CHUNKS weight chunks of 1,000 bytes, created one per transaction except the last, which comes with the
- *  module. `failAt = n` fails the n-th transaction sent from then on. */
+ *  module. `failAt = n` fails the n-th transaction sent from then on. Module ids follow the Factory: `ids` holds
+ *  (deployer, id) → module, a plan or deployment under a used id is refused, each deployment gets its own address. */
 const CHUNKS = 3;
 function fakeChain() {
-  const modules = new Map(), calls = [], onChain = new Set();
-  let n = 0;
+  const modules = new Map(), calls = [], onChain = new Set(), ids = new Map();
+  let n = 0, deployed = 0;
   const receipt = () => ({ txHash: '0x' + String(++n).padStart(64, '0'), gasUsed: '1000' });
   const decision = r => ({ scores: r.scores, counts: r.counts, voltages: r.voltages, action: r.scores.indexOf(Math.max(...r.scores)) });
   const chunksOf = artifact => Array.from({ length: CHUNKS }, (_, k) => `${artifact.id}:${k}`);
@@ -27,13 +28,21 @@ function fakeChain() {
     return { chunks: chunksOf(artifact).map(address => ({ artifactId: artifact.id, address, bytes: 1000, onChain: onChain.has(address) })), tools: [],
       transactions: [...missing.slice(0, -1).map(c => tx('chunk', [c])), tx('module', missing.slice(-1))] };
   };
+  const freeId = (deployer, moduleId) => {
+    if (typeof moduleId !== 'string' || !/^[a-z][a-z0-9_-]{2,63}$/.test(moduleId)) throw new Error(`bad module id ${JSON.stringify(moduleId)}`);
+    if (ids.has(`${deployer}/${moduleId}`)) throw new Error(`module id taken: ${moduleId}`);
+  };
   const chain = {
-    calls, failAt: null,
+    calls, failAt: null, ids,
     sessionId: label => '0x' + Buffer.from(label).toString('hex').padEnd(64, '0'),
     planDelay: 0,
-    async planDeployment(provider, factory, artifact) { calls.push(['plan', factory]); const p = planOf(artifact); if (chain.planDelay) await new Promise(r => setTimeout(r, chain.planDelay)); return p; },
-    async deployModule(signer, factory, artifact, { onProgress = () => {} } = {}) {
-      calls.push(['deploy', factory]);
+    async planDeployment(provider, factory, artifact, { from, moduleId } = {}) {
+      freeId(from, moduleId);
+      calls.push(['plan', factory, moduleId]); const p = planOf(artifact); if (chain.planDelay) await new Promise(r => setTimeout(r, chain.planDelay)); return p;
+    },
+    async deployModule(signer, factory, artifact, { onProgress = () => {}, moduleId } = {}) {
+      freeId(ACCOUNT, moduleId);
+      calls.push(['deploy', factory, moduleId]);
       let sent = 0;
       for (const tx of planOf(artifact).transactions) {
         onProgress({ ...tx, stage: 'sending' });
@@ -41,10 +50,12 @@ function fakeChain() {
         for (const c of tx.chunks) onChain.add(c);
         onProgress({ ...tx, stage: 'mined', ...receipt() });
       }
-      modules.set(MODULE, { artifact, factory, sessions: new Map() });
-      return { address: MODULE, artifactId: artifact.id, engineVersion: VERSION, ...receipt() };
+      const address = MODULE.slice(0, -2) + String(++deployed).padStart(2, '0');
+      modules.set(address, { artifact, factory, moduleId, deployer: ACCOUNT, sessions: new Map() });
+      ids.set(`${ACCOUNT}/${moduleId}`, address);
+      return { address, artifactId: artifact.id, moduleId, deployer: ACCOUNT, engineVersion: VERSION, ...receipt() };
     },
-    async verifyModule(provider, address, artifact, { factory }) { calls.push(['verify', address]); const m = modules.get(address); if (!m || m.artifact.id !== artifact.id || m.factory !== factory) throw new Error('mismatch'); return { engineVersion: VERSION }; },
+    async verifyModule(provider, address, artifact, { factory }) { calls.push(['verify', address]); const m = modules.get(address); if (!m || m.artifact.id !== artifact.id || m.factory !== factory) throw new Error('mismatch'); return { engineVersion: VERSION, moduleId: m.moduleId, deployer: m.deployer }; },
     async moduleState(provider, address, owner, session) { return modules.get(address).sessions.get(session)?.voltages() ?? []; },
     async inferModule(provider, address, input, { mode, session }) {
       const m = modules.get(address), stored = mode === 'peek' ? m.sessions.get(session) : null;
@@ -60,18 +71,21 @@ function fakeChain() {
   };
   return chain;
 }
-const connectChain = async chainId => ({ provider: {}, signer: {}, address: ACCOUNT, chainId });
+const connectChain = async chainId => ({ provider: {}, signer: {}, account: ACCOUNT, chainId });
 
-async function setup() {
+/** A workspace with the counter artifact accepted into a deployment node whose module id is `moduleId` ('' = not entered yet). */
+async function setup(moduleId = 'counter-1') {
   const { graph, ids, artifact } = await counterArtifact(counterModel(1));
   const ws = new Workspace(graph);
   await ws.addArtifact(artifact);
   graph.patchConfig(ids.cands, { accepted: artifact.id });
   const dep = graph.addNode({ kind: 'deployment' });
   graph.connect({ kind: 'value', from: { node: ids.cands, port: 'artifact' }, to: { node: dep.id, port: 'artifact' } });
+  graph.patchConfig(dep.id, { moduleId });
   ws.updateSettings({ chainId: 31337 });
   return { graph, ids, artifact, ws, dep };
 }
+const FIRST = MODULE.slice(0, -2) + '01';
 
 test('deploy → record on the node → session; reset + step mirror the episode against the chain; verify reopens', async () => {
   const { graph, ids, artifact, ws, dep } = await setup();
@@ -84,8 +98,9 @@ test('deploy → record on the node → session; reset + step mirror the episode
   assert.match(snap.reasons.step, /会话/);
   snap = await s.deploy();
   assert.equal(snap.status.tone, 'ok');
-  assert.deepEqual(graph.node(dep.id).config.deployments['31337'], { address: MODULE, artifactId: artifact.id, txHash: snap.deployment.txHash });
-  assert.equal(snap.session.address, MODULE); assert.equal(snap.session.account, ACCOUNT);
+  assert.deepEqual(graph.node(dep.id).config.deployments['31337'], { address: FIRST, artifactId: artifact.id, txHash: snap.deployment.txHash, moduleId: 'counter-1', deployer: ACCOUNT }, 'the record keeps the archived identity');
+  assert.equal(snap.session.address, FIRST); assert.equal(snap.session.account, ACCOUNT);
+  assert.deepEqual([snap.session.moduleId, snap.session.deployer], ['counter-1', ACCOUNT]);
   assert.deepEqual(snap.session.engineVersion, VERSION, 'the module\'s engine version');
   assert.equal(snap.can.reset, true); assert.equal(snap.can.step, false); assert.match(snap.reasons.step, /新一局/);
   snap = await s.reset();
@@ -104,7 +119,7 @@ test('deploy → record on the node → session; reset + step mirror the episode
   snap = s.setLabel('session-2');
   assert.equal(snap.session, null); assert.equal(snap.status.tone, 'warn');
   snap = await s.verify();
-  assert.equal(snap.session.address, MODULE); assert.deepEqual(snap.session.engineVersion, VERSION);
+  assert.equal(snap.session.address, FIRST); assert.deepEqual(snap.session.engineVersion, VERSION);
   assert.equal(snap.history.length, 0);
   // a different accepted artifact invalidates and marks the deployment stale
   const other = await makeArtifact({ bundle: buildBundle(graph, ids.trainer), model: counterModel(0) });
@@ -147,7 +162,7 @@ test('a stateless module: infer and step compare counts too (a threshold artifac
   const dep = ws.graph.addNode({ kind: 'deployment' });
   ws.updateSettings({ chainId: 31337 });
   const chain = fakeChain(), s = createDeploymentSession({ workspace: ws, nodeId: dep.id, connectChain, chain });
-  s.bind(deep.id); await s.deploy();
+  s.bind(deep.id); s.setModuleId('deep-add4'); await s.deploy();
   s.setInputBits([1, 0, 1, 1, 0, 0, 1, 0]);
   let snap = await s.infer();
   assert.equal(snap.infer.same, true); assert.equal(snap.status.tone, 'ok');
@@ -227,10 +242,12 @@ test('the deployment plan: chunks needed / on chain and the transactions left, p
   assert.equal(snap.status.tone, 'ok', snap.status.text);
   assert.deepEqual(counted(), ['第 1 / 2 笔', '第 2 / 2 笔'], 'only what was missing');
   assert.deepEqual([snap.deployRun.done.map(x => x.kind), snap.deployRun.finished], [['chunk', 'module'], true]);
-  assert.deepEqual([snap.deployPlan.needed, snap.deployPlan.onChain], [3, 3], 'every chunk on chain now');
+  assert.deepEqual([snap.deployPlan.needed, snap.deployPlan.onChain, snap.deployPlan.transactions.length], [3, 3, 0], 'every chunk on chain now, nothing left: the id is used');
+  snap = s.setModuleId('counter-2');
+  assert.equal(snap.deployPlan, null, 'a new id: its plan is not known yet');
   snap = await s.plan();
   assert.deepEqual([snap.deployRun, snap.deployPlan.transactions.map(x => x.label)], [null, ['模块合约']], 'asked again: deploying once more sends the module alone');
-  assert.equal(snap.session.address, MODULE);
+  assert.equal(snap.session.address, FIRST);
 
   const other = await makeArtifact({ bundle: buildBundle(graph, ids.trainer), model: counterModel(0) });
   await ws.addArtifact(other);
@@ -241,6 +258,7 @@ test('the deployment plan: chunks needed / on chain and the transactions left, p
   s.setChainId(10143);
   assert.equal(s.snapshot().deployPlan, null, 'and to the network (its factory)');
 });
+
 
 // ------------------------------------------------------------------------------------------------ over real contracts
 // The same session interface on anvil (anvil.fixture.js) through the production bridge (module-chain.js): every
@@ -255,13 +273,121 @@ async function onAnvil(fn, extra = async () => null) {
   const dep = ws.graph.addNode({ kind: 'deployment' });
   ws.updateSettings({ chainId: 31337 });
   const account = await net.signer.getAddress();
-  const s = createDeploymentSession({ workspace: ws, nodeId: dep.id, connectChain: async chainId => ({ provider: net.provider, signer: net.signer, address: account, chainId }) });
+  const s = createDeploymentSession({ workspace: ws, nodeId: dep.id, connectChain: async chainId => ({ provider: net.provider, signer: net.signer, account, chainId }) });
   try { await fn({ s, byName, more }); } finally { s.dispose(); net.stop(); }
 }
 const ok = snap => assert.notEqual(snap.status.tone, 'warn', snap.status.text);
 
+test('on anvil: a shared deployment record does not reserve another account’s ID', { skip: NO_FOUNDRY, timeout: 60_000 }, async () => {
+  const net = await localChain(), ws = new Workspace(), sessions = [];
+  try {
+    const artifact = (await builtinArtifacts()).find(a => a.name === 'arithmetic-add4').artifact;
+    await ws.addArtifact(artifact);
+    const dep = ws.graph.addNode({ kind: 'deployment' });
+    ws.updateSettings({ chainId: 31337 });
+    const openAs = signer => {
+      const s = createDeploymentSession({
+        workspace: ws, nodeId: dep.id,
+        connectChain: async chainId => ({ provider: net.provider, signer, account: await signer.getAddress(), chainId }),
+      });
+      sessions.push(s);
+      s.bind(artifact.id);
+      return s;
+    };
+    const alice = openAs(net.signer);
+    alice.setModuleId('shared-id');
+    const first = await alice.deploy();
+    ok(first);
+    const bobSigner = await net.provider.getSigner(1), bob = openAs(bobSigner);
+    ok(await bob.connect());
+    assert.equal(bob.snapshot().can.deploy, true, 'another account can deploy with the same ID from the same workspace');
+    const second = await bob.deploy();
+    ok(second);
+    assert.notEqual(second.deployment.address, first.deployment.address);
+    assert.equal(second.deployment.moduleId, 'shared-id');
+    assert.equal(second.deployment.deployer, await bobSigner.getAddress());
+    const sent = () => net.provider.send('eth_getTransactionCount', [second.deployment.deployer, 'latest']);
+    const before = await sent();
+    const duplicate = await bob.deploy();
+    assert.equal(duplicate.status.tone, 'warn');
+    assert.equal(await sent(), before, 'the same account cannot send another deployment under its used ID');
+  } finally {
+    for (const s of sessions) s.dispose();
+    net.stop();
+  }
+});
+
+test('on anvil: reconnect verifies the recorded module and restores a usable session without another deployment', { skip: NO_FOUNDRY, timeout: 60_000 }, async () => {
+  const net = await localChain(), { ws, dep } = await setup();
+  let s;
+  try {
+    const account = await net.signer.getAddress();
+    const openSession = () => createDeploymentSession({
+      workspace: ws, nodeId: dep.id,
+      connectChain: async chainId => ({ provider: net.provider, signer: net.signer, account, chainId }),
+    });
+    s = openSession();
+    const deployed = await s.deploy();
+    ok(deployed);
+    s.dispose();
+    s = openSession();
+    const before = await net.provider.send('eth_getTransactionCount', [account, 'latest']);
+    const connected = await s.connect();
+    assert.equal(connected.session?.address, deployed.deployment.address);
+    assert.equal(connected.session.account, account);
+    assert.equal(connected.session.moduleId, 'counter-1');
+    assert.equal(connected.status.tone, 'ok');
+    assert.equal(connected.can.deploy, false, 'the current account already deployed this ID');
+    assert.equal(connected.can.plan, false, 'a verified deployment needs no new deployment plan');
+    assert.equal(connected.can.preview, true);
+    const preview = await s.preview();
+    assert.equal(preview.preview?.same, true);
+    assert.equal(s.setModuleId('counter-2').can.deploy, true, 'another ID can create a new module');
+    const planned = await s.plan();
+    ok(planned);
+    assert.deepEqual(planned.deployPlan.transactions.map(tx => tx.kind), ['module']);
+    assert.equal(await net.provider.send('eth_getTransactionCount', [account, 'latest']), before);
+  } finally { s?.dispose(); net.stop(); }
+});
+
+test('on anvil: an account change cancels a pending deployment before any transaction and clears an open chain session', { skip: NO_FOUNDRY, timeout: 60_000 }, async () => {
+  const net = await localChain(), ws = new Workspace();
+  let s, release, entered;
+  try {
+    const artifact = (await builtinArtifacts()).find(a => a.name === 'arithmetic-add4').artifact;
+    await ws.addArtifact(artifact);
+    const dep = ws.graph.addNode({ kind: 'deployment' });
+    ws.updateSettings({ chainId: 31337 });
+    let signer = net.signer;
+    const waiting = new Promise(resolve => { entered = resolve; });
+    let gate = new Promise(resolve => { release = resolve; });
+    s = createDeploymentSession({ workspace: ws, nodeId: dep.id, connectChain: async chainId => {
+      const selected = signer;
+      entered();
+      await gate;
+      return { provider: net.provider, signer: selected, account: await selected.getAddress(), chainId };
+    } });
+    s.bind(artifact.id); s.setModuleId('account-change');
+    const alice = await signer.getAddress();
+    const before = await net.provider.send('eth_getTransactionCount', [alice, 'latest']);
+    const pending = s.deploy();
+    await waiting;
+    s.accountChanged();
+    release();
+    assert.equal((await pending).session, null);
+    assert.equal(await net.provider.send('eth_getTransactionCount', [alice, 'latest']), before);
+    signer = await net.provider.getSigner(1);
+    gate = Promise.resolve();
+    const deployed = await s.deploy();
+    ok(deployed);
+    assert.equal(deployed.deployment.deployer, await signer.getAddress());
+    assert.equal(deployed.session.account, await signer.getAddress());
+    assert.equal(s.accountChanged().session, null);
+  } finally { release?.(); s?.dispose(); net.stop(); }
+});
+
 test('on anvil: a threshold artifact with two hidden layers infers and steps through the session, its counts agreeing with ThresholdLayersEngine', { skip: NO_FOUNDRY, timeout: 60_000 }, () => onAnvil(async ({ s, more: deep }) => {
-  s.bind(deep.id);
+  s.bind(deep.id); s.setModuleId('deep-add4');
   let snap = await s.deploy(); ok(snap);
   for (const bits of [[1, 0, 1, 1, 0, 0, 1, 0], [0, 1, 1, 0, 1, 1, 0, 1], [1, 1, 1, 1, 1, 1, 1, 1]]) {
     s.setInputBits(bits);
@@ -271,7 +397,7 @@ test('on anvil: a threshold artifact with two hidden layers infers and steps thr
 }, byName => deepThresholdArtifact(byName('arithmetic-add4'))));
 
 test('on anvil: a LIF artifact plays an episode through the session — reset, peek previews and step transactions agree with the local mirror; verify reopens', { skip: NO_FOUNDRY, timeout: 60_000 }, () => onAnvil(async ({ s, more }) => {
-  s.bind(more.id);
+  s.bind(more.id); s.setModuleId('firing-counter');
   let snap = await s.deploy(); ok(snap);
   assert.deepEqual([snap.session.engineVersion.number, snap.session.engineVersion.latest], [1, true], 'version 1 of dense-policy, the latest');
   snap = await s.reset(); ok(snap); assert.equal(snap.episode.t, 0);
@@ -289,7 +415,7 @@ test('on anvil: a LIF artifact plays an episode through the session — reset, p
 }, async () => (await counterArtifact(firingCounterModel())).artifact));
 
 test('on anvil: the combiner (tool layers) deploys its tools through the session, a redeploy reuses them, and its episode steps to a correct answer', { skip: NO_FOUNDRY, timeout: 120_000 }, () => onAnvil(async ({ s, byName }) => {
-  s.bind(byName('arithmetic-combiner-policy').id);
+  s.bind(byName('arithmetic-combiner-policy').id); s.setModuleId('combiner-1');
   let snap = await s.plan(); ok(snap);
   const tools = ['add4', 'sub4', 'mul4'].map(n => byName(`arithmetic-${n}`).id);
   assert.deepEqual(snap.deployPlan.tools.map(x => [x.artifactId, x.address]), tools.map(id => [id, null]), 'no tool module yet');
@@ -297,9 +423,13 @@ test('on anvil: the combiner (tool layers) deploys its tools through the session
   assert.deepEqual([snap.deployPlan.needed, snap.deployPlan.onChain], [4, 0]);
   snap = await s.deploy(); ok(snap);
   assert.deepEqual(snap.session.tools.map(x => [x.artifactId, x.reused]), tools.map(id => [id, false]));
-  assert.match(snap.status.text, /1 笔交易.*权重块 1 个，其中新建 1 个/);
+  assert.match(snap.status.text, /ID “combiner-1”.*1 笔交易.*权重块 1 个，其中新建 1 个/);
   assert.deepEqual([snap.deployRun.done.length, snap.deployRun.finished], [4, true], 'the tools\' transactions are part of the run');
-  assert.deepEqual(snap.deployPlan.tools.map(x => x.address), snap.session.tools.map(x => x.address), 'a redeploy would reuse them');
+  assert.deepEqual(snap.deployPlan.tools.map(x => x.address), snap.session.tools.map(x => x.address), 'the plan shows the tool modules the deployment created');
+  assert.deepEqual([snap.deployPlan.needed, snap.deployPlan.onChain, snap.deployPlan.transactions.length], [4, 4, 0], 'everything on chain, nothing left under this id');
+  snap = s.setModuleId('combiner-2');
+  snap = await s.plan(); ok(snap);
+  assert.deepEqual(snap.deployPlan.tools.map(x => x.address), snap.session.tools.map(x => x.address), 'a redeploy reuses the tool modules');
   assert.deepEqual([snap.deployPlan.needed, snap.deployPlan.onChain, snap.deployPlan.transactions.length], [1, 1, 1]);
   snap = await s.deploy(); ok(snap);
   assert.ok(snap.session.tools.every(x => x.reused === true), 'the second selector reuses the tool modules');

@@ -18,11 +18,12 @@ contract TankLadderTest is LadderBase {
         ladder = newLadder();
     }
 
-    /// `module` registered by `owner` (an EOA).
-    function enter(address owner, address module) internal {
+    /// `module` registered on `l` by `owner` (an EOA).
+    function enter(TankLadder l, address owner, address module) internal {
         vm.prank(owner, owner);
-        ladder.register(module);
+        l.register(module);
     }
+    function enter(address owner, address module) internal { enter(ladder, owner, module); }
 
     /// `challenger` challenges `defender` as `owner` with a 30M transaction → the id.
     function start(address owner, address challenger, address defender) internal returns (uint256 id) {
@@ -30,13 +31,19 @@ contract TankLadderTest is LadderBase {
         id = ladder.challenge{gas: GAS_LIMIT}(challenger, defender);
     }
 
-    /// Plays challenge `id` to its end with 30M transactions from this contract (not an EOA) → the transactions.
-    function finish(uint256 id) internal returns (uint256 transactions) {
-        transactions = 1;
-        while (ladder.challengeInfo(id).status == ladder.STATUS_PLAYING()) { ladder.advance{gas: GAS_LIMIT}(id); transactions++; }
+    function rankOf(address module) internal view returns (uint256) { return ladder.entry(module).rank; }
+
+    /// The modules on the board of `l` in rank order.
+    function boardOf(TankLadder l) internal view returns (address[] memory out) {
+        TankLadder.Entry[] memory es = l.board();
+        out = new address[](es.length);
+        for (uint256 k; k < es.length; k++) { require(es[k].rank == k + 1, "board ranks"); out[k] = es[k].module; }
     }
 
-    function rankOf(address module) internal view returns (uint256) { return ladder.entry(module).rank; }
+    /// The `newRank` of the last `ChallengeSettled` in `logs`.
+    function settledRank(IVm.Log[] memory logs) internal pure returns (uint32 newRank) {
+        for (uint256 i; i < logs.length; i++) if (logs[i].topics[0] == SETTLED_SIG) (,,, newRank) = abi.decode(logs[i].data, (uint8, uint8, uint8, uint32));
+    }
 
     /// The steps played of challenge `id` over all its episodes (an episode counts 100 once it ended).
     function progress(uint256 id) internal view returns (uint256) {
@@ -44,17 +51,21 @@ contract TankLadderTest is LadderBase {
         return uint256(info.step) + 100 * uint256(info.episode);
     }
 
-    function ladderWith(uint16 deltaBps, uint8 range_, uint64 endBlock) internal returns (TankLadder) {
+    /// The default ladder with another δ, range, board and season end. With δ = 0 a tiny challenger of equal size wins.
+    function ladderWith(uint16 deltaBps, uint8 range_, uint8 boardSize, uint64 endBlock) internal returns (TankLadder) {
         TankLadder.Config memory c = defaultConfig();
-        c.deltaBps = deltaBps; c.range = range_; c.endBlock = endBlock;
+        c.deltaBps = deltaBps; c.range = range_; c.boardSize = boardSize; c.endBlock = endBlock;
         return new TankLadder(c);
     }
+
+    /// A ladder with δ = 0 and the default board, range and season.
+    function zeroDelta() internal returns (TankLadder) { return ladderWith(0, 10, 20, type(uint64).max); }
 
     // ------------------------------------------------------------------------------------------------ registration
 
     function testConfigIsReadable() public view {
         TankLadder.Config memory c = ladder.config();
-        require(c.factory == address(factory) && c.maxWeightBytes == 216_864 && c.deltaBps == 1000 && c.range == 10, "config");
+        require(c.factory == address(factory) && c.maxWeightBytes == 216_864 && c.deltaBps == 1000 && c.range == 10 && c.boardSize == 20, "config");
         require(c.timeoutBlocks == 400 && c.cooldownBlocks == 6000 && c.minStartGas == 24_000_000 && c.reserveGas == 2_000_000 && c.endBlock == type(uint64).max, "config");
     }
 
@@ -69,6 +80,9 @@ contract TankLadderTest is LadderBase {
         c = defaultConfig(); c.range = 0;
         vm.expectRevert(TankLadder.BadConfig.selector);
         new TankLadder(c);
+        c = defaultConfig(); c.boardSize = 0;
+        vm.expectRevert(TankLadder.BadConfig.selector);
+        new TankLadder(c);
     }
 
     /// A new entry takes the last rank. An account enters several entries. The views read owner, size and rank.
@@ -76,16 +90,19 @@ contract TankLadderTest is LadderBase {
         vm.recordLogs();
         enter(alice, mid);
         enter(alice, big);
-        enter(bob, tiny(1));
-        require(ladder.entryCount() == 3 && ladder.entryAt(1) == mid && ladder.entryAt(2) == big, "ranks");
-        require(ladder.entryOwner(mid) == alice && ladder.entryOwner(big) == alice && ladder.entryOwner(ladder.entryAt(3)) == bob, "owners");
+        address t = tiny(1);
+        enter(bob, t);
+        address[] memory b = boardOf(ladder);
+        require(ladder.entryCount() == 3 && b.length == 3 && b[0] == mid && b[1] == big && b[2] == t, "ranks");
+        require(ladder.entryOwner(mid) == alice && ladder.entryOwner(big) == alice && ladder.entryOwner(t) == bob, "owners");
         require(ladder.entryOwner(address(0x1234)) == address(0), "not entered: no owner");
+        require(ladder.entry(address(0x1234)).owner == address(0) && ladder.entry(address(0x1234)).rank == 0, "not entered: no entry");
         TankLadder.Entry memory e = ladder.entry(big);
         require(e.module == big && e.owner == alice && e.weightBytes == bigBytes && e.rank == 2 && e.wins == 0 && e.losses == 0 && e.activeChallenge == 0, "entry");
-        require(ladder.entry(mid).weightBytes == midBytes && ladder.entry(ladder.entryAt(3)).weightBytes == 18_400, "weight sizes");
-        TankLadder.Entry[] memory es = ladder.entries(2, 10);
-        require(es.length == 2 && es[0].module == big && es[1].rank == 3, "entries from rank 2");
-        require(ladder.entries(4, 10).length == 0 && ladder.entries(1, 1).length == 1, "entries at the end");
+        require(ladder.entry(mid).weightBytes == midBytes && ladder.entry(t).weightBytes == 18_400, "weight sizes");
+        TankLadder.Entry[] memory es = ladder.entries(1, 10);
+        require(es.length == 2 && es[0].module == big && es[1].rank == 3, "entries from index 1");
+        require(ladder.entries(3, 10).length == 0 && ladder.entries(0, 1).length == 1 && ladder.entries(1, type(uint256).max).length == 2, "entries at the end");
         IVm.Log[] memory logs = vm.getRecordedLogs();
         uint256 registered;
         for (uint256 i; i < logs.length; i++) {
@@ -93,13 +110,75 @@ contract TankLadderTest is LadderBase {
             require(logs[i].topics[0] == keccak256("EntryRegistered(address,address,uint32,uint32)"), "only EntryRegistered");
             (uint32 weightBytes, uint32 rank) = abi.decode(logs[i].data, (uint32, uint32));
             registered++;
-            require(rank == registered && address(uint160(uint256(logs[i].topics[1]))) == ladder.entryAt(rank) && weightBytes == ladder.entry(ladder.entryAt(rank)).weightBytes, "event");
+            require(rank == registered && address(uint160(uint256(logs[i].topics[1]))) == b[rank - 1] && weightBytes == ladder.entry(b[rank - 1]).weightBytes, "event");
         }
         require(registered == 3, "three events");
-        vm.expectRevert(TankLadder.BadRank.selector);
-        ladder.entryAt(0);
-        vm.expectRevert(TankLadder.BadRank.selector);
-        ladder.entryAt(4);
+    }
+
+    /// When the board is full, a new entry stays off it: rank 0 in the event and the views, and it counts as entered.
+    function testAFullBoardKeepsNewEntriesOffIt() public {
+        TankLadder small = ladderWith(0, 2, 3, type(uint64).max);
+        address[] memory t = new address[](5);
+        vm.recordLogs();
+        for (uint256 k; k < 5; k++) { t[k] = tiny(uint8(k + 1)); enter(small, alice, t[k]); }
+        address[] memory b = boardOf(small);
+        require(b.length == 3 && b[0] == t[0] && b[1] == t[1] && b[2] == t[2], "the first 3 fill the board");
+        require(small.entryCount() == 5 && small.entry(t[3]).rank == 0 && small.entry(t[4]).owner == alice, "the others are entered off the board");
+        TankLadder.Entry[] memory es = small.entries(0, 10);
+        for (uint256 k; k < 5; k++) require(es[k].module == t[k] && es[k].rank == (k < 3 ? k + 1 : 0), "entries in the order of registration");
+        IVm.Log[] memory logs = vm.getRecordedLogs();
+        (, uint32 lastRank) = abi.decode(logs[logs.length - 1].data, (uint32, uint32));
+        require(lastRank == 0, "the event says off the board");
+        vm.expectRevert(TankLadder.AlreadyEntered.selector);
+        enter(small, bob, t[4]);
+    }
+
+    /// An entry off the board challenges as the rank below the last: ranks 2 and 3 of a board of 3 with range 2.
+    /// When it wins, it takes the defender's rank and the last entry leaves the board. That entry can come back.
+    function testAnEntryOffTheBoardPushesTheLastOneOff() public {
+        TankLadder small = ladderWith(0, 2, 3, type(uint64).max);
+        address[] memory t = new address[](5);
+        for (uint256 k; k < 5; k++) { t[k] = tiny(uint8(k + 1)); enter(small, alice, t[k]); }
+        vm.startPrank(alice, alice);
+        vm.expectRevert(TankLadder.OutOfRange.selector);
+        small.challenge{gas: GAS_LIMIT}(t[3], t[0]);            // rank 1 is 3 ranks above
+        vm.expectRevert(TankLadder.OutOfRange.selector);
+        small.challenge{gas: GAS_LIMIT}(t[3], t[4]);            // both off the board
+        vm.expectRevert(TankLadder.OutOfRange.selector);
+        small.challenge{gas: GAS_LIMIT}(t[0], t[3]);            // the defender is off the board
+        vm.recordLogs();
+        uint256 id = small.challenge{gas: GAS_LIMIT}(t[3], t[1]);
+        vm.stopPrank();
+        settle(small, id);
+        require(small.challengeInfo(id).status == 2 && settledRank(vm.getRecordedLogs()) == 2, "won rank 2");
+        address[] memory b = boardOf(small);
+        require(b.length == 3 && b[0] == t[0] && b[1] == t[3] && b[2] == t[1], "t1 moves down, t2 leaves the board");
+        require(small.entry(t[2]).rank == 0 && small.entryCount() == 5, "t2 is off the board, still entered");
+        // t2 comes back: it takes rank 3, and t1 leaves the board
+        vm.prank(alice, alice);
+        id = small.challenge{gas: GAS_LIMIT}(t[2], t[1]);
+        settle(small, id);
+        b = boardOf(small);
+        require(b[0] == t[0] && b[1] == t[3] && b[2] == t[2] && small.entry(t[1]).rank == 0, "t2 back at rank 3");
+    }
+
+    /// A defender that leaves the board before the settlement has its challenger off the board too. The challenger
+    /// wins the challenge, but no rank changes, and `newRank` is 0.
+    function testADefenderOffTheBoardAtTheSettlementChangesNoRank() public {
+        TankLadder small = ladderWith(0, 2, 3, type(uint64).max);
+        address[] memory t = new address[](5);
+        address[5] memory owners = [alice, bob, carol, address(0xD), address(0xE)];
+        for (uint256 k; k < 5; k++) { t[k] = tiny(uint8(k + 1)); enter(small, owners[k], t[k]); }
+        vm.prank(owners[4], owners[4]); uint256 a = small.challenge{gas: GAS_LIMIT}(t[4], t[2]);    // off against rank 3
+        vm.prank(owners[3], owners[3]); uint256 b = small.challenge{gas: GAS_LIMIT}(t[3], t[1]);    // off against rank 2
+        settle(small, b);                                                                           // t2 leaves the board
+        require(small.entry(t[2]).rank == 0, "the defender of a is off the board");
+        vm.recordLogs();
+        settle(small, a);
+        require(small.challengeInfo(a).status == 2 && settledRank(vm.getRecordedLogs()) == 0, "won, still off the board");
+        address[] memory board = boardOf(small);
+        require(board[0] == t[0] && board[1] == t[3] && board[2] == t[1], "no rank changes");
+        require(small.entry(t[4]).wins == 1 && small.entry(t[2]).losses == 1, "counted");
     }
 
     function testRegisterRefusesAModuleOfAnotherFactory() public {
@@ -130,11 +209,9 @@ contract TankLadderTest is LadderBase {
         TankLadder.Config memory c = defaultConfig();
         c.maxWeightBytes = uint32(bigBytes - 1);
         TankLadder small = new TankLadder(c);
-        vm.prank(alice, alice);
-        small.register(mid);
+        enter(small, alice, mid);
         vm.expectRevert(abi.encodeWithSelector(TankLadder.TooLarge.selector, bigBytes, bigBytes - 1));
-        vm.prank(alice, alice);
-        small.register(big);
+        enter(small, alice, big);
         enter(alice, big);
         require(ladder.entry(big).weightBytes == 216_864, "at the maximum");
     }
@@ -160,13 +237,11 @@ contract TankLadderTest is LadderBase {
     }
 
     function testRegisterRefusesAfterTheSeason() public {
-        TankLadder season = ladderWith(1000, 10, uint64(block.number + 5));
-        vm.prank(alice, alice);
-        season.register(mid);
+        TankLadder season = ladderWith(1000, 10, 20, uint64(block.number + 5));
+        enter(season, alice, mid);
         vm.roll(block.number + 5);
         vm.expectRevert(TankLadder.SeasonOver.selector);
-        vm.prank(alice, alice);
-        season.register(big);
+        enter(season, alice, big);
     }
 
     // ------------------------------------------------------------------------------------------------ who can start
@@ -276,13 +351,13 @@ contract TankLadderTest is LadderBase {
         TankLadder.ChallengeInfo memory info = ladder.challengeInfo(id);
         require(info.status == 1 && info.startBlock == 100 && info.deadline == 500 && info.episode + info.step > 0, "played in the first transaction");
         require(info.seed == keccak256(abi.encode(block.prevrandao, id)), "the seed");
-        uint256 transactions = finish(id);
+        uint256 transactions = settle(ladder, id);
         info = ladder.challengeInfo(id);
         require(info.episode == 6 && info.status != 1, "settled");
         // 中 is lighter than 大 by more than δ: it wins with as many episodes as 大, and loses with fewer
         bool won = info.challengerWins >= info.defenderWins;
         require(info.status == (won ? 2 : 3), "the status follows the score and delta");
-        require(rankOf(mid) == (won ? 1 : 2) && rankOf(big) == (won ? 2 : 1) && ladder.entryAt(1) == (won ? mid : big), "the ranks follow");
+        require(rankOf(mid) == (won ? 1 : 2) && rankOf(big) == (won ? 2 : 1) && boardOf(ladder)[0] == (won ? mid : big), "the ranks follow");
         require(ladder.entry(won ? mid : big).wins == 1 && ladder.entry(won ? big : mid).losses == 1 && ladder.entry(mid).activeChallenge == 0, "counted");
         IVm.Log[] memory logs = vm.getRecordedLogs();
         uint256 started; uint256 episodes; uint256 settled; uint256 steps; uint256 episodeSteps;
@@ -353,8 +428,7 @@ contract TankLadderTest is LadderBase {
         address twin = deployFixtureTwin("mid", keccak256("twin"));
         TankLadder other = newLadder();
         enter(alice, mid); enter(bob, twin);
-        vm.prank(alice, alice); other.register(mid);
-        vm.prank(bob, bob); other.register(twin);
+        enter(other, alice, mid); enter(other, bob, twin);
         vm.prevrandao(keccak256("same"));
         uint256 id = start(bob, twin, mid);
         vm.prank(bob, bob);
@@ -378,102 +452,101 @@ contract TankLadderTest is LadderBase {
         // δ = 10%: 18,400 is not 10% below 18,432, so the lighter one defends against the heavier
         enter(alice, heavy); enter(bob, light);
         uint256 id = start(bob, light, heavy);
-        finish(id);
+        settle(ladder, id);
         require(ladder.challengeInfo(id).status == 3 && rankOf(heavy) == 1 && rankOf(light) == 2, "a defense: within delta");
         require(ladder.entry(heavy).wins == 1 && ladder.entry(light).losses == 1, "counted as a defense");
         // δ = 0: a challenger of at most the defender's size wins equal episodes; a heavier one does not
-        TankLadder zero = ladderWith(0, 10, type(uint64).max);
-        vm.prank(alice, alice); zero.register(heavy);
-        vm.prank(bob, bob); zero.register(light);
-        vm.prank(carol, carol); zero.register(light2);
+        TankLadder zero = zeroDelta();
+        enter(zero, alice, heavy); enter(zero, bob, light); enter(zero, carol, light2);
         vm.prank(bob, bob);
         id = zero.challenge{gas: GAS_LIMIT}(light, heavy);
-        while (zero.challengeInfo(id).status == 1) zero.advance{gas: GAS_LIMIT}(id);
+        settle(zero, id);
         require(zero.challengeInfo(id).status == 2 && zero.entry(light).rank == 1 && zero.entry(heavy).rank == 2, "the lighter one won");
         vm.prank(carol, carol);
         id = zero.challenge{gas: GAS_LIMIT}(light2, light);
-        while (zero.challengeInfo(id).status == 1) zero.advance{gas: GAS_LIMIT}(id);
+        settle(zero, id);
         require(zero.challengeInfo(id).status == 2 && zero.entry(light2).rank == 1 && zero.entry(light).rank == 2, "an equal one won");
         vm.prank(alice, alice);
         id = zero.challenge{gas: GAS_LIMIT}(heavy, light);
-        while (zero.challengeInfo(id).status == 1) zero.advance{gas: GAS_LIMIT}(id);
+        settle(zero, id);
         require(zero.challengeInfo(id).status == 3 && zero.entry(heavy).rank == 3, "the heavier one lost");
         // δ = 10% with a real difference: 中 (39,840) against 大 (216,864) wins with as many episodes, 大 against 中
         // wins only with more episodes (the fixture seed of the parity corpus: every episode is a draw)
         enter(alice, big); enter(bob, mid);
         vm.prevrandao(keccak256("ladder-mid-big"));
         id = start(bob, mid, big);
-        finish(id);
+        settle(ladder, id);
         TankLadder.ChallengeInfo memory info = ladder.challengeInfo(id);
         bool midWon = info.challengerWins >= info.defenderWins;
         require(info.status == (midWon ? 2 : 3) && rankOf(mid) == (midWon ? 3 : 4), "mid wins equal episodes");
         if (!midWon) return;
         id = start(alice, big, mid);
-        finish(id);
+        settle(ladder, id);
         info = ladder.challengeInfo(id);
         require(info.status == (info.challengerWins > info.defenderWins ? 2 : 3), "big needs more episodes");
     }
 
     /// A success moves the challenger to the defender's rank; the defender and the entries between move down one.
     function testASuccessShiftsTheRanksBetween() public {
-        TankLadder zero = ladderWith(0, 10, type(uint64).max);
+        TankLadder zero = zeroDelta();
         address[] memory t = new address[](6);
-        for (uint256 k; k < 6; k++) { t[k] = tiny(uint8(k + 1)); vm.prank(alice, alice); zero.register(t[k]); }
+        for (uint256 k; k < 6; k++) { t[k] = tiny(uint8(k + 1)); enter(zero, alice, t[k]); }
         vm.prank(alice, alice);
         uint256 id = zero.challenge{gas: GAS_LIMIT}(t[5], t[1]);        // rank 6 against rank 2
-        while (zero.challengeInfo(id).status == 1) zero.advance{gas: GAS_LIMIT}(id);
+        settle(zero, id);
         require(zero.challengeInfo(id).status == 2, "won (equal size, delta 0)");
         address[6] memory want = [t[0], t[5], t[1], t[2], t[3], t[4]];
-        for (uint256 r; r < 6; r++) require(zero.entryAt(r + 1) == want[r] && zero.entry(want[r]).rank == r + 1, "order after the success");
-        TankLadder.Entry[] memory es = zero.entries(1, 6);
-        for (uint256 r; r < 6; r++) require(es[r].module == want[r], "entries view");
+        address[] memory b = boardOf(zero);
+        for (uint256 r; r < 6; r++) require(b[r] == want[r] && zero.entry(want[r]).rank == r + 1, "order after the success");
+        TankLadder.Entry[] memory es = zero.entries(0, 6);
+        for (uint256 k; k < 6; k++) require(es[k].module == t[k] && es[k].rank == zero.entry(t[k]).rank, "entries view: the order of registration");
     }
 
     /// Concurrent challenges: the defender stays above its challenger until that challenge succeeds, so every
     /// settlement inserts at the defender's rank of that moment.
     function testConcurrentChallengesSettleInOrder() public {
-        TankLadder zero = ladderWith(0, 10, type(uint64).max);
+        TankLadder zero = zeroDelta();
         address[] memory t = new address[](5);
         address[5] memory owners = [alice, bob, carol, address(0xD), address(0xE)];
-        for (uint256 k; k < 5; k++) { t[k] = tiny(uint8(k + 1)); vm.prank(owners[k], owners[k]); zero.register(t[k]); }
+        for (uint256 k; k < 5; k++) { t[k] = tiny(uint8(k + 1)); enter(zero, owners[k], t[k]); }
         // rank 4 challenges rank 2, rank 5 challenges rank 2, rank 3 challenges rank 1; all three win (equal sizes)
         vm.prank(owners[3], owners[3]); uint256 a = zero.challenge{gas: GAS_LIMIT}(t[3], t[1]);
         vm.prank(owners[4], owners[4]); uint256 b = zero.challenge{gas: GAS_LIMIT}(t[4], t[1]);
         vm.prank(owners[2], owners[2]); uint256 c = zero.challenge{gas: GAS_LIMIT}(t[2], t[0]);
         // c settles first: t2 takes rank 1 → t2 t0 t1 t3 t4
-        while (zero.challengeInfo(c).status == 1) zero.advance{gas: GAS_LIMIT}(c);
+        settle(zero, c);
         require(zero.entry(t[2]).rank == 1 && zero.entry(t[0]).rank == 2 && zero.entry(t[1]).rank == 3 && zero.entry(t[3]).rank == 4 && zero.entry(t[4]).rank == 5, "after c");
         // b settles: t4 (rank 5) takes t1's rank of now, 3 → t2 t0 t4 t1 t3
-        while (zero.challengeInfo(b).status == 1) zero.advance{gas: GAS_LIMIT}(b);
+        settle(zero, b);
         require(zero.entry(t[4]).rank == 3 && zero.entry(t[1]).rank == 4 && zero.entry(t[3]).rank == 5, "after b");
         // a settles: t3 (rank 5) takes t1's rank of now, 4 → t2 t0 t4 t3 t1
-        while (zero.challengeInfo(a).status == 1) zero.advance{gas: GAS_LIMIT}(a);
+        settle(zero, a);
         address[5] memory want = [t[2], t[0], t[4], t[3], t[1]];
-        for (uint256 r; r < 5; r++) require(zero.entryAt(r + 1) == want[r] && zero.entry(want[r]).rank == r + 1, "after a");
+        address[] memory order = boardOf(zero);
+        for (uint256 r; r < 5; r++) require(order[r] == want[r] && zero.entry(want[r]).rank == r + 1, "after a");
         require(zero.entry(t[1]).losses == 2 && zero.entry(t[0]).losses == 1 && zero.entry(t[3]).wins == 1, "counted");
         // a challenger that lost its rank meanwhile still settles against the defender above it
         vm.prank(owners[1], owners[1]); uint256 d = zero.challenge{gas: GAS_LIMIT}(t[1], t[3]);     // rank 5 against rank 4
         vm.prank(owners[0], owners[0]); uint256 e = zero.challenge{gas: GAS_LIMIT}(t[0], t[2]);     // rank 2 against rank 1
-        while (zero.challengeInfo(e).status == 1) zero.advance{gas: GAS_LIMIT}(e);                   // → t0 t2 t4 t3 t1
-        while (zero.challengeInfo(d).status == 1) zero.advance{gas: GAS_LIMIT}(d);                   // → t0 t2 t4 t1 t3
+        settle(zero, e);                                                                            // → t0 t2 t4 t3 t1
+        settle(zero, d);                                                                            // → t0 t2 t4 t1 t3
         want = [t[0], t[2], t[4], t[1], t[3]];
-        for (uint256 r; r < 5; r++) require(zero.entryAt(r + 1) == want[r], "after d and e");
+        order = boardOf(zero);
+        for (uint256 r; r < 5; r++) require(order[r] == want[r], "after d and e");
     }
 
     // ------------------------------------------------------------------------------------------------ cooldown, timeout, season
 
     function testCooldownOfAPair() public {
-        TankLadder zero = ladderWith(0, 10, type(uint64).max);
+        TankLadder zero = zeroDelta();
         // a above x above b: b (18,432 bytes) is heavier than a (18,400), so b loses equal episodes with δ = 0
         address a = tiny(572, 1, 9, 1); address x = tiny(572, 2, 9, 3); address b = tiny(572, 2, 9, 2);
-        vm.prank(alice, alice); zero.register(a);
-        vm.prank(carol, carol); zero.register(x);
-        vm.prank(bob, bob); zero.register(b);
+        enter(zero, alice, a); enter(zero, carol, x); enter(zero, bob, b);
         vm.roll(1000);
         vm.prank(bob, bob);
         uint256 id = zero.challenge{gas: GAS_LIMIT}(b, a);
         require(zero.cooldownUntil(b, a) == 7000 && zero.cooldownUntil(a, b) == 0, "the pair, not the reverse");
-        while (zero.challengeInfo(id).status == 1) zero.advance{gas: GAS_LIMIT}(id);
+        settle(zero, id);
         require(zero.challengeInfo(id).status == 3, "heavier: a defense");
         vm.roll(6999);
         vm.prank(bob, bob);
@@ -484,7 +557,7 @@ contract TankLadderTest is LadderBase {
         uint256 id2 = zero.challenge{gas: GAS_LIMIT}(b, x);
         require(id2 == 2, "another pair is free");
         vm.roll(7000);
-        while (zero.challengeInfo(id2).status == 1) zero.advance{gas: GAS_LIMIT}(id2);
+        settle(zero, id2);
         vm.prank(bob, bob);
         uint256 id3 = zero.challenge{gas: GAS_LIMIT}(b, a);
         require(id3 == 3 && zero.cooldownUntil(b, a) == 13000, "after the cooldown");
@@ -524,9 +597,8 @@ contract TankLadderTest is LadderBase {
     }
 
     function testSeasonEndRefusesNewChallengesOnly() public {
-        TankLadder season = ladderWith(1000, 10, 2000);
-        vm.prank(alice, alice); season.register(big);
-        vm.prank(bob, bob); season.register(mid);
+        TankLadder season = ladderWith(1000, 10, 20, 2000);
+        enter(season, alice, big); enter(season, bob, mid);
         vm.roll(1999);
         vm.prank(bob, bob);
         uint256 id = season.challenge{gas: GAS_LIMIT}(mid, big);

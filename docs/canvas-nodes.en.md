@@ -111,10 +111,17 @@ The content component of a script module is `ScriptBody.vue` (ADR 0019). The hos
 - Below the first row is `renderers/script-module.vue`. It is `.bfill` and fills the remaining height of the host. When the host has no explicit height, this area is 440px high.
 - The page uses `@babel/parser` to rewrite the `import` and `export` statements of each file (`renderers/script-module.js`). The line numbers do not change. The loader in the sandbox (`renderers/script-module-runtime.js`) runs the rewritten files and draws the views in the CSS grid of `layout`. The sandbox document comes from `script-frame.js`, with the same CSP and permissions as a view script.
 - When the script fails, the error shows above the iframe, with the file and the line.
-- The call bridge: the sandbox sends `{ type: 'call', id, name, args }`. The page runs the call outside the sandbox with `core/script-calls.js` and replies `{ type: 'reply', id, result }` or `{ type: 'reply', id, error }`. The values of the value inputs go into the sandbox in `{ type: 'values', functions, values }`: one time before `load`, and again when they change. After a reset or a new iframe, the replies of the old run are dropped.
+- The call bridge: the sandbox sends `{ type: 'call', id, name, args }`. The page runs the call outside the sandbox with `core/script-calls.js` and replies `{ type: 'reply', id, result }` or `{ type: 'reply', id, error }` (with the revert `data` when a chain request fails). The values of the value inputs go into the sandbox in `{ type: 'values', functions, values, chains }`: one time before `load`, and again when they change. `chains` lists the function inputs wired to a chain node, with what the script knows of each chain. After a reset or a new iframe, the replies of the old run are dropped.
 - While the user resizes the host, the host has the class `resizing`. Then the iframe does not get pointer events, so a drag over the iframe does not stop the gesture.
 
 The script module 坦克对战 of the tank battle template has 3 files: `main.js`, `game.js` and `views.js`. Its layout is `'board side' / 'log log'`. The battlefield is on the top left. The side panel (`Controls`, the result and the state of both sides) is on the top right. The log is below them.
+
+The content component of the chain node is `ChainNodeBody.vue` (`core/kinds/chain-node.js`, ADR 0028). The node has one call output, `node`, for a function input of a script module.
+
+- The first row: the network (an entry of the registry `ladder/data/deployments.json`), 「允许写入」 (allow writes, only a local node can have it) and 「连接」 (connect).
+- The status line: the page checks the node through `chain.js readConnection`. The chain id must equal the configured chain id. Then the line shows the block number, and whether the Factory and the ladder of the registry have code on this node.
+- When the entry is a fork and the node is not reachable, the body shows the guide: the anvil command of `forkCommand`, the node address and the chain id (each with a copy button), and three steps (run the command and keep the terminal open → select this fork in 「链上部署」 and deploy → run the practice challenge in 「坦克对战」).
+- In the sandbox, a function input wired to a chain node is `ctx.chain.<name>`: a viem client (the global `viem` comes from `vite.config.ts viemGlobal`, which bundles it into the sandbox document at build time). Each request of the client is one call of that input with `{ method, params }`. The page lets through only the methods the chain node allows (`READ_METHODS`, plus `WRITE_METHODS` with writes on). `ctx.call.<name>` is the raw request function.
 
 ## `NodePorts.vue`
 

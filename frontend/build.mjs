@@ -1,16 +1,23 @@
 // frontend/build.mjs — single-file distribution. vite builds the page (with the same vite.config.ts as `npm run dev`).
 // Then this script puts every emitted chunk / stylesheet / asset back into the HTML. So the result works from file://
 // with no sibling files, ethers included.
+//   node frontend/build.mjs                       → frontend/dist/neurom-studio.html (the local workbench)
+//   node frontend/build.mjs --hosted --out <file> → the hosted workbench of the ladder site (ADR 0027). It trains in
+//                                                    the browser only and does not look for a Python workspace.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { build } from 'vite';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const configFile = resolve(here, '..', 'vite.config.ts');
-const out = resolve(here, 'dist');
-const PAGE = 'index.html', OUTPUT = 'neurom-studio.html';
+const PAGE = 'index.html';
 const WORKER_GLOBAL = '__NEUROM_WORKER_SOURCE__';
+const { values: args } = parseArgs({ options: { hosted: { type: 'boolean', default: false }, out: { type: 'string' } } });
+const target = args.out ? resolve(args.out) : resolve(here, 'dist', 'neurom-studio.html');
+// vite exposes the VITE_ variables of process.env as import.meta.env (frontend/chain.js STUDIO_HOSTED)
+if (args.hosted) process.env.VITE_STUDIO_HOSTED = '1';
 
 const common = {
   configFile, root: here, logLevel: 'warn', base: './',
@@ -29,10 +36,16 @@ const inertWorkerFallback = {
   },
 };
 
+/** Optional peer dependencies of the Privy React SDK that the repo does not install. Privy imports
+ *  `@farcaster/mini-app-solana` with `import()` only inside a Farcaster mini app. Vite puts a module that throws on
+ *  load in place of a missing package. inlineDynamicImports would run that throw at page load and stop the rest of the
+ *  bundle. As an external, the `import()` stays in the page and is never called here. */
+const UNINSTALLED_PEERS = ['@farcaster/mini-app-solana'];
+
 async function bundlePage(html) {
   const { output } = await build({
     ...common, plugins: [inertWorkerFallback],
-    build: { ...common.build, rollupOptions: { input: resolve(here, html), output: { inlineDynamicImports: true } } },
+    build: { ...common.build, rollupOptions: { input: resolve(here, html), external: UNINSTALLED_PEERS, output: { inlineDynamicImports: true } } },
   });
   const text = name => {
     const item = output.find(o => o.fileName === name);
@@ -66,6 +79,6 @@ const inlineJS = js => js.replaceAll('</script', '<\\/script');
 
 const worker = inlineJS(JSON.stringify(await bundleWorker()));
 const html = (await bundlePage(PAGE)).replace('<script type="module">', () => `<script>globalThis.${WORKER_GLOBAL} = ${worker};</script>\n<script type="module">`);
-await mkdir(out, { recursive: true });
-await writeFile(resolve(out, OUTPUT), html);
-console.log(`wrote ${OUTPUT} (${Buffer.byteLength(html)} bytes)`);
+await mkdir(dirname(target), { recursive: true });
+await writeFile(target, html);
+console.log(`wrote ${target} (${Buffer.byteLength(html)} bytes${args.hosted ? ', hosted' : ''})`);

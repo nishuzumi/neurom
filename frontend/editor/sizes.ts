@@ -22,6 +22,7 @@ const NATURAL: Record<string, { width: number; height: number | ((config: Record
   view: { width: 420, height: 360 },
   script: { width: 480, height: 530 },
   deployment: { width: 480, height: 420 },
+  chain: { width: 420, height: 160 },
   bits: { width: 320, height: 220 },
   loop: { width: 340, height: 180 },
 };

@@ -31,8 +31,8 @@ test('an equivalent candidate passes with 0 differences and only the add-version
   const chain = await localChain();
   try {
     const combiner = caseNamed('arithmetic-combiner-policy').artifact, lif = caseNamed('LIF 11→16→tools→12→8 int16').artifact;
-    const combinerAt = (await deployModule(chain.signer, chain.factory, combiner, { artifacts })).address;
-    const lifAt = (await deployModule(chain.signer, chain.factory, lif, { artifacts })).address;
+    const combinerAt = (await deployModule(chain.signer, chain.factory, combiner, { artifacts, moduleId: 'combiner' })).address;
+    const lifAt = (await deployModule(chain.signer, chain.factory, lif, { artifacts, moduleId: 'lif-before' })).address;
     const lifLocal = browserExecutor(lif), session = sessionId('before the new version'), steps = caseNamed('LIF 11→16→tools→12→8 int16').inputs;
     const stepped = async (at, local, bits) => { const got = await stepModule(chain.signer, at, bits, session), want = local.step(bits); return [[got.scores, got.counts, got.voltages], [want.scores, want.counts, want.voltages]]; };
     for (const bits of steps.slice(0, 5)) assert.deepEqual(...await stepped(lifAt, lifLocal, bits), `a session started before the new version: ${bits.join('')}`);
@@ -57,7 +57,7 @@ test('an equivalent candidate passes with 0 differences and only the add-version
     const combinerLocal = browserExecutor(combiner);
     for (const bits of caseNamed('arithmetic-combiner-policy').inputs) assert.deepEqual(await inferModule(chain.provider, combinerAt, bits), decision(combinerLocal.step(bits)), `combiner ${bits.join('')}`);
     for (const bits of steps.slice(5)) assert.deepEqual(...await stepped(lifAt, lifLocal, bits), `the session continues on its own version: ${bits.join('')}`);
-    const fresh = await deployModule(chain.signer, chain.factory, lif, { artifacts });
+    const fresh = await deployModule(chain.signer, chain.factory, lif, { artifacts, moduleId: 'lif-after' });
     assert.equal(fresh.engineVersion.address, candidate, 'a new deployment runs on the new latest version');
     const freshLocal = browserExecutor(lif);
     for (const bits of steps) assert.deepEqual(...await stepped(fresh.address, freshLocal, bits), `on the candidate: ${bits.join('')}`);
@@ -83,7 +83,7 @@ test('the check compares against the latest version: a module the cases reuse fr
   const chain = await localChain();
   try {
     const reused = caseNamed('LIF 11→16→tools [LIF tool, SUB4, MUL4]→8 int8');
-    await deployModule(chain.signer, chain.factory, reused.artifact, { artifacts });          // its LIF tool stays on the first version
+    await deployModule(chain.signer, chain.factory, reused.artifact, { artifacts, moduleId: 'reused' });          // its LIF tool stays on the first version
     const factory = new ethers.Contract(chain.factory, FactoryABI, chain.signer), id = ethers.id('dense-policy');
     const latest = await (await deployOut(chain.signer, 'VersionCandidates.sol:OneBitDensePolicyEngine')).getAddress();
     await (await factory.addVersion(id, latest)).wait();
@@ -112,7 +112,7 @@ test('EngineVersion adds a version of a new engine id and sets it latest; the ex
   try {
     const version = await (await deployOut(chain.signer, 'DensePolicyEngine.sol:DensePolicyEngine')).getAddress(), id = ethers.id('other-engine');
     const net = caseNamed('FF 12→8→4 int16').artifact, d = deploymentOf(net), chunks = weightChunks(d.weights);
-    const spec = { engineId: id, version: ethers.ZeroAddress, kind: 0, inputs: d.inputs, outputs: d.outputs, shape: d.shape, tools: [], chunks: chunks.map(c => c.id), artifactId: net.id, taskId: ethers.ZeroHash };
+    const spec = { engineId: id, version: ethers.ZeroAddress, kind: 0, inputs: d.inputs, outputs: d.outputs, shape: d.shape, tools: [], chunks: chunks.map(c => c.id), artifactId: net.id, taskId: ethers.ZeroHash, moduleId: 'other-engine' };
     const factory = new ethers.Contract(chain.factory, FactoryABI, chain.signer), data = chunks.map(c => c.data);
     await assert.rejects(factory.checkDeploy(spec, data), /engine/, 'no version yet: the Factory refuses it');
 

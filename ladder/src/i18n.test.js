@@ -10,17 +10,17 @@ import en from './i18n/en.json' with { type: 'json' };
 const LADDER = fileURLToPath(new URL('..', import.meta.url));
 const SKIP = new Set(['dist', 'node_modules', 'i18n', 'data']);
 
-/** The page sources: scripts and JSX (tests excluded) and index.html. */
+/** The page sources: scripts and Vue components (tests excluded) and the two entry html files. */
 function ladderFiles() {
   return readdirSync(LADDER, { recursive: true }).map(String)
     .filter(p => !p.split(/[\\/]/).some(part => SKIP.has(part)))
-    .filter(p => /\.(js|jsx|mjs)$/.test(p) && !/\.test\.js$/.test(p) || p === 'index.html')
+    .filter(p => /\.(js|mjs|vue)$/.test(p) && !/\.test\.js$/.test(p) || p === 'index.html' || p === join('ladder', 'index.html'))
     .map(p => join(LADDER, p)).sort();
 }
 
 test('every Chinese string of the ladder page has an English entry and every entry is used', () => {
   const files = ladderFiles();
-  assert.ok(files.some(f => f.endsWith('index.html')) && files.some(f => f.endsWith('App.jsx')), 'scans the page sources');
+  assert.ok(files.some(f => f.endsWith(join('ladder', 'index.html'))) && files.some(f => f.endsWith('App.vue')) && files.some(f => f.endsWith('HomePage.vue')), 'scans the page sources');
   const { errors } = checkI18n({ files, dictionary: en });
   assert.deepEqual(errors, []);
 });

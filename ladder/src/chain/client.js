@@ -1,9 +1,13 @@
 // chain/client.js — the ladder client (ticket 06, contract-interface.md "Ladder client API"). Plain JS over ethers 6,
 // no React: the page reaches the chain only through this module.
-//   - Reads: the configuration, the ladder, the entries, the targets of an entry with the refusal the contract would
-//     give, a challenge, the recent challenges and the replay of a challenge from its events.
-//   - Registration: the artifact goes through the chain bridge of the workbench (frontend/module-chain.js
-//     deployModule), then `register`.
+//   - Reads: the configuration, the board (the ranked entries), every entry on and off the board, the targets of an
+//     entry with the refusal the contract would give, a challenge, the recent challenges and the replay of a
+//     challenge from its events.
+//   - Registration: `register(module)` enters a module that the workbench already deployed through the official
+//     Factory. The client sends only the register transaction: it never deploys weights or modules.
+//   - The archive: `deploymentCount(deployer)` and `deploymentsOf(deployer)` read the modules an account deployed
+//     through the official Factory, with their English ids and descriptors. The page chooses the module to register
+//     from this list (on-chain state, not events, not local storage).
 //   - A challenge: the start transaction with the gas limit PLAY_GAS (Monad's transaction limit, above the contract's
 //     minStartGas), then `advance` transactions with explicit nonces, at most MAX_IN_FLIGHT in flight. The receipts
 //     come by polling the hash: ethers' `wait()` misses the receipts of large transactions on anvil --network monad
@@ -12,10 +16,12 @@
 //     need (step-gas.json): a transaction that lands after the settlement reverts and pays its whole limit.
 //   - A refusal is a custom error of the contract: `decodeLadderError` gives its name from any error ethers throws,
 //     and the errors this module throws carry the revert data too.
-import { AbiCoder, Contract, Interface, keccak256, getAddress } from 'ethers';
+import { AbiCoder, Contract, Interface, keccak256, getAddress, isAddress, ZeroAddress } from 'ethers';
 import TankLadderABI from '../../../frontend/abi/TankLadder.json' with { type: 'json' };
-import { deployModule } from '../../../frontend/module-chain.js';
+import ModuleFactoryABI from '../../../frontend/abi/ModuleFactory.json' with { type: 'json' };
+import NeuromModuleABI from '../../../frontend/abi/NeuromModule.json' with { type: 'json' };
 import stepGas from '../../data/step-gas.json' with { type: 'json' };
+import { DENSE_KINDS } from '../../../frontend/runtime/dense-policy.js';
 
 /** The gas limit of a transaction that starts or advances a challenge: Monad's transaction limit. */
 export const PLAY_GAS = 30_000_000;
@@ -23,9 +29,15 @@ export const PLAY_GAS = 30_000_000;
 export const MAX_IN_FLIGHT = 3;
 /** Episodes of a challenge (TankLadder.EPISODES) and steps of an episode (TankScene.STEPS). */
 export const EPISODES = 6;
-export const STEPS = 100;
+const STEPS = 100;
 /** The status codes of ChallengeInfo.status. */
 export const STATUS = Object.freeze({ NONE: 0, PLAYING: 1, CHALLENGER_WON: 2, DEFENSE: 3, EXPIRED: 4 });
+/** The modules one `modulesByDeployer` request reads from the archive of the Factory. */
+const ARCHIVE_PAGE = 50;
+/** Public RPC endpoints accept log queries of at most 100 blocks. */
+const LOG_BLOCKS = 100;
+/** The entries one `entries` request reads. */
+const ENTRY_PAGE = 100;
 
 const iface = new Interface(TankLadderABI);
 const coder = AbiCoder.defaultAbiCoder();
@@ -33,6 +45,8 @@ const num = v => Number(v);
 /** The custom errors of the contract. */
 const ERROR_NAMES = new Set(TankLadderABI.filter(f => f.type === 'error').map(f => f.name));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+/** The topics of the events a replay reads. */
+const REPLAY_TOPICS = [iface.getEvent('Steps').topicHash, iface.getEvent('EpisodeEnded').topicHash];
 
 // ------------------------------------------------------------------------------------------------ errors
 
@@ -129,18 +143,21 @@ function applyLogs(state, logs) {
 // ------------------------------------------------------------------------------------------------ the client
 
 /**
- * The ladder client → see contract-interface.md. `provider` reads; `signer` (optional) sends. `ladder` and `factory`
- * are the addresses on `chainId`. `pollMs`: the interval of the receipt polling (default 250 ms). `receiptTimeoutMs`:
- * how long a sent transaction may stay unmined before the client gives up (default 10 minutes). `maxInFlight` caps the
- * pipeline (default MAX_IN_FLIGHT, 3).
+ * The ladder client → see contract-interface.md. `provider` reads; `signer` (optional) sends. `ladder` is the address
+ * of the TankLadder (the Factory comes from its configuration). `pollMs`: the interval of the receipt polling
+ * (default 250 ms). `receiptTimeoutMs`: how long a sent transaction may stay unmined before the client gives up
+ * (default 10 minutes). `maxInFlight` caps the pipeline (default MAX_IN_FLIGHT, 3).
  */
-export function createLadderClient({ provider, signer = undefined, ladder, factory, chainId, pollMs = 250, receiptTimeoutMs = 600_000, maxInFlight = MAX_IN_FLIGHT }) {
+export function createLadderClient({ provider, signer = undefined, ladder, pollMs = 250, receiptTimeoutMs = 600_000, maxInFlight = MAX_IN_FLIGHT }) {
   if (!provider) throw new Error('createLadderClient: provider is required');
   if (!ladder) throw new Error('createLadderClient: ladder address is required');
   const reader = new Contract(ladder, TankLadderABI, provider);
   const writer = signer ? new Contract(ladder, TankLadderABI, signer) : null;
   const requireSigner = () => { if (!signer) throw new Error('this operation needs a signer'); return signer; };
   let configCache = null;
+  let configFlight = null;
+  const eventCache = new Map();
+  const gasReceipts = new Map();
 
   /** The receipt of `hash`, polled by the hash. Throws after `receiptTimeoutMs`. */
   async function receiptOf(hash) {
@@ -163,80 +180,105 @@ export function createLadderClient({ provider, signer = undefined, ladder, facto
     return ladderError(`${what} reverted (${rc.hash})`, data, { hash: rc.hash, receipt: rc });
   }
 
-  /** A dry run of `method(...args)` as the signer with the play gas: throws the decoded refusal, ignores other failures
-   *  (a node that caps eth_call below PLAY_GAS cannot tell). */
-  async function precheck(method, args, from) {
+  /** A dry run of `method(...args)` as the signer with the play gas: throws the decoded refusal (with `extra` on the
+   *  error), ignores other failures (a node that caps eth_call below PLAY_GAS cannot tell). */
+  async function precheck(method, args, from, extra = {}) {
     try { await writer[method].staticCall(...args, { gasLimit: PLAY_GAS, from }); } catch (e) {
       const name = decodeLadderError(e);
-      if (name) throw ladderError(`${method} refused`, revertDataOf(e), { ladderError: name, cause: e });
+      if (name) throw ladderError(`${method} refused`, revertDataOf(e), { ladderError: name, cause: e, ...extra });
     }
   }
 
-  /** The number of transactions worth keeping in flight for the typical remaining steps of `state`. */
-  async function depthFor(state) {
+  /** The steps one play transaction of the pair of `state` holds, or null when the read failed. The weight bytes
+   *  of the two entries do not change during a challenge, so `play` reads the plan once. */
+  async function stepsPerTransactionOf(state) {
     try {
-      const [c, d] = await Promise.all([reader.entry(state.challenger), reader.entry(state.defender)]);
-      const { stepsPerTransaction } = stepPlan(num(c.weightBytes), num(d.weightBytes), (await config()).reserveGas);
-      const remaining = Math.max(1, (EPISODES - state.episode) * stepGas.stepsPerEpisode.mean - state.step);
-      return Math.min(maxInFlight, Math.max(1, Math.ceil(remaining / stepsPerTransaction)));
-    } catch { return maxInFlight; }
+      const [c, d, cfg] = await Promise.all([reader.entry(state.challenger), reader.entry(state.defender), config()]);
+      return stepPlan(num(c.weightBytes), num(d.weightBytes), cfg.reserveGas).stepsPerTransaction;
+    } catch { return null; }
+  }
+
+  /** The number of transactions worth keeping in flight for the typical remaining steps of `state`. Without a step
+   *  plan (`perTransaction` null), the pipeline is full. */
+  function depthFor(state, perTransaction) {
+    if (!perTransaction) return maxInFlight;
+    const remaining = Math.max(1, (EPISODES - state.episode) * stepGas.stepsPerEpisode.mean - state.step);
+    return Math.min(maxInFlight, Math.max(1, Math.ceil(remaining / perTransaction)));
   }
 
   /**
    * Plays challenge `state.id` on with `advance` transactions until it settles. `state` is the progress record of the
-   * last confirmed receipt; `nonce` the next nonce of the signer. Reports every receipt through `onProgress`.
+   * last confirmed receipt; `nonce` the next nonce of the signer; `deadline` the deadline block of the challenge.
+   * Reports every receipt through `onProgress`.
    */
-  async function play(state, nonce, onProgress) {
+  async function play(state, nonce, deadline, onProgress) {
     const s = requireSigner();
     const data = iface.encodeFunctionData('advance', [state.id]);
     const pending = [];
     const report = () => onProgress({ ...state, inFlight: pending.length });
-    let depth = await depthFor(state);
+    const settleExpired = async () => {
+      for (const tx of pending.splice(0)) {
+        await receiptOf(tx.hash);
+        state.confirmed++;
+        report();
+      }
+      const confirmed = state.confirmed;
+      return expire(state.id, { onProgress: p => onProgress({ ...p, confirmed: confirmed + p.confirmed }) });
+    };
+    let perTransaction = await stepsPerTransactionOf(state);
+    let depth = depthFor(state, perTransaction);
     while (state.status === STATUS.PLAYING) {
+      if (await blockNumber() > deadline) return settleExpired();
       while (pending.length < depth) pending.push(await s.sendTransaction({ to: ladder, data, gasLimit: PLAY_GAS, nonce: nonce++ }));
       const tx = pending.shift();
       const rc = await receiptOf(tx.hash);
       state.confirmed++;
       if (num(rc.status) !== 1) {
-        // another transaction (one left in flight by an interrupted run, or anyone's advance) may have settled it
         const now = await challengeInfo(state.id);
-        if (!now || now.status === STATUS.PLAYING) throw await revertError(tx, rc, 'advance');
+        if (!now || (now.status === STATUS.PLAYING && await blockNumber() <= deadline)) throw await revertError(tx, rc, 'advance');
         Object.assign(state, { status: now.status, episode: now.episode, step: now.step, challengerWins: now.challengerWins, defenderWins: now.defenderWins });
       } else applyLogs(state, ladderLogs(rc, ladder));
       report();
-      if (state.status === STATUS.PLAYING && pending.length < depth) depth = Math.min(depth, await depthFor(state));
+      if (state.status === STATUS.PLAYING && pending.length < depth) {
+        perTransaction ??= await stepsPerTransactionOf(state);
+        depth = Math.min(depth, depthFor(state, perTransaction));
+      }
     }
-    // the transactions sent before the settlement landed revert (NotPlaying): wait for them, so that the account has
-    // nothing in flight when the client returns
     for (const tx of pending.splice(0)) { await receiptOf(tx.hash); state.confirmed++; report(); }
     return challengeInfo(state.id);
   }
 
   async function config() {
     if (configCache) return configCache;
-    const c = await reader.config();
-    configCache = { factory: c.factory, maxWeightBytes: num(c.maxWeightBytes), deltaBps: num(c.deltaBps), range: num(c.range), timeoutBlocks: num(c.timeoutBlocks), cooldownBlocks: num(c.cooldownBlocks), minStartGas: num(c.minStartGas), reserveGas: num(c.reserveGas), endBlock: num(c.endBlock) };
-    return configCache;
+    if (!configFlight) configFlight = reader.config().then(c => {
+      configCache = { factory: c.factory, maxWeightBytes: num(c.maxWeightBytes), deltaBps: num(c.deltaBps), range: num(c.range), boardSize: num(c.boardSize), timeoutBlocks: num(c.timeoutBlocks), cooldownBlocks: num(c.cooldownBlocks), minStartGas: num(c.minStartGas), reserveGas: num(c.reserveGas), endBlock: num(c.endBlock) };
+      return configCache;
+    }).finally(() => { configFlight = null; });
+    return configFlight;
   }
 
   /** The current block, fresh (JsonRpcProvider caches getBlockNumber for a moment). */
   async function blockNumber() {
-    if (typeof provider.send === 'function') { try { return Number(await provider.send('eth_blockNumber', [])); } catch { /* fall back */ } }
-    return provider.getBlockNumber();
+    return Number(await provider.send('eth_blockNumber', []));
   }
 
-  /** The entries from `fromRank` on (1-based), `count` of them (default: to the end). */
-  async function ladderEntries({ fromRank = 1, count } = {}) {
+  /** The entries on the board in rank order (rank 1 first). */
+  async function board() {
+    return (await reader.board()).map(entryOf);
+  }
+
+  /** Every entry in the order of registration: rank ≥ 1 on the board, rank 0 off it. */
+  async function entries() {
     const total = num(await reader.entryCount());
-    if (fromRank < 1 || fromRank > total) return [];
-    const n = count === undefined ? total - fromRank + 1 : Math.min(count, total - fromRank + 1);
-    if (n <= 0) return [];
-    return (await reader.entries(fromRank, n)).map(entryOf);
+    const pages = [];
+    for (let from = 0; from < total; from += ENTRY_PAGE) pages.push(reader.entries(from, ENTRY_PAGE));
+    return (await Promise.all(pages)).flat().map(entryOf);
   }
 
+  /** Entry `module` (rank 0 = off the board), null when it is not entered. */
   async function entry(module) {
     const e = entryOf(await reader.entry(module));
-    return e.rank === 0 ? null : e;
+    return e.owner === ZeroAddress ? null : e;
   }
 
   async function challengeInfo(id) {
@@ -245,11 +287,11 @@ export function createLadderClient({ provider, signer = undefined, ladder, facto
   }
 
   async function targets(module) {
-    const [me, cfg, block, from] = await Promise.all([entry(module), config(), blockNumber(), signer ? signer.getAddress() : null]);
+    const [me, cfg, block, from, ranked] = await Promise.all([entry(module), config(), blockNumber(), signer ? signer.getAddress() : null, board()]);
     if (!me) return [];
-    const fromRank = Math.max(1, me.rank - cfg.range), count = me.rank - fromRank;
-    if (count <= 0) return [];
-    const above = (await reader.entries(fromRank, count)).map(entryOf);
+    // off the board, the board is full: the entry challenges as the rank below the last
+    const myRank = me.rank || ranked.length + 1;
+    const above = ranked.filter(d => d.rank < myRank && myRank - d.rank <= cfg.range);
     return Promise.all(above.map(async d => {
       const cooldownUntil = num(await reader.cooldownUntil(module, d.module));
       let reason = null;
@@ -272,24 +314,26 @@ export function createLadderClient({ provider, signer = undefined, ladder, facto
       return { steps, transactions, gas, cost: BigInt(transactions) * BigInt(PLAY_GAS) * price };
     };
     const typical = of(EPISODES * stepGas.stepsPerEpisode.mean), worst = of(EPISODES * STEPS);
-    return { gasWorst: worst.gas, gasTypical: typical.gas, txWorst: worst.transactions, txTypical: typical.transactions, costWorstWei: worst.cost, costTypicalWei: typical.cost, stepsPerTransaction, gasPriceWei: price, stepsWorst: worst.steps, stepsTypical: typical.steps };
+    return { gasWorst: worst.gas, gasTypical: typical.gas, txWorst: worst.transactions, txTypical: typical.transactions, costWorstWei: worst.cost, costTypicalWei: typical.cost, stepsPerTransaction };
   }
 
-  async function register(artifact, { onStatus = () => {} } = {}) {
+  /** Enters `module` (the address of a module the official Factory deployed) under the signer: one register
+   *  transaction, after a dry run that throws the refusal the contract would give. The signer becomes the owner. */
+  async function register(module, { onStatus = () => {} } = {}) {
     const s = requireSigner();
-    const status = m => { try { onStatus(m); } catch { /* the page's problem */ } };
-    status({ stage: 'deploying', message: 'deploying the module' });
-    const deployed = await deployModule(s, factory, artifact, { onProgress: p => status({ ...p, stage: 'deploy', deployStage: p.stage, message: `${p.kind} ${p.stage}${p.txHash ? ` ${p.txHash}` : ''}` }) });
-    const module = deployed.address;
-    status({ stage: 'registering', message: `registering ${module}`, module });
+    if (!isAddress(module)) throw new Error(`register: ${String(module)} is not a module address`);
+    const address = getAddress(module);
+    const from = await s.getAddress();
+    onStatus({ stage: 'registering', message: `registering ${address}`, module: address });
+    await precheck('register', [address], from, { module: address });
     let tx;
-    try { tx = await writer.register(module); } catch (e) { throw ladderError('register refused', revertDataOf(e), { ladderError: decodeLadderError(e), cause: e, module }); }
+    try { tx = await writer.register(address); } catch (e) { throw ladderError('register refused', revertDataOf(e), { ladderError: decodeLadderError(e), cause: e, module: address }); }
     const rc = await receiptOf(tx.hash);
-    if (num(rc.status) !== 1) throw await revertError({ from: tx.from, to: tx.to, data: tx.data, gasLimit: tx.gasLimit }, rc, 'register');
+    if (num(rc.status) !== 1) throw await revertError(tx, rc, 'register');
     const ev = ladderLogs(rc, ladder).find(e => e.name === 'EntryRegistered');
     if (!ev) throw new Error(`register: no EntryRegistered event in ${rc.hash}`);
-    const result = { module, rank: num(ev.args.rank), owner: ev.args.owner, weightBytes: num(ev.args.weightBytes), txHash: rc.hash, deployment: deployed };
-    status({ stage: 'registered', message: `registered at rank ${result.rank}`, ...result });
+    const result = { module: address, rank: num(ev.args.rank), owner: ev.args.owner, weightBytes: num(ev.args.weightBytes), txHash: rc.hash };
+    onStatus({ stage: 'registered', message: result.rank ? `registered at rank ${result.rank}` : 'registered off the board (the board is full)', ...result });
     return result;
   }
 
@@ -309,7 +353,7 @@ export function createLadderClient({ provider, signer = undefined, ladder, facto
     if (state.id === null) throw new Error(`challenge: no ChallengeStarted event in ${rc.hash}`);
     onProgress({ ...state, inFlight: 0 });
     if (state.status !== STATUS.PLAYING) return challengeInfo(state.id);
-    return play(state, nonce, onProgress);
+    return play(state, nonce, (await challengeInfo(state.id)).deadline, onProgress);
   }
 
   async function resume(id, { onProgress = () => {} } = {}) {
@@ -318,15 +362,64 @@ export function createLadderClient({ provider, signer = undefined, ladder, facto
     if (!info) throw new Error(`challenge ${id} does not exist`);
     if (info.status !== STATUS.PLAYING) return info;
     const from = await s.getAddress();
-    await precheck('advance', [id], from);
+    if (await blockNumber() > info.deadline) return expire(id, { onProgress });
+    try { await precheck('advance', [id], from); } catch (error) {
+      if (decodeLadderError(error) === 'Expired') return expire(id, { onProgress });
+      throw error;
+    }
     const state = { id: info.id, challenger: info.challenger, defender: info.defender, episode: info.episode, step: info.step, status: info.status, challengerWins: info.challengerWins, defenderWins: info.defenderWins, newRank: null, confirmed: 0 };
     onProgress({ ...state, inFlight: 0 });
-    return play(state, await provider.getTransactionCount(from, 'pending'), onProgress);
+    return play(state, await provider.getTransactionCount(from, 'pending'), info.deadline, onProgress);
   }
 
-  async function activeChallengeOf(module) {
-    const e = await entry(module);
-    return e && e.activeChallenge !== 0 ? e.activeChallenge : null;
+  /** Settles a timeout with estimated gas. A settled challenge needs no transaction. */
+  async function expire(id, { onProgress = () => {} } = {}) {
+    requireSigner();
+    const info = await challengeInfo(id);
+    if (!info) throw new Error(`challenge ${id} does not exist`);
+    if (info.status !== STATUS.PLAYING) return info;
+    onProgress({ ...info, phase: 'settling', confirmed: 0, inFlight: 1 });
+    let tx;
+    try { tx = await writer.expire(id); } catch (error) {
+      if (decodeLadderError(error) === 'NotPlaying') {
+        const now = await challengeInfo(id);
+        if (now && now.status !== STATUS.PLAYING) return now;
+      }
+      throw ladderError('expire refused', revertDataOf(error), { cause: error });
+    }
+    const rc = await receiptOf(tx.hash);
+    const result = await challengeInfo(id);
+    if (num(rc.status) !== 1 && result?.status === STATUS.PLAYING) throw await revertError(tx, rc, 'expire');
+    if (!result || result.status === STATUS.PLAYING) throw new Error(`expire ${id}: settlement is not confirmed`);
+    onProgress({ ...result, phase: 'settling', confirmed: 1, inFlight: 0 });
+    return result;
+  }
+
+  /** Reads both replay event types together. Historical blocks are shared with gas totals. */
+  async function challengeEvents(info, latest) {
+    const end = Math.min(latest, info.deadline);
+    if (end < info.startBlock) return [];
+    let cached = eventCache.get(info.id);
+    if (!cached) {
+      cached = { through: info.startBlock - 1, events: [], flight: null };
+      eventCache.set(info.id, cached);
+    }
+    const filter = [REPLAY_TOPICS, coder.encode(['uint256'], [info.id])];
+    // Do not cache the current block. Concurrent reads share each historical range.
+    const through = Math.min(end, latest - 1);
+    while (cached.through < through) {
+      if (!cached.flight) cached.flight = (async () => {
+        for (let from = cached.through + 1; from <= through; from += LOG_BLOCKS) {
+          const to = Math.min(through, from + LOG_BLOCKS - 1);
+          cached.events.push(...await reader.queryFilter(filter, from, to));
+          cached.through = to;
+        }
+      })().finally(() => { cached.flight = null; });
+      await cached.flight;
+    }
+    const events = cached.events.filter(e => e.blockNumber <= end);
+    if (end === latest) events.push(...await reader.queryFilter(filter, end, end));
+    return events;
   }
 
   /** The last `count` challenges, newest first, with the gas their transactions used (from the receipts of the
@@ -337,8 +430,8 @@ export function createLadderClient({ provider, signer = undefined, ladder, facto
     const ids = [];
     for (let id = total; id > Math.max(0, total - count); id--) ids.push(id);
     const infos = await Promise.all(ids.map(challengeInfo));
-    const fromBlock = Math.min(...infos.map(i => i.startBlock));
-    const steps = await reader.queryFilter(reader.filters.Steps(), fromBlock, 'latest');
+    const latest = await blockNumber();
+    const steps = (await Promise.all(infos.map(i => challengeEvents(i, latest)))).flat().filter(e => e.fragment.name === 'Steps');
     const hashes = new Map();   // id → the transaction hashes
     for (const e of steps) {
       const id = num(e.args.id);
@@ -346,8 +439,12 @@ export function createLadderClient({ provider, signer = undefined, ladder, facto
       hashes.get(id).add(e.transactionHash);
     }
     const receipts = new Map();
-    await Promise.all([...new Set([...hashes.values()].flatMap(s => [...s]))].map(async h => receipts.set(h, await provider.getTransactionReceipt(h))));
-    return infos.map(i => ({ id: i.id, challenger: i.challenger, defender: i.defender, status: i.status, challengerWins: i.challengerWins, defenderWins: i.defenderWins, startBlock: i.startBlock, seed: i.seed, transactions: hashes.get(i.id)?.size ?? 0,
+    await Promise.all([...new Set([...hashes.values()].flatMap(s => [...s]))].map(async h => {
+      let rc = gasReceipts.get(h);
+      if (!rc) { rc = await provider.getTransactionReceipt(h); if (rc) gasReceipts.set(h, rc); }
+      receipts.set(h, rc);
+    }));
+    return infos.map(i => ({ id: i.id, challenger: i.challenger, defender: i.defender, status: i.status, challengerWins: i.challengerWins, defenderWins: i.defenderWins, startBlock: i.startBlock,
       gasUsed: [...(hashes.get(i.id) ?? [])].reduce((sum, h) => sum + num(receipts.get(h)?.gasUsed ?? 0), 0) }));
   }
 
@@ -356,10 +453,10 @@ export function createLadderClient({ provider, signer = undefined, ladder, facto
   async function replay(id) {
     const info = await challengeInfo(id);
     if (!info) throw new Error(`challenge ${id} does not exist`);
-    const [steps, ends] = await Promise.all([
-      reader.queryFilter(reader.filters.Steps(id), info.startBlock, 'latest'),
-      reader.queryFilter(reader.filters.EpisodeEnded(id), info.startBlock, 'latest'),
-    ]);
+    const latest = await blockNumber();
+    const events = await challengeEvents(info, latest);
+    const steps = events.filter(e => e.fragment.name === 'Steps');
+    const ends = events.filter(e => e.fragment.name === 'EpisodeEnded');
     const byEpisode = new Map();
     for (const e of steps) {
       const ep = num(e.args.episode);
@@ -379,10 +476,42 @@ export function createLadderClient({ provider, signer = undefined, ladder, facto
     return { id: info.id, seed: info.seed, challenger: info.challenger, defender: info.defender, status: info.status, episodes };
   }
 
+  /** The archive contract of the official Factory recorded by the ladder. */
+  async function archive() {
+    return new Contract((await config()).factory, ModuleFactoryABI, provider);
+  }
+
+  /** How many modules `deployer` deployed through the official Factory (ModuleFactory.deploymentCount). */
+  async function deploymentCount(deployer) {
+    if (!isAddress(deployer)) throw new Error(`deploymentCount: ${String(deployer)} is not an address`);
+    return num(await (await archive()).deploymentCount(deployer));
+  }
+
+  /**
+   * The modules `deployer` deployed through the official Factory, in deployment order, from the archive of the Factory
+   * (ModuleFactory.modulesByDeployer, ARCHIVE_PAGE addresses a request). Each: `{ module, moduleId, deployer, engineId,
+   * engine, artifactId, taskId, kind, kindName, inputs, outputs, stateWidth }` from `moduleIdOf` and the descriptor of
+   * the module. `offset` and `limit` select a window of the archive (default: all of it).
+   */
+  async function deploymentsOf(deployer, { offset = 0, limit } = {}) {
+    if (!isAddress(deployer)) throw new Error(`deploymentsOf: ${String(deployer)} is not an address`);
+    const from = getAddress(deployer);
+    const a = await archive();
+    const total = num(await a.deploymentCount(from));
+    const end = limit === undefined ? total : Math.min(total, offset + limit);
+    const modules = [];
+    for (let at = offset; at < end; at += ARCHIVE_PAGE) modules.push(...await a.modulesByDeployer(from, at, Math.min(ARCHIVE_PAGE, end - at)));
+    return Promise.all(modules.map(async module => {
+      const [moduleId, d] = await Promise.all([a.moduleIdOf(module), new Contract(module, NeuromModuleABI, provider).descriptor()]);
+      return { module: getAddress(module), moduleId, deployer: from, engineId: d.engineId, engine: d.engine, artifactId: d.artifactId, taskId: d.taskId,
+        kind: num(d.kind), kindName: DENSE_KINDS[num(d.kind)] ?? String(num(d.kind)), inputs: num(d.inputs), outputs: num(d.outputs), stateWidth: num(d.stateWidth) };
+    }));
+  }
+
   return {
-    provider, signer, address: ladder, factory, chainId, interface: iface, contract: reader,
-    config, ladder: ladderEntries, entry,
-    entriesOf: async owner => (await ladderEntries()).filter(e => e.owner.toLowerCase() === String(owner).toLowerCase()),
-    targets, estimate, register, challenge, resume, challengeInfo, activeChallengeOf, recentChallenges, replay,
+    contract: reader,
+    config, board, entries, entry,
+    targets, estimate, register, challenge, resume, expire, challengeInfo, recentChallenges, replay,
+    deploymentCount, deploymentsOf,
   };
 }

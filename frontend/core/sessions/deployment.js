@@ -10,8 +10,11 @@
 // same input. The check compares scores, counts and voltages item by item. Read-only calls report a disagreement. A step
 // transaction that disagrees kills the session (STATE_MISMATCH), and the local episode does not advance.
 // Deploying creates the module with the artifact's weight chunks that are not on chain yet. It uses one transaction
-// unless the chunks do not fit (ADR 0014). A network with tool layers deploys its network tools first. Each tool is its
-// own module, reused when the Factory already holds one that verifies against the tool's artifact. Then the network
+// unless the chunks do not fit (ADR 0014). The module gets the module id of node.config.moduleId (setModuleId): an
+// English name, unique under the deploying account, that the Factory archives with the module.
+// Deploy and plan require a valid id. The Factory checks uniqueness under the current wallet.
+// A network with tool layers deploys its network tools first. A verified tool module can be reused.
+// The network then
 // deploys the selector with the tool addresses. The tool artifacts come from the workspace. Verification covers the
 // selector and every tool. It recomputes the descriptor, engine, shape and chunk addresses from the artifact. The engine
 // is a version the Factory lists for its engine id, and the session keeps which one. The local mirror calls the tools
@@ -26,7 +29,7 @@
 //   - Every node shares workspace.settings.chainId.
 //   - The Factory is the official one of that network (CHAINS[chainId].factory, ADR 0016). A network without one
 //     deploys, plans and verifies nothing and says so.
-//   - node.config.deployments[chain] is the persisted deployment record.
+//   - node.config.deployments[chain] is the persisted deployment record (address, artifactId, txHash, moduleId, deployer).
 //   - The artifact is the explicitly bound id (bind()) or the accepted artifact of the candidates node wired into
 //     `artifact`.
 // Every chain call goes through the `chain` adapter (frontend/module-chain.js by default). The adapter reports a
@@ -38,6 +41,7 @@
 import { createEnv } from '../runner.js';
 import { artifactSpec } from '../store.js';
 import { deploymentProblem, ownTools } from '../kinds/network.js';
+import { moduleIdProblem } from '../kinds/deployment.js';
 import { readout as readoutOf } from '../readout.js';
 import { createExecutor } from './executor.js';
 import { trainedOf, trainedTools, toolCaller, INPUT } from '../loop.js';
@@ -46,6 +50,7 @@ import { tablesFor } from './pinned.js';
 import * as moduleChain from '../../module-chain.js';
 import { CHAINS, explorerTx, explorerAddress, DEFAULT_CHAIN_ID } from '../../chain.js';
 import { t, onLocaleChange } from '../../i18n.js';
+import { describeChainError } from '../../chain-error.js';
 
 const DEFAULT_SESSION_LABEL = 'session-1';
 const sameArr = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => Number(v) === Number(b[i]));
@@ -57,11 +62,13 @@ const depKey = chainId => String(chainId);
  * @param {object} o
  * @param {import('../store.js').Workspace} o.workspace
  * @param {string} o.nodeId
- * @param {(chainId:number) => Promise<{provider, signer, address, chainId}>} o.connectChain   the application's wallet
+ * @param {(chainId:number) => Promise<{provider, signer, account, chainId}>} o.connectChain   the write connection of the page (frontend/chain.js connect)
  * @param {object} [o.chain]     module-chain.js-shaped adapter { planDeployment, deployModule, verifyModule, inferModule, stepModule, resetModule, moduleState, sessionId }.
  *                               planDeployment / deployModule / verifyModule take `{ artifacts }` (id → artifact) for a selector's tools.
+ *                               planDeployment and deployModule take the required `moduleId` of the top module (node.config.moduleId).
  *                               deployModule also takes `onProgress` (one event per transaction sent and mined), verifyModule the expected `factory`.
- *                               deployModule and verifyModule return the module's `engineVersion` ({ address, number, latest }), which the session keeps.
+ *                               deployModule and verifyModule return the module's `engineVersion` ({ address, number, latest }) and the archived
+ *                               `moduleId` / `deployer`, which the session keeps and records.
  * @param {object} [o.chains]    { CHAINS, explorerTx, explorerAddress } (frontend/chain.js). Each network names its official `factory` or null.
  * @param {object} [o.datasets]  dataset store for envs that read a table
  */
@@ -97,14 +104,16 @@ export function createDeploymentSession({ workspace, nodeId, connectChain, chain
       : x.chunks.length ? t('模块合约 + {count} 个权重块（{bytes} 字节）', { count: x.chunks.length, bytes: x.bytes.toLocaleString() }) : t('模块合约');
     return x.artifactId === topId ? what : t('工具 {id}：{what}', { id: shortId(x.artifactId), what });
   }
-  /** Ask the chain for the plan of `a` now. Only the latest request lands. */
-  async function replan(w, a, chainId, factory) {
+  /** Ask the chain for the plan of `a` under module id `id` now. Only the latest request lands. */
+  async function replan(w, a, chainId, factory, id) {
     const seq = ++planSeq;
-    const p = await chain.planDeployment(w.provider, factory, a, { artifacts, from: w.address });
+    const p = await chain.planDeployment(w.provider, factory, a, { artifacts, from: w.account, moduleId: id });
     if (seq === planSeq && !disposed) { plan = { ...p, artifactId: a.id, chainId }; view.notify('plan'); }
     return p;
   }
   const planNote = p => t('权重块需要 {needed} 个，链上已有 {onChain} 个。要发送 {txs} 笔交易。', { needed: p.chunks.length, onChain: p.chunks.filter(c => c.onChain).length, txs: p.transactions.length });
+  const deployedNote = id => session && session.moduleId === id && session.deployer?.toLowerCase() === session.account.toLowerCase()
+    ? t('模块 ID “{id}”已部署为 {address}。无需重复部署。要创建新模块，请修改模块 ID。', { id, address: session.address }) : null;
 
   function clearLocal() { env = null; local = null; traj = []; preview = null; lastInfer = null; }
   function invalidate(reason) {
@@ -172,7 +181,7 @@ export function createDeploymentSession({ workspace, nodeId, connectChain, chain
     sync();
     const n = node(), s = settings();
     const chainList = Object.entries(chains.CHAINS).map(([id, c]) => ({ id: Number(id), name: c.name, local: !!c.local }));
-    const common = { nodeId, chains: chainList, chainId: s.chainId, chainName: chains.CHAINS[s.chainId]?.name ?? String(s.chainId), factory: s.factory, factoryUrl: s.factory ? chains.explorerAddress(s.chainId, s.factory) : null, factoryProblem: noFactory(s), label, busy, status };
+    const common = { nodeId, chains: chainList, chainId: s.chainId, chainName: chains.CHAINS[s.chainId]?.name ?? String(s.chainId), factory: s.factory, factoryUrl: s.factory ? chains.explorerAddress(s.chainId, s.factory) : null, factoryProblem: noFactory(s), label, busy, status, moduleId: n?.config.moduleId ?? '', moduleIdProblem: null, deployedNote: null };
     if (!n || disposed) return { ...common, dead: disposed ? t('部署会话已释放') : t('部署模块已不存在'), artifact: null, artifactProblem: null, deployProblem: null, deployment: null, deployPlan: null, deployRun: null, session: null, can: {}, reasons: {}, episode: null, history: [], preview: null, last: null, infer: null, inputBits: null };
     const a = artifactOf(), dep = record(n, s.chainId);
     let deployProblem = null;
@@ -181,10 +190,12 @@ export function createDeploymentSession({ workspace, nodeId, connectChain, chain
     const seat = session ? null : t('还没有链上会话。先点“部署当前产物”或“核对链上模块”。');
     const busyWhy = busy ? t('上一笔操作（{what}）还在进行。', { what: t(busy) }) : null;
     const epi = a ? episodic(a) : false;
+    common.moduleIdProblem = moduleIdProblem(n.config.moduleId);
+    common.deployedNote = deployedNote(n.config.moduleId);
     const reasons = {
       connect: busyWhy,
-      deploy: busyWhy ?? common.factoryProblem ?? artifactProblem ?? deployProblem,
-      plan: busyWhy ?? common.factoryProblem ?? artifactProblem ?? deployProblem,
+      deploy: busyWhy ?? common.factoryProblem ?? artifactProblem ?? deployProblem ?? common.moduleIdProblem ?? common.deployedNote,
+      plan: busyWhy ?? common.factoryProblem ?? artifactProblem ?? deployProblem ?? common.moduleIdProblem ?? common.deployedNote,
       verify: busyWhy ?? common.factoryProblem ?? (dep ? null : t('这个网络上还没有部署记录')) ?? artifactProblem,
       state: busyWhy ?? seat,
       preview: busyWhy ?? seat ?? (epi ? null : t('无状态模块用“链上推理”')),
@@ -197,7 +208,7 @@ export function createDeploymentSession({ workspace, nodeId, connectChain, chain
     const p = current(plan, a, s) ? plan : null, ran = current(run, a, s) ? run : null;
     const deployPlan = p && {
       needed: p.chunks.length, onChain: p.chunks.filter(c => c.onChain).length, bytes: p.chunks.reduce((sum, c) => sum + c.bytes, 0),
-      tools: p.tools.map(x => ({ artifactId: x.artifactId, short: shortId(x.artifactId), address: x.address })),
+      tools: p.tools.map(x => ({ artifactId: x.artifactId, short: shortId(x.artifactId), address: x.address, moduleId: x.moduleId ?? null })),
       transactions: p.transactions.map(x => ({ kind: x.kind, tool: x.tool, label: txLabel(x, a.id), gas: x.gas })),
     };
     const deployRun = ran && { done: ran.done.map(x => ({ kind: x.kind, label: txLabel(x, a.id), tx: tx(s.chainId, x.txHash, x.gasUsed) })), sending: ran.sending, failed: ran.failed, finished: ran.finished };
@@ -228,45 +239,51 @@ export function createDeploymentSession({ workspace, nodeId, connectChain, chain
     catch (e) {
       if (disposed) return view.snapshot();
       if (e.code === 'STATE_MISMATCH') invalidate(t('链上结果与本地整数模型不一致。'));
-      say('warn', t('{what}失败：{error}', { what: t(what), error: e.shortMessage || e.message }));
+      say('warn', t('{what}失败：{error}', { what: t(what), error: describeChainError(e) }));
     } finally { busy = false; if (!disposed) view.notify('session'); }
     return view.snapshot();
   }
   async function wallet(chainId, cur) {
     const w = await connectChain(chainId); cur();
-    if (session && w.address.toLowerCase() !== session.account.toLowerCase()) { invalidate(t('账户已改变。会话已作废。')); throw new SessionError(t('请重新核对链上模块')); }
+    if (session && w.account.toLowerCase() !== session.account.toLowerCase()) { invalidate(t('账户已改变。会话已作废。')); throw new SessionError(t('请重新核对链上模块')); }
     return w;
   }
-  const context = () => { const n = node(); if (!n) throw new SessionError(t('部署模块已不存在')); const a = artifactOf(); if (!a) throw new SessionError(t('没有产物')); return { n, a, ...settings() }; };
-  const open = (chainId, address, artifactId, account, tools = [], engineVersion = null) => { session = { chainId, address, artifactId, account, tools, engineVersion, sessionHex: chain.sessionId(label) }; clearLocal(); };
+  const context = () => { const n = node(); if (!n) throw new SessionError(t('部署模块已不存在')); const a = artifactOf(); if (!a) throw new SessionError(t('没有产物')); return { n, a, moduleId: n.config.moduleId, ...settings() }; };
+  const open = (chainId, address, artifactId, account, tools = [], engineVersion = null, identity = {}) => { session = { chainId, address, artifactId, account, tools, engineVersion, moduleId: identity.moduleId || null, deployer: identity.deployer || null, sessionHex: chain.sessionId(label) }; clearLocal(); };
   const toolNote = tools => (tools.length ? ' ' + t('工具模块：{tools}。', { tools: tools.map(x => shortId(x.address) + (x.reused === true ? t('（复用）') : x.reused === false ? t('（新部署）') : '')).join(' · ') }) : '');
   const sessionHex = () => session?.sessionHex ?? null;
 
-  /** Why `a` cannot be planned or deployed on network `s`, else null. */
-  const undeployable = (a, s) => noFactory(s) ?? deployProblemOf(a);
+  /** Why `a` cannot be planned or deployed on network `s` as node `n`, else null. */
+  const undeployable = (n, a, s) => noFactory(s) ?? deployProblemOf(a) ?? moduleIdProblem(n.config.moduleId) ?? deployedNote(n.config.moduleId);
   const connect = () => guarded('连接', async cur => {
-    const { a, chainId, factory } = context(); const w = await wallet(chainId, cur);
-    let note = '';
-    if (!undeployable(a, { chainId, factory })) {
-      try { note = ' ' + planNote(await replan(w, a, chainId, factory)); } catch (e) { note = ' ' + t('部署计划查询失败：{error}', { error: e.shortMessage || e.message }); }
+    const ctx = context(), { n, a, moduleId, chainId, factory } = ctx;
+    const w = await wallet(chainId, cur);
+    if (!session && factory && record(n, chainId)?.artifactId === a.id) {
+      await verifyRecorded(w, ctx, cur);
+      return;
+    }
+    let note = '', tone = 'ok';
+    if (!session && !undeployable(n, a, { chainId, factory })) {
+      try { note = ' ' + planNote(await replan(w, a, chainId, factory, moduleId)); }
+      catch (e) { tone = 'warn'; note = ' ' + t('部署计划查询失败：{error}', { error: describeChainError(e) }); }
       cur();
     }
-    say('ok', t('已连接 {address} · {chain}。', { address: w.address, chain: chains.CHAINS[chainId]?.name ?? chainId }) + note);
+    say(tone, t('已连接 {address} · {chain}。', { address: w.account, chain: chains.CHAINS[chainId]?.name ?? chainId }) + note);
   });
   /** Read-only: what deploying the current artifact would send now. */
   const planDeploy = () => guarded('部署计划', async cur => {
-    const { a, chainId, factory } = context();
-    const problem = undeployable(a, { chainId, factory }); if (problem) throw new SessionError(problem);
+    const { n, a, moduleId, chainId, factory } = context();
+    const problem = undeployable(n, a, { chainId, factory }); if (problem) throw new SessionError(problem);
     const w = await wallet(chainId, cur);
-    const p = await replan(w, a, chainId, factory); cur();
+    const p = await replan(w, a, chainId, factory, moduleId); cur();
     if (run?.finished) run = null;   // a finished run's rows give way to what deploying again would send
     say('info', t('部署计划（只读，不发交易）：') + planNote(p));
   });
   const deploy = () => guarded('部署', async cur => {
-    const { n, a, chainId, factory } = context();
-    const problem = undeployable(a, { chainId, factory }); if (problem) throw new SessionError(problem);
+    const { n, a, moduleId, chainId, factory } = context();
+    const problem = undeployable(n, a, { chainId, factory }); if (problem) throw new SessionError(problem);
     const w = await wallet(chainId, cur); progress(t('正在查询链上已有的权重块与工具模块…'));
-    const p = await replan(w, a, chainId, factory); cur();
+    const p = await replan(w, a, chainId, factory, moduleId); cur();
     const mine = run = { artifactId: a.id, chainId, total: p.transactions.length, done: [], sending: false, failed: null, finished: false };
     const onProgress = e => {
       if (disposed || run !== mine) return;
@@ -281,38 +298,49 @@ export function createDeploymentSession({ workspace, nodeId, connectChain, chain
         plan = { ...plan, chunks: plan.chunks.map(c => (e.chunks.includes(c.address) ? { ...c, onChain: true } : c)), transactions: plan.transactions.filter((_, j) => j !== k) };
       }
       view.notify('progress');
-      replan(w, a, chainId, factory).catch(() => { /* the mined transaction is already crossed off. The next plan refines the rest */ });
+      // the plan of the rest from the chain. After the module transaction the id is taken, so there is nothing left to plan
+      if (e.kind !== 'module' || e.artifactId !== a.id) replan(w, a, chainId, factory, moduleId).catch(() => { /* the mined transaction is already crossed off. The next plan refines the rest */ });
     };
     let r;
-    try { r = await chain.deployModule(w.signer, factory, a, { artifacts, onProgress }); }
+    try { r = await chain.deployModule(w.signer, factory, a, { artifacts, onProgress, moduleId }); }
     catch (e) {
       if (disposed || run !== mine) throw e;
-      mine.sending = false; mine.failed = e.shortMessage || e.message;
+      mine.sending = false; mine.failed = describeChainError(e);
       let left = '?';
-      try { left = (await replan(w, a, chainId, factory)).transactions.length; } catch { /* unknown until the next plan */ }
+      try { left = (await replan(w, a, chainId, factory, moduleId)).transactions.length; } catch { /* unknown until the next plan */ }
       if (!mine.done.length) throw e;
       throw new SessionError(t('已上链 {done} 笔交易，它们不会重发。再点“部署当前产物”，只发送还缺的 {left} 笔。原因：{error}', { done: mine.done.length, left, error: mine.failed }));
     }
     cur();
     mine.finished = true;
-    graph.patchConfig(n.id, { deployments: { ...n.config.deployments, [depKey(chainId)]: { address: r.address, artifactId: a.id, txHash: r.txHash } } });
+    graph.patchConfig(n.id, { deployments: { ...n.config.deployments, [depKey(chainId)]: { address: r.address, artifactId: a.id, txHash: r.txHash, moduleId: r.moduleId, deployer: r.deployer } } });
     const tools = (r.tools ?? []).map(x => ({ artifactId: x.artifactId, address: x.address, reused: x.reused }));
-    open(chainId, r.address, a.id, w.address, tools, r.engineVersion ?? null);
+    open(chainId, r.address, a.id, w.account, tools, r.engineVersion ?? null, r);
     const chunks = r.chunks ?? [];
-    say('ok', t('已部署：模块 {address}，{txs} 笔交易共用 gas {gas}。权重块 {count} 个，其中新建 {created} 个。链上描述符、引擎与权重块 = 当前产物。', {
-      address: r.address, txs: r.transactions?.length ?? 1, gas: Number(r.gasUsed).toLocaleString(), count: chunks.length, created: chunks.filter(c => c.created).length,
+    say('ok', t('已部署：模块 {address}，ID “{id}”（部署者 {deployer}）。{txs} 笔交易共用 gas {gas}。权重块 {count} 个，其中新建 {created} 个。链上描述符、引擎与权重块 = 当前产物。', {
+      address: r.address, id: r.moduleId, deployer: r.deployer, txs: r.transactions?.length ?? 1, gas: Number(r.gasUsed).toLocaleString(), count: chunks.length, created: chunks.filter(c => c.created).length,
     }) + toolNote(tools), tx(chainId, r.txHash, r.gasUsed));
-    try { await replan(w, a, chainId, factory); } catch { /* the deployment stands. The counts refresh on the next plan */ }
+    // No plan from the chain after a deployment: the id is taken now. What the chain would say is known: every chunk of
+    // the plan is on chain, every tool has its module, nothing is left to send. The next id gets its own plan. A plan
+    // still in flight (asked when a chunk was mined) is dropped.
+    planSeq++;
+    if (current(plan, a, { chainId })) plan = { ...plan, chunks: plan.chunks.map(c => ({ ...c, onChain: true })), tools: plan.tools.map(x => ({ ...x, address: tools.find(y => y.artifactId === x.artifactId)?.address ?? x.address })), transactions: [] };
   });
-  const verify = () => guarded('核对', async cur => {
-    const { n, a, chainId, factory } = context();
-    const noOfficial = noFactory({ chainId, factory }); if (noOfficial) throw new SessionError(noOfficial);
+  /** Verify the saved address against the official Factory before opening a runtime session. */
+  async function verifyRecorded(w, { n, a, chainId, factory }, cur) {
     const dep = record(n, chainId); if (!dep) throw new SessionError(t('本网络没有部署记录'));
-    const w = await wallet(chainId, cur);
     const h = await chain.verifyModule(w.provider, dep.address, a, { artifacts, factory }); cur();
     const tools = (h?.toolModules ?? []).map(x => ({ artifactId: x.artifactId, address: x.address }));
-    open(chainId, dep.address, a.id, w.address, tools, h?.engineVersion ?? null);
-    say('ok', t('核对通过：{address} 上的模块 = 当前产物 {artifact}…。调用者 {account}。', { address: dep.address, artifact: a.id.slice(0, 12), account: w.address }) + toolNote(tools));
+    open(chainId, dep.address, a.id, w.account, tools, h?.engineVersion ?? null, h ?? {});
+    const identity = h?.moduleId ? ' ' + t('模块 ID “{id}”，部署者 {deployer}。', { id: h.moduleId, deployer: h.deployer }) : '';
+    say('ok', t('核对通过：{address} 上的模块 = 当前产物 {artifact}…。调用者 {account}。', { address: dep.address, artifact: a.id.slice(0, 12), account: w.account }) + identity + toolNote(tools));
+  }
+  const verify = () => guarded('核对', async cur => {
+    const ctx = context();
+    const noOfficial = noFactory(ctx); if (noOfficial) throw new SessionError(noOfficial);
+    if (!record(ctx.n, ctx.chainId)) throw new SessionError(t('本网络没有部署记录'));
+    const w = await wallet(ctx.chainId, cur);
+    await verifyRecorded(w, ctx, cur);
   });
   const readState = () => guarded('读取状态', async cur => {
     const sess = requireSession(), w = await wallet(sess.chainId, cur);
@@ -384,6 +412,15 @@ export function createDeploymentSession({ workspace, nodeId, connectChain, chain
     if (v !== label) { label = v; invalidate(t('会话标签已改。链上状态按会话分开，所以这个会话作废。')); }
     view.notify('label'); return view.snapshot();
   }
+  /** The module id of the next deployment, kept in node.config.moduleId. Empty clears it. An id against the rule of
+   *  the Factory is refused here, so the config only ever holds a deployable id or nothing. */
+  function setModuleId(next) {
+    requireAlive();
+    const v = String(next ?? '').trim();
+    if (v) { const why = moduleIdProblem(v); if (why) throw new SessionError(why); }
+    if (v !== node().config.moduleId) { graph.patchConfig(nodeId, { moduleId: v }); plan = null; }
+    view.notify('moduleId'); return view.snapshot();
+  }
   function bind(artifactId) {
     requireAlive();
     if (artifactId !== null && !workspace.artifact(artifactId)) throw new SessionError(t('产物 {id} 不存在', { id: shortId(artifactId) }));
@@ -402,6 +439,9 @@ export function createDeploymentSession({ workspace, nodeId, connectChain, chain
   }
 
   function refresh() { if (!disposed) { sync(); view.notify('refresh'); } return view.snapshot(); }
+  /** The wallet account changed (logout, another account). The chain session is void. An operation in flight stops at
+   *  its next check. Nothing here touches the local mirror of a training run. */
+  function accountChanged() { if (!disposed) { invalidate(t('账户已改变。会话已作废。')); view.notify('session'); } return view.snapshot(); }
   function dispose() { if (disposed) return; disposed = true; revision++; session = null; clearLocal(); busy = false; offLocale(); offWorkspace(); view.notify('dispose'); view.clear(); }
-  return { snapshot: view.snapshot, subscribe: view.subscribe, refresh, bind, setChainId, setLabel, setEpisode, setInputBits, connect, plan: planDeploy, deploy, verify, readState, preview: preview_, reset, step, infer, dispose };
+  return { snapshot: view.snapshot, subscribe: view.subscribe, refresh, accountChanged, bind, setChainId, setLabel, setModuleId, setEpisode, setInputBits, connect, plan: planDeploy, deploy, verify, readState, preview: preview_, reset, step, infer, dispose };
 }

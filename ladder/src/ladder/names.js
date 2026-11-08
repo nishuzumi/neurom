@@ -4,19 +4,18 @@ import { BATCH_LIMIT, nameMessage, validateName } from '../../server/names.js';
 import banned from '../../data/banned-words.json' with { type: 'json' };
 import { addressKey } from './format.js';
 
-export { validateName, nameMessage };
+export { validateName };
 /** The banned words of the data file, for the check before the request. */
 export const BANNED_WORDS = banned.words;
 
 const API = '/api/names';
 
 /** An error of the name service: `nameCode` is the code of the response, `details` the other fields. */
-export class NameServiceError extends Error {
-  constructor(code, details = {}, status = 0) {
+class NameServiceError extends Error {
+  constructor(code, details = {}) {
     super(code);
     this.nameCode = code;
     this.details = details;
-    this.status = status;
   }
 }
 
@@ -25,7 +24,7 @@ async function readJson(response) {
   try { body = await response.json(); } catch { body = null; }
   if (!response.ok) {
     const { error, ...details } = body ?? {};
-    throw new NameServiceError(error ?? `http_${response.status}`, details, response.status);
+    throw new NameServiceError(error ?? `http_${response.status}`, details);
   }
   return body;
 }

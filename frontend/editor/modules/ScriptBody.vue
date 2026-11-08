@@ -3,14 +3,16 @@
 // dialog (ScriptFiles.vue). Under the row, the views of the script (renderers/script-module.vue) fill the rest of the
 // host. The host is a vertical box that the user resizes freely, and the views follow its size. The declared inputs
 // are ports on the left (the standard port band). The calls of the script run on the page (core/script-calls.js),
-// against the graph of the moment. 「运行到这里」 (ADR 0023) asks through `wb.play`: the script starts again in a new
-// frame and plays.
+// against the graph of the moment. A request of a chain node (ADR 0028) goes to the chain over the read connection of
+// chain.js, one per chain id. 「运行到这里」 (ADR 0023) asks through `wb.play`: the script starts again in a new frame
+// and plays.
 import { computed, ref, watch } from 'vue';
 import { useWorkbench } from '../workbench-context';
 import { useNode } from './common';
 import ScriptModule from '../renderers/script-module.vue';
 import ScriptFiles from './ScriptFiles.vue';
 import { scriptCalls } from '../../core/script-calls.js';
+import { readConnection } from '../../chain.js';
 import { t } from '../../i18n.js';
 import './bodies-a.css';
 
@@ -18,10 +20,17 @@ const props = defineProps<{ nodeId: string }>();
 const wb = useWorkbench();
 const { node } = useNode(wb, () => props.nodeId);
 const files = computed(() => (node.value?.config.files ?? []) as { name: string; source: string }[]);
+/** the connections of the chain nodes the script calls, by chain id */
+const connections = new Map<number, { request(req: { method: string; params: unknown[] }): Promise<unknown> }>();
+function request(chainId: number, req: { method: string; params: unknown[] }) {
+  let c = connections.get(chainId);
+  if (!c) { c = readConnection(chainId); connections.set(chainId, c); }
+  return c.request(req);
+}
 /** the function and value inputs over the current graph: a new one per graph or workspace change */
 const inputs = computed(() => {
   void wb.version.value;
-  return scriptCalls(wb.graph, wb.resolution(), props.nodeId, { artifacts: (id: string) => wb.workspace.artifact(id) });
+  return scriptCalls(wb.graph, wb.resolution(), props.nodeId, { artifacts: (id: string) => wb.workspace.artifact(id), request });
 });
 const editing = ref(false);
 /** bumped by 「保存并重新运行」: the script starts again, also when no file changed */

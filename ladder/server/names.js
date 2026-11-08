@@ -1,14 +1,14 @@
 // names.js — the name service of the ladder (ticket 07), without HTTP. A name belongs to one entry (a module address).
 // The owner of the entry sets the name once with an EIP-191 signature of `nameMessage(...)`. The service checks the
 // signer against the owner on the ladder contract through the injected `ownerOf`. An admin clear removes the name,
-// then the owner can set a name again, once. The page imports `nameMessage` and `NAME_RULE` from here, so the page
+// then the owner can set a name again, once. The page imports `nameMessage` and `validateName` from here, so the page
 // and the service always agree on the message and the format.
 import { Contract, JsonRpcProvider, ZeroAddress, isAddress, verifyMessage } from 'ethers';
 
 /** A name: 3 to 24 characters, English letters, digits, space, `_` and `-`. */
 export const NAME_RULE = /^[A-Za-z0-9 _-]{3,24}$/;
-export const NAME_MIN = 3;
-export const NAME_MAX = 24;
+const NAME_MIN = 3;
+const NAME_MAX = 24;
 /** The most modules one batch read takes. */
 export const BATCH_LIMIT = 200;
 
@@ -29,7 +29,7 @@ export function nameMessage({ chainId, module, name }) {
 }
 
 /** The lower-case form of a name that decides equality. */
-export const nameKey = name => name.toLowerCase();
+const nameKey = name => name.toLowerCase();
 
 /** True when `name` contains one of `words` after lower-casing and removal of space, `_` and `-`. */
 export function isBanned(name, words) {
@@ -87,15 +87,15 @@ export function createNameService({ db, chainId, ownerOf, banned }) {
       let signer;
       try { signer = verifyMessage(nameMessage({ chainId: chain, module: key, name }), signature).toLowerCase(); }
       catch { throw new NameError(400, 'bad_signature'); }
-      const owner = await ownerOf(key);
+      const owner = (await ownerOf(key))?.toLowerCase();
       if (!owner) throw new NameError(403, 'not_entered', { module: key });
-      if (owner.toLowerCase() !== signer) throw new NameError(403, 'not_owner', { module: key, owner: owner.toLowerCase(), signer });
+      if (owner !== signer) throw new NameError(403, 'not_owner', { module: key, owner, signer });
       const taken = await db.query('SELECT module, name FROM entry_names WHERE chain_id = $1 AND cleared_at IS NULL AND (module = $2 OR name_key = $3)', [chain, key, nameKey(name)]);
       const mine = taken.find(r => r.module === key);
       if (mine) throw new NameError(409, 'name_set', { module: key, name: mine.name });
       if (taken.length) throw new NameError(409, 'name_taken', { name });
       try {
-        await db.query('INSERT INTO entry_names (chain_id, module, name, name_key, owner, signature) VALUES ($1, $2, $3, $4, $5, $6)', [chain, key, name, nameKey(name), owner.toLowerCase(), signature]);
+        await db.query('INSERT INTO entry_names (chain_id, module, name, name_key, owner, signature) VALUES ($1, $2, $3, $4, $5, $6)', [chain, key, name, nameKey(name), owner, signature]);
       } catch (e) {
         if (e.code === '23505') throw new NameError(409, 'name_taken', { name });
         throw e;

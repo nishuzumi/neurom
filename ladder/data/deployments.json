@@ -1,5 +1,5 @@
 {
-  "_comment": "Chain id → the network of the ladder page. `factory` is the official ModuleFactory (frontend/chain.js). `ladder` is the TankLadder of the season. null = not deployed yet. 31337: the addresses that contracts/script/Deploy.s.sol (factory proxy, nonce 2 of account 0) and DeployLadder.s.sol run directly after it (nonce 9) create on a fresh `anvil --network monad`.",
+  "_comment": "Chain id → the shared network registry of the workbench and ladder. `factory` is the official ModuleFactory proxy. `ladder` is the TankLadder of the season. null = not deployed yet. On a fresh local node, Deploy.s.sol creates the Factory proxy at nonce 2 of account 0. DeployLadder.s.sol then creates the ladder at nonce 9. An entry with `forkOf` is a local anvil fork of that chain: it takes the addresses of the forked entry (frontend/chain.js), and the port of its `rpc` is the port of the fork.",
   "31337": {
     "name": "Local dev",
     "rpc": "http://127.0.0.1:18545",
@@ -13,8 +13,15 @@
     "rpc": "https://testnet-rpc.monad.xyz",
     "explorer": "https://testnet.monadscan.com",
     "local": false,
-    "factory": null,
-    "ladder": null
+    "factory": "0xC059cCfbc7A8654e9c96d5da66bc6aE3a3ffffd2",
+    "ladder": "0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2"
+  },
+  "1014300": {
+    "name": "Local fork of Monad Testnet",
+    "rpc": "http://127.0.0.1:18645",
+    "explorer": null,
+    "local": true,
+    "forkOf": "10143"
   },
   "143": {
     "name": "Monad Mainnet",

@@ -14,7 +14,7 @@ console.error(`local episode 0: ${episode.length} steps, success ${episode.at(-1
 async function measure(network) {
   const chain = await localChain({ network });
   try {
-    const d = await deployModule(chain.signer, chain.factory, artifact);
+    const d = await deployModule(chain.signer, chain.factory, artifact, { moduleId: `benchmark-${network}` });
     const session = sessionId(`benchmark-${network}`), gas = [];
     let charged = null;
     for (const [k, s] of episode.entries()) {

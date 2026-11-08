@@ -39,10 +39,10 @@
 # stopped. State.hits: the tanks hit in the last step. The replay views and the battlefield animate each step from them.
 format: neurom-template
 id: tank-battle
-revision: 16
+revision: 17
 name: 坦克大战
 kind: composite
-description: Botzone Tank2 规则的坦克对战。9×9 的地图有砖墙、钢墙和水，两端各有一个基地，中间只有两个通道。河两岸的砖墙、钢墙和水每局随机，地图左右对称，转 180° 也不变。每方 1 辆坦克，2 条命。网络有“中”和“大”两种结构。阶段 1 用交叉熵模仿场景里的教师，教师用困难机器人的规则。阶段 2 从阶段 1 的权重开始，用强化学习和机器人对战。最后脚本模块让“中”和困难机器人对战，也可以让“中”和“大”对战。所有回路和对战共用一份场景和参数
+description: Botzone Tank2 规则的坦克对战。9×9 的地图有砖墙、钢墙和水，两端各有一个基地，中间只有两个通道。河两岸的砖墙、钢墙和水每局随机，地图左右对称，转 180° 也不变。每方 1 辆坦克，2 条命。网络有“中”和“大”两种结构。阶段 1 用交叉熵模仿场景里的教师，教师用困难机器人的规则。阶段 2 从阶段 1 的权重开始，用强化学习和机器人对战。最后脚本模块让“中”和困难机器人对战，也可以让“中”和“大”对战。脚本模块还能在本地 fork 上让擂台合约打模拟挑战。所有回路和对战共用一份场景和参数
 preset: { label: 坦克大战 }
 modules:
   params:
@@ -956,6 +956,7 @@ modules:
   # 对战：两个冻结的网络，结构和“中”“大”相同，权重是阶段 2 的候选里接受的产物。训练器正在训练的网络不能被调用，所以对战用
   # 单独的网络模块。脚本模块“坦克对战”通过函数输入调用它们的读出 run，以及场景的 battle、view、play 和 botMove。脚本里没有规则。
   # 参数模块“对战设置”的 opponent 选蓝方：0 是网络“大”，1 到 3 是场景里这一档的机器人。默认是 3，所以默认看红方“中”打困难机器人。
+  # 脚本模块还有模拟挑战（ADR 0028）：函数输入 node 接链节点“本地 fork”，脚本在 fork 上让擂台合约打挑战，然后回到快照。
   # 本地 id 用前缀 vs_，所以它们排在阶段 2 后面。
   vs_settings:
     kind: params
@@ -963,11 +964,12 @@ modules:
     config:
       fields:
         opponent: { type: int, label: 蓝方（0 网络“大”，1 简单、2 中等、3 困难机器人）, min: 0, max: 3, default: 3 }
+  vs_node: { kind: chain, title: 链节点（本地 fork）, config: { chainId: 1014300, write: true } }
   vs_battle:
     kind: script
     title: 坦克对战
     config:
-      functions: [红方, 蓝方, 机器人, battle, view, play]
+      functions: [红方, 蓝方, 机器人, battle, view, play, node]
       inputs: [设置]
       files:
         - name: main.js
@@ -977,25 +979,31 @@ modules:
             // 红方是一个网络。值输入“设置”的 opponent 选蓝方：0 是另一个网络，1 到 3 是这一档的机器人（函数输入“机器人”）。
             // 一局的流程在 game.js 里，3 个视图在 views.js 里。每次“重置”开始新的一局，种子就是局号，所以结果可以重复。
             // 交换红方和蓝方的连线，两个网络就交换位置。
+            // 下面一行是模拟挑战（ADR 0028）：函数输入 node 接链节点“本地 fork”。面板在 practice-view.js 里，挑战的流程在
+            // practice.js 里，擂台合约的存储位置和 ABI 在 data.js 里。回放一局时，战场、侧栏和日志显示这一局。
             import { fight, names } from './game.js';
             import { Board, Side, Log } from './views.js';
+            import { Practice, openPractice } from './practice-view.js';
 
             /** 第几局。 */
             let game = 0;
 
             export default {
-              // 战场在左上，侧栏在右上，日志占满下面一行。侧栏最宽 200px，窄时最多占 45%。
+              // 战场在左上，侧栏在右上，日志占中间一行，模拟挑战占下面一行。侧栏最宽 200px，窄时最多占 45%。模拟挑战的
+              // 选择和总结固定在上面，结果表在它下面滚动，所以这一行要比日志高。
               layout: {
                 columns: 'minmax(0, 1fr) minmax(0, min(200px, 45%))',
-                rows: 'minmax(0, 1fr) minmax(0, 30%)',
-                areas: ['board side', 'log log'],
+                rows: 'minmax(0, 1fr) minmax(0, 14%) minmax(0, 42%)',
+                areas: ['board side', 'log log', 'practice practice'],
               },
-              views: { board: Board, side: Side, log: Log },
+              views: { board: Board, side: Side, log: Log, practice: Practice },
               async main(ctx) {
+                const s = ctx.state;
+                // “重置”换一个新的 state，所以面板也重新读 fork 上的模块和榜
+                if (!s.practice) openPractice(ctx);
                 game += 1;
                 const opponent = ctx.values.设置?.opponent ?? 0;
-                const s = ctx.state;
-                Object.assign(s, { game, seed: game, names: names(opponent), now: null, log: [] });
+                Object.assign(s, { game, seed: game, label: null, names: names(opponent), now: null, log: [] });
                 await fight(ctx.call, {
                   seed: game,
                   opponent,
@@ -1055,6 +1063,7 @@ modules:
           source: |-
             // 坦克对战的 3 个视图。它们只画 main 写的 state，不改它。侧栏还把 run 交给 Controls。state 包括：
             //   game、seed  第几局和它的种子
+            //   label       回放模拟挑战的一局时，这一局的说明（见 practice-view.js）。null 时侧栏显示局号和种子
             //   now         场景的对战状态：t、cells、tanks、trails、bases、acts、hits、end
             //   names       双方的名字（见 game.js 的 names）。蓝方是机器人时，名字里有它的难度
             //   log         每一步的记录（见 game.js 的 fight）
@@ -1326,7 +1335,7 @@ modules:
               template: `
                 <div style="display: flex; flex-direction: column; gap: 8px; min-width: 0">
                   <Controls :run="run" />
-                  <div :style="MUTED">第 {{ state.game ?? '–' }} 局 · 种子 {{ state.seed ?? '–' }}</div>
+                  <div :style="MUTED">{{ state.label ?? ('第 ' + (state.game ?? '–') + ' 局 · 种子 ' + (state.seed ?? '–')) }}</div>
                   <div :style="CARD">
                     <div :style="ROW"><span style="color: var(--muted)">结果</span><strong :style="{ color: result.color }">{{ result.text }}</strong></div>
                     <div v-if="result.why" style="font-size: 11px; overflow-wrap: anywhere">{{ result.why }}</div>
@@ -1375,12 +1384,587 @@ modules:
                   </div>
                 </div>`,
             };
+        - name: data.js
+          source: |-
+            // 模拟挑战用的链上数据（ADR 0028）。它们随擂台合约 TankLadder 和官方 Factory 一起改，所以放在模板里，不在页面的代码里。
+            // ABI 片段是 viem 的可读格式（parseAbi）。
+
+            /** 擂台的 _board（address[]）在第 0 个槽：长度在这个槽，第 i 个元素在 keccak256(uint256(0)) + i。名次 r 是 _board[r - 1]。 */
+            export const BOARD_SLOT = 0;
+            /** 一次挑战的局数：3 对镜像局。偶数局挑战者是第 0 方。 */
+            export const EPISODES = 6;
+            /** 擂台接受的网络形状：572 个输入位，9 个分数。 */
+            export const SHAPE = { inputs: 572, outputs: 9 };
+            /** challenge 和 advance 交易的 gas：在 Monad 一笔交易的上限以内。 */
+            export const PLAY_GAS = 29000000;
+            /** register 交易的 gas。 */
+            export const REGISTER_GAS = 3000000;
+            /** 每个种子前挖 1 到 MAX_BLOCKS 个区块，所以每个种子的 prevrandao 不同。 */
+            export const MAX_BLOCKS = 30;
+            /** 模拟时给发交易的账户的余额（wei）。 */
+            export const BALANCE = '0x3635c9adc5dea00000';
+            /** 挑战的状态（challengeInfo 的 status）。 */
+            export const STATUS = { PLAYING: 1, CHALLENGER_WON: 2, DEFENSE: 3, EXPIRED: 4 };
+            /** 状态的文字。 */
+            export const STATUS_TEXT = { 1: '未打完', 2: '挑战成功', 3: '防守成功', 4: '超时' };
+            /** 一局的结果（从挑战者看）的文字和颜色。 */
+            export const RESULT = {
+              win: { text: '胜', color: 'var(--ok, #3bb273)' },
+              loss: { text: '负', color: 'var(--bad, #f0684d)' },
+              draw: { text: '平', color: 'var(--muted)' },
+              unfinished: { text: '未打完', color: 'var(--muted)' },
+            };
+            /** 一次读 Factory 存档的模块数。 */
+            export const ARCHIVE_PAGE = 50;
+
+            export const LADDER_ABI = [
+              'struct Entry { address module; address owner; uint32 weightBytes; uint32 rank; uint16 wins; uint16 losses; uint256 activeChallenge; }',
+              'struct ChallengeInfo { address challenger; address defender; bytes32 seed; uint64 startBlock; uint64 deadline; uint8 status; uint8 episode; uint8 step; uint8 challengerWins; uint8 defenderWins; }',
+              'function board() view returns (Entry[])',
+              'function boardSize() view returns (uint8)',
+              'function entryOwner(address module) view returns (address)',
+              'function challengeCount() view returns (uint256)',
+              'function challengeInfo(uint256 id) view returns (ChallengeInfo)',
+              'function register(address module)',
+              'function challenge(address challenger, address defender) returns (uint256)',
+              'function advance(uint256 id)',
+              'event EntryRegistered(address indexed module, address indexed owner, uint32 weightBytes, uint32 rank)',
+              'event ChallengeStarted(uint256 indexed id, address indexed challenger, address indexed defender, bytes32 seed, uint64 startBlock)',
+              'event Steps(uint256 indexed id, uint8 episode, uint8 fromStep, bytes actions)',
+              'event EpisodeEnded(uint256 indexed id, uint8 episode, int8 end, uint8 steps)',
+              'event ChallengeSettled(uint256 indexed id, uint8 status, uint8 challengerWins, uint8 defenderWins, uint32 newRank)',
+              'error BadConfig()',
+              'error NotOfficialModule()',
+              'error WrongShape(uint16 inputs, uint16 outputs)',
+              'error TooLarge(uint256 weightBytes, uint256 maxWeightBytes)',
+              'error DuplicateWeights(address entry)',
+              'error HasTools()',
+              'error AlreadyEntered()',
+              'error NotEntered()',
+              'error NotEoa()',
+              'error LowGas(uint256 gasLeft, uint256 minStartGas)',
+              'error NotOwner()',
+              'error OutOfRange()',
+              'error Busy()',
+              'error Cooldown(uint64 untilBlock)',
+              'error SeasonOver()',
+              'error NotPlaying()',
+              'error Expired()',
+              'error NotExpired()',
+              'error ForwardFailed(address module)',
+            ];
+            /** 擂台的自定义错误的说明。{0}、{1} 是错误的参数。 */
+            export const ERROR_TEXT = {
+              NotOfficialModule: '这个模块不是官方 Factory 部署的',
+              WrongShape: '网络的形状不对：{0} 个输入位，{1} 个分数',
+              TooLarge: '权重太大：{0} 字节，上限 {1} 字节',
+              DuplicateWeights: '权重和已登记的条目 {0} 相同',
+              HasTools: '带工具模块的网络不能登记',
+              AlreadyEntered: '这个模块已经登记',
+              NotEntered: '挑战者或者擂主没有登记',
+              NotEoa: '发起挑战的账户有代码',
+              LowGas: 'gas 不够：剩 {0}，至少要 {1}',
+              NotOwner: '发起挑战的账户不是挑战者的拥有者',
+              OutOfRange: '擂主不在挑战者上面的 range 个名次里',
+              Busy: '挑战者还有一次没打完的挑战',
+              Cooldown: '同一对还在冷却，到第 {0} 个区块',
+              SeasonOver: '赛季已经结束',
+              NotPlaying: '这次挑战不在进行中',
+              Expired: '这次挑战已经超时',
+              ForwardFailed: '网络 {0} 的 forward 调用失败',
+            };
+
+            export const FACTORY_ABI = [
+              'function deploymentCount(address deployer) view returns (uint256)',
+              'function modulesByDeployer(address deployer, uint256 offset, uint256 limit) view returns (address[])',
+              'function moduleIdOf(address module) view returns (string)',
+              'function deployerOf(address module) view returns (address)',
+            ];
+
+            export const MODULE_ABI = [
+              'struct ModuleDescriptor { bytes32 engineId; bytes32 artifactId; bytes32 taskId; uint8 kind; uint16 inputs; uint16 outputs; uint16 stateWidth; address factory; address engine; }',
+              'function descriptor() view returns (ModuleDescriptor)',
+              'function chunks() view returns (address[])',
+            ];
+        - name: practice.js
+          source: |-
+            // 模拟挑战的流程（ADR 0028）。它用全局 viem 和链节点的客户端 client（ctx.chain.node，允许写入）。链上的数据从参数 data
+            // 来（data.js）。这个文件不碰视图，所以测试在 Node 里直接调用 practice、listChallengers 和 listBoard。
+            // 一个种子的流程：存快照，挑战者没有登记时从它的部署者登记，把挑战者写到擂主下面一个名次，挖几个区块，从拥有者发
+            // challenge，advance 到挑战结束，从 Steps 和 EpisodeEnded 事件读每一局，然后回到快照。擂台合约决定每一局的结果。
+
+            const lower = (a) => String(a).toLowerCase();
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const fill = (s, args) => s.replace(/\{(\d+)\}/g, (m, k) => (k < args.length ? String(args[k]) : m));
+            /** 第 k 个种子前挖的区块数：1 到 max。 */
+            const blocksOf = (k, max) => 1 + ((Math.imul(k, 2654435761) >>> 0) % max);
+
+            /** data 的 ABI 片段，每份 data 解析一次。 */
+            const parsed = new WeakMap();
+            function abis(data) {
+              let a = parsed.get(data);
+              if (!a) {
+                a = { ladder: viem.parseAbi(data.LADDER_ABI), factory: viem.parseAbi(data.FACTORY_ABI), module: viem.parseAbi(data.MODULE_ABI) };
+                parsed.set(data, a);
+              }
+              return a;
+            }
+            const read = (client, address, abi, functionName, args = []) => client.readContract({ address, abi, functionName, args });
+
+            /**
+             * 错误里的 revert 数据（十六进制）。先看错误和它的 cause 链上的 data，再看文字里 data=0x… 的形式，最后看文字里长度像
+             * 错误数据（4 字节选择器加 32 字节的参数）的十六进制。没有时是 null。
+             */
+            export function revertData(error) {
+              const hex = (v) => (typeof v === 'string' && /^0x[0-9a-fA-F]{8,}$/.test(v) ? v : null);
+              for (let e = error, depth = 0; e && typeof e === 'object' && depth < 8; e = e.cause, depth++) {
+                const direct = hex(e.data) ?? hex(e.data?.data);
+                if (direct) return direct;
+                const text = `${e.details ?? ''} ${e.message ?? ''}`;
+                const tagged = /data=(0x[0-9a-fA-F]{8,})/.exec(text);
+                if (tagged) return tagged[1];
+                const loose = [...text.matchAll(/0x[0-9a-fA-F]{8,}/g)].map((m) => m[0]).find((v) => (v.length - 10) % 64 === 0);
+                if (loose) return loose;
+              }
+              return null;
+            }
+
+            /** 错误的文字：擂台的自定义错误换成 data.ERROR_TEXT 的说明，其他错误用它的 message。 */
+            export function describeError(error, data) {
+              const hex = revertData(error);
+              if (hex) {
+                try {
+                  const { errorName, args = [] } = viem.decodeErrorResult({ abi: abis(data).ladder, data: hex });
+                  const text = data.ERROR_TEXT[errorName];
+                  return text ? fill(text, args) : errorName;
+                } catch {
+                  // 不是擂台的错误
+                }
+              }
+              return String(error?.shortMessage ?? error?.message ?? error);
+            }
+
+            /** 第 pair 对镜像局的场景种子：keccak256(abi.encode(seed, pair)) 的低 32 位，和合约的 _episodeSeed 一样。 */
+            export function episodeSeed(seed, pair) {
+              const hash = viem.keccak256(viem.encodeAbiParameters([{ type: 'bytes32' }, { type: 'uint256' }], [seed, BigInt(pair)]));
+              return Number(viem.hexToBigInt(hash) & 0xffffffffn);
+            }
+
+            /** Steps 事件的 actions（十六进制）→ [[a0, a1], …]。一个字节是一步：a0 · 9 + a1，每一方在自己的地图上的动作。 */
+            export function unpackActions(hex) {
+              const out = [];
+              for (let k = 2; k < hex.length; k += 2) {
+                const b = parseInt(hex.slice(k, k + 2), 16);
+                out.push([Math.floor(b / 9), b % 9]);
+              }
+              return out;
+            }
+
+            /** 收据 receipts 的 logs 里擂台的事件，按顺序。 */
+            function ladderEvents(data, ladder, receipts) {
+              const logs = receipts.flatMap((rc) => rc.logs).filter((l) => lower(l.address) === lower(ladder));
+              return viem.parseEventLogs({ abi: abis(data).ladder, logs });
+            }
+
+            /** 一次挑战的 6 局，从事件来：每一局的场景种子、挑战者的一方、动作、结果和步数。 */
+            function episodesOf(data, events, seed) {
+              const segments = new Map();
+              const ends = new Map();
+              for (const e of events) {
+                if (e.eventName === 'Steps') {
+                  const ep = Number(e.args.episode);
+                  if (!segments.has(ep)) segments.set(ep, []);
+                  segments.get(ep).push({ from: Number(e.args.fromStep), actions: unpackActions(e.args.actions) });
+                } else if (e.eventName === 'EpisodeEnded') ends.set(Number(e.args.episode), { end: Number(e.args.end), steps: Number(e.args.steps) });
+              }
+              const episodes = [];
+              for (let ep = 0; ep < data.EPISODES; ep++) {
+                const actions = [];
+                for (const seg of (segments.get(ep) ?? []).sort((a, b) => a.from - b.from)) {
+                  if (seg.from !== actions.length) throw new Error(`第 ${ep + 1} 局的 Steps 事件在第 ${actions.length} 步断开`);
+                  actions.push(...seg.actions);
+                }
+                const end = ends.get(ep)?.end ?? -1;
+                const side = ep % 2;
+                const result = end === 2 ? 'draw' : end < 0 ? 'unfinished' : end === side ? 'win' : 'loss';
+                episodes.push({ episode: ep, seed: episodeSeed(seed, Math.floor(ep / 2)), challengerSide: side, actions, end, steps: ends.get(ep)?.steps ?? actions.length, result });
+              }
+              return episodes;
+            }
+
+            /**
+             * 让 address 能发交易：模拟它，给它余额，并去掉它的代码。在 Monad 测试网上，Anvil 的公开账户带有 EIP-7702
+             * 委托，而 challenge 拒绝有代码的账户。这些改动只在 fork 上，回到快照时也会撤销。
+             */
+            async function unlock(client, data, address) {
+              await client.impersonateAccount({ address });
+              await client.setBalance({ address, value: BigInt(data.BALANCE) });
+              await client.setCode({ address, bytecode: '0x' });
+            }
+
+            /**
+             * 从 from 发一笔交易，等它上链，返回收据（JSON-RPC 的原样）。交易失败时，在它前面的区块用 eth_call 重放它，
+             * 所以抛出的错误带 revert 的数据。
+             */
+            async function send(client, { from, to, data, gas }) {
+              const call = { from, to, data, gas: viem.toHex(gas) };
+              const hash = await client.request({ method: 'eth_sendTransaction', params: [call] });
+              let rc = await client.request({ method: 'eth_getTransactionReceipt', params: [hash] });
+              for (let waited = 0; !rc; waited += 50) {
+                if (waited > 60000) throw new Error(`交易 ${hash} 60 秒内没有上链`);
+                await sleep(50);
+                rc = await client.request({ method: 'eth_getTransactionReceipt', params: [hash] });
+              }
+              if (rc.status !== '0x1') {
+                await client.request({ method: 'eth_call', params: [call, viem.toHex(viem.hexToBigInt(rc.blockNumber) - 1n)] });
+                throw new Error(`交易 ${hash} 失败`);
+              }
+              return rc;
+            }
+
+            /**
+             * 把挑战者写到擂主下面一个名次：改 _board 的存储（data.BOARD_SLOT）。挑战者在榜上别处时先拿掉它。擂主是最后一名而且榜
+             * 满时，挑战者留在榜外，它从最后一名的下面挑战。返回 { rank, defenderRank }，rank 0 是榜外。
+             */
+            async function seat(client, data, ladder, challenger, defender) {
+              const abi = abis(data).ladder;
+              const board = (await read(client, ladder, abi, 'board')).map((e) => lower(e.module));
+              const [c, d] = [lower(challenger), lower(defender)];
+              if (!board.includes(d)) throw new Error('擂主不在榜上');
+              const rest = board.filter((m) => m !== c);
+              const at = rest.indexOf(d) + 1;
+              const boardSize = Number(await read(client, ladder, abi, 'boardSize'));
+              const wanted = at === rest.length && rest.length >= boardSize ? rest : [...rest.slice(0, at), c, ...rest.slice(at)];
+              const base = viem.hexToBigInt(viem.keccak256(viem.toHex(data.BOARD_SLOT, { size: 32 })));
+              const writes = [];
+              if (wanted.length !== board.length) writes.push([viem.toHex(data.BOARD_SLOT, { size: 32 }), viem.toHex(wanted.length, { size: 32 })]);
+              wanted.forEach((m, i) => { if (m !== board[i]) writes.push([viem.toHex(base + BigInt(i), { size: 32 }), viem.pad(m, { size: 32 })]); });
+              for (const [index, value] of writes) await client.setStorageAt({ address: ladder, index, value });
+              return { rank: wanted.indexOf(c) + 1, defenderRank: wanted.indexOf(d) + 1 };
+            }
+
+            /** 一个种子的挑战（见文件开头）。调用的一方先存快照，后回到快照。 */
+            async function oneChallenge(client, data, { challenger, defender, seed }) {
+              const { ladder, factory } = client.network;
+              const { ladder: abi, factory: factoryAbi } = abis(data);
+              const encode = (functionName, args) => viem.encodeFunctionData({ abi, functionName, args });
+              if (lower(challenger) === lower(defender)) throw new Error('挑战者和擂主是同一个模块');
+              let owner = await read(client, ladder, abi, 'entryOwner', [challenger]);
+              if (owner === viem.zeroAddress) {
+                owner = await read(client, factory, factoryAbi, 'deployerOf', [challenger]);
+                if (owner === viem.zeroAddress) throw new Error('挑战者不是官方 Factory 部署的模块');
+                await unlock(client, data, owner);
+                await send(client, { from: owner, to: ladder, data: encode('register', [challenger]), gas: data.REGISTER_GAS });
+              }
+              const { rank, defenderRank } = await seat(client, data, ladder, challenger, defender);
+              const blocks = blocksOf(seed, data.MAX_BLOCKS);
+              await client.mine({ blocks });
+              await unlock(client, data, owner);
+              const receipts = [await send(client, { from: owner, to: ladder, data: encode('challenge', [challenger, defender]), gas: data.PLAY_GAS })];
+              const started = ladderEvents(data, ladder, receipts).find((e) => e.eventName === 'ChallengeStarted');
+              if (!started) throw new Error('challenge 交易没有 ChallengeStarted 事件');
+              const id = started.args.id;
+              let info = await read(client, ladder, abi, 'challengeInfo', [id]);
+              while (Number(info.status) === data.STATUS.PLAYING) {
+                receipts.push(await send(client, { from: owner, to: ladder, data: encode('advance', [id]), gas: data.PLAY_GAS }));
+                info = await read(client, ladder, abi, 'challengeInfo', [id]);
+              }
+              const events = ladderEvents(data, ladder, receipts);
+              const settled = events.find((e) => e.eventName === 'ChallengeSettled');
+              const status = Number(info.status);
+              return {
+                seed, blocks, id: Number(id), challengeSeed: started.args.seed, rank, defenderRank,
+                status, statusText: data.STATUS_TEXT[status] ?? String(status),
+                challengerWins: Number(info.challengerWins), defenderWins: Number(info.defenderWins), newRank: settled ? Number(settled.args.newRank) : null,
+                gasUsed: receipts.reduce((sum, rc) => sum + Number(viem.hexToBigInt(rc.gasUsed)), 0), transactions: receipts.length,
+                episodes: episodesOf(data, events, started.args.seed), error: null,
+              };
+            }
+
+            /**
+             * 模拟挑战：在 fork 上打 seeds 个种子。每个种子是一次挑战，打完回到快照，所以榜和挑战计数不变。
+             * client 是链节点的 viem 客户端（允许写入），data 是 data.js，challenger 和 defender 是模块地址。
+             * 每个种子完成时调用 onResult(result)。stopped() 返回 true 时不再开始下一个种子。
+             * 返回每个种子的结果：{ seed, blocks, id, challengeSeed, rank, defenderRank, status, statusText, challengerWins, defenderWins,
+             * newRank, gasUsed, transactions, episodes, error }。episodes 的每一项：{ episode, seed, challengerSide, actions, end, steps,
+             * result }，result 从挑战者看：win、loss、draw 或者 unfinished。出错的种子只有 seed、error（文字）和空的 episodes。
+             */
+            export async function practice(client, data, { challenger, defender, seeds = 10, onResult = () => {}, stopped = () => false }) {
+              const results = [];
+              for (let k = 1; k <= seeds && !stopped(); k++) {
+                const snapshot = await client.snapshot();
+                let result;
+                try {
+                  result = await oneChallenge(client, data, { challenger, defender, seed: k });
+                } catch (e) {
+                  result = { seed: k, error: describeError(e, data), episodes: [] };
+                } finally {
+                  await client.revert({ id: snapshot });
+                }
+                results.push(result);
+                onResult(result);
+              }
+              return results;
+            }
+
+            /** 模块 module 的权重字节数：每个权重块的代码长度减去结尾的 STOP 字节，和擂台 register 的算法一样。 */
+            async function weightBytesOf(client, data, module) {
+              let bytes = 0;
+              for (const chunk of await read(client, module, abis(data).module, 'chunks')) {
+                const code = (await client.getCode({ address: chunk })) ?? '0x';
+                bytes += (code.length - 2) / 2 - 1;
+              }
+              return bytes;
+            }
+
+            /**
+             * fork 上可以当挑战者的模块：官方 Factory 的存档里，eth_accounts 的账户部署的、形状是 data.SHAPE 的模块。
+             * 每一项：{ module, moduleId, deployer, weightBytes, entered }。
+             */
+            export async function listChallengers(client, data) {
+              const { ladder, factory } = client.network;
+              const { ladder: ladderAbi, factory: factoryAbi, module: moduleAbi } = abis(data);
+              const out = [];
+              for (const deployer of await client.getAddresses()) {
+                const count = Number(await read(client, factory, factoryAbi, 'deploymentCount', [deployer]));
+                for (let at = 0; at < count; at += data.ARCHIVE_PAGE) {
+                  for (const module of await read(client, factory, factoryAbi, 'modulesByDeployer', [deployer, BigInt(at), BigInt(Math.min(data.ARCHIVE_PAGE, count - at))])) {
+                    const d = await read(client, module, moduleAbi, 'descriptor');
+                    if (Number(d.inputs) !== data.SHAPE.inputs || Number(d.outputs) !== data.SHAPE.outputs) continue;
+                    const [moduleId, owner, weightBytes] = await Promise.all([
+                      read(client, factory, factoryAbi, 'moduleIdOf', [module]), read(client, ladder, ladderAbi, 'entryOwner', [module]), weightBytesOf(client, data, module),
+                    ]);
+                    out.push({ module, moduleId, deployer, weightBytes, entered: owner !== viem.zeroAddress });
+                  }
+                }
+              }
+              return out;
+            }
+
+            /** 擂台的榜，按名次：每一项 { rank, module, moduleId, owner, weightBytes, wins, losses }。 */
+            export async function listBoard(client, data) {
+              const { ladder, factory } = client.network;
+              const { ladder: ladderAbi, factory: factoryAbi } = abis(data);
+              const rows = await read(client, ladder, ladderAbi, 'board');
+              return Promise.all(rows.map(async (e) => ({
+                rank: Number(e.rank), module: e.module, moduleId: await read(client, factory, factoryAbi, 'moduleIdOf', [e.module]), owner: e.owner,
+                weightBytes: Number(e.weightBytes), wins: Number(e.wins), losses: Number(e.losses),
+              })));
+            }
+
+            /**
+             * 用场景的 battle 和 play 回放一局：call 是 ctx.call，episode 是 practice 的结果里的一局。每一步以前等 pace()。
+             * 开始时和每一步以后调用 show(state, entry)，entry 和 game.js 的 fight 一样。返回最后的状态。
+             */
+            export async function replayEpisode(call, episode, { pace = async () => {}, show = () => {} } = {}) {
+              let state = await call.battle({ seed: episode.seed });
+              show(state, null);
+              for (const [a0, a1] of episode.actions) {
+                if (state.end >= 0) break;
+                await pace();
+                const jolt = state.trails[0].why === 5;
+                state = await call.play(state, a0, a1);
+                show(state, { t: state.t, moves: [a0, a1], jolt, acts: state.acts, end: state.end });
+              }
+              return state;
+            }
+        - name: practice-view.js
+          source: |-
+            // 模拟挑战的面板（ADR 0028）。openPractice(ctx) 在 state.practice 上放面板的数据，然后读 fork 上的模块和榜。视图 Practice
+            // 画这些数据，运行 practice.js 的 practice，并用场景的 battle 和 play 回放一局。回放写 main 的 now、log、names 和 label，
+            // 所以战场、侧栏和日志显示这一局。state.practice 包括：
+            //   chain        链节点的网络（client.network），没接链节点时是 null
+            //   problem      不能模拟的原因（文字），能模拟时是 null
+            //   loading      正在读 fork 上的模块和榜
+            //   challengers  可以当挑战者的模块（见 practice.js 的 listChallengers）
+            //   board        擂台的榜（见 practice.js 的 listBoard）
+            //   challenger、defender、seeds  用户选的挑战者、擂主和种子数
+            //   running、stop  正在模拟，和用户点了停止
+            //   results      每个种子的结果（见 practice.js 的 practice）
+            //   replaying    正在回放的 { seed, episode }，没有时是 null
+            import * as DATA from './data.js';
+            import { practice, listChallengers, listBoard, replayEpisode, describeError } from './practice.js';
+
+            /** 回放时一步的毫秒数。 */
+            const PACE = 150;
+            const MIN_SEEDS = 1;
+            const MAX_SEEDS = 50;
+            const MUTED = 'color: var(--muted); font-size: 11px';
+            const TH = 'position: sticky; top: 0; background: var(--bg); box-shadow: inset 0 -1px var(--line-strong); font-weight: 500; text-align: left; padding: 0 4px 2px; white-space: nowrap';
+            const TD = 'padding: 1px 4px; white-space: nowrap';
+            const BUTTON = 'font-size: 11px; padding: 0 4px; line-height: 1.4';
+            /** 链节点模块的名字，给提示用。 */
+            const NODE_MODULE = '「链节点（本地 fork）」';
+
+            /** main 给的 ctx：面板的运行和回放用它的 chain.node 和 call。 */
+            let host = null;
+            /** 回放的代数：新的回放或者新的一局开始时加一，旧的回放停下。 */
+            let replayGen = 0;
+
+            const short = (a) => `${String(a).slice(0, 6)}…${String(a).slice(-4)}`;
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+            /** 在 ctx.state.practice 上放面板的数据，然后读 fork。 */
+            export function openPractice(ctx) {
+              host = ctx;
+              ctx.state.practice = { chain: null, problem: null, loading: false, challengers: [], board: [], challenger: '', defender: '', seeds: 10, running: false, stop: false, results: [], replaying: null };
+              load(ctx);
+            }
+
+            /** 读 fork 上的模块和榜。链节点没接、不允许写入或者不可达时写 problem。 */
+            async function load(ctx) {
+              const p = ctx.state.practice;
+              const client = ctx.chain?.node;
+              if (!client) { p.problem = `函数输入 node 没有接链节点。把 ${NODE_MODULE} 模块的 node 接到这个模块的 node。`; return; }
+              p.chain = client.network;
+              if (!client.network.write) { p.problem = `链节点不允许写入。在 ${NODE_MODULE} 模块里打开“允许写入”。模拟挑战只在本地 fork 上运行。`; return; }
+              if (!client.network.ladder) { p.problem = `${client.network.name} 没有擂台合约。`; return; }
+              p.loading = true;
+              try {
+                const chainId = await client.getChainId();
+                if (chainId !== client.network.chainId) { p.problem = `链节点连到的链 id 是 ${chainId}，不是 ${client.network.chainId}。`; return; }
+                p.challengers = await listChallengers(client, DATA);
+                p.board = await listBoard(client, DATA);
+                p.challenger = p.challengers[0]?.module ?? '';
+                p.defender = p.board[p.board.length - 1]?.module ?? '';
+              } catch (e) {
+                p.problem = `链节点无法访问 ${client.network.name}：${describeError(e, DATA)}。看 ${NODE_MODULE} 模块里的 anvil 命令，确认 fork 在运行。`;
+              } finally {
+                p.loading = false;
+              }
+            }
+
+            /** 运行模拟挑战，结果一个种子一个种子地放进 results。 */
+            async function start(p) {
+              const seeds = Math.min(MAX_SEEDS, Math.max(MIN_SEEDS, Math.round(Number(p.seeds) || MIN_SEEDS)));
+              Object.assign(p, { seeds, running: true, stop: false, results: [] });
+              try {
+                await practice(host.chain.node, DATA, { challenger: p.challenger, defender: p.defender, seeds, onResult: (r) => p.results.push(r), stopped: () => p.stop });
+              } catch (e) {
+                p.results.push({ seed: p.results.length + 1, error: describeError(e, DATA), episodes: [] });
+              } finally {
+                p.running = false;
+              }
+            }
+
+            /** 在战场上回放种子 result 的第 episode 局。 */
+            async function replay(p, result, episode) {
+              const gen = ++replayGen;
+              const s = host.state;
+              const ep = result.episodes[episode];
+              const names = ep.challengerSide === 0 ? ['挑战者', '擂主'] : ['擂主', '挑战者'];
+              Object.assign(s, { label: `模拟挑战 · 种子 ${result.seed} · 第 ${episode + 1} 局`, names, now: null, log: [] });
+              p.replaying = { seed: result.seed, episode };
+              try {
+                await replayEpisode(host.call, ep, {
+                  pace: async () => { await sleep(PACE); if (gen !== replayGen) throw new Error('stop'); },
+                  show: (now, entry) => {
+                    if (gen !== replayGen) return;
+                    s.now = now;
+                    if (entry) s.log.push(entry);
+                  },
+                });
+              } catch (e) {
+                if (gen === replayGen) throw e;
+              } finally {
+                if (gen === replayGen) p.replaying = null;
+              }
+            }
+
+            /** 一个结果的行：每一局的文字和颜色，比分，状态。点一局的文字就回放这一局。 */
+            function row(r) {
+              const episodes = r.episodes.map((ep) => ({ key: ep.episode, ...DATA.RESULT[ep.result], title: `回放第 ${ep.episode + 1} 局：挑战者是第 ${ep.challengerSide} 方，${ep.steps} 步` }));
+              const score = r.error ? '' : `${r.challengerWins} : ${r.defenderWins}`;
+              return { seed: r.seed, episodes, score, status: r.error ?? r.statusText, won: r.status === DATA.STATUS.CHALLENGER_WON, error: !!r.error, gas: r.error ? '' : `${Math.round(r.gasUsed / 1e6)}M · ${r.transactions} 笔`, raw: r };
+            }
+
+            /** 一局的按钮：它的文字和颜色就是这一局的结果。正在回放的一局有边框。 */
+            const EPISODE = 'font: inherit; padding: 0 2px; margin-right: 1px; border: 1px solid transparent; border-radius: 3px; background: none; cursor: pointer';
+
+            /** 面板：上面是挑战者、擂主、种子数、运行按钮和总结，固定不动。下面是每个种子的结果，只有这一块滚动。 */
+            export const Practice = {
+              props: ['state'],
+              setup(props) {
+                const p = Vue.computed(() => props.state.practice);
+                const rows = Vue.computed(() => (p.value?.results ?? []).map(row));
+                const summary = Vue.computed(() => {
+                  const done = (p.value?.results ?? []).filter((r) => !r.error);
+                  if (!done.length) return '';
+                  const won = done.filter((r) => r.status === DATA.STATUS.CHALLENGER_WON).length;
+                  const episodes = done.flatMap((r) => r.episodes);
+                  const wins = episodes.filter((ep) => ep.result === 'win').length;
+                  const seat = `挑战者在第 ${done[0].rank || '榜外'} 名，擂主在第 ${done[0].defenderRank} 名`;
+                  return `挑战成功 ${won} / ${done.length}（${Math.round((100 * won) / done.length)}%），赢了 ${wins} / ${episodes.length} 局。${seat}`;
+                });
+                const challengerLabel = (c) => `${c.moduleId} · ${short(c.module)} · ${c.weightBytes} 字节${c.entered ? '' : '（未登记）'}`;
+                const defenderLabel = (e) => `#${e.rank} ${e.moduleId} · ${short(e.module)} · ${e.weightBytes} 字节 · ${e.wins} 胜 ${e.losses} 负`;
+                const replayingIs = (r, ep) => !!p.value.replaying && p.value.replaying.seed === r.seed && p.value.replaying.episode === ep.key;
+                return { p, rows, summary, challengerLabel, defenderLabel, replayingIs, MUTED, TH, TD, BUTTON, EPISODE, MIN_SEEDS, MAX_SEEDS,
+                  start: () => start(p.value), replay: (r, episode) => replay(p.value, r.raw, episode), stop: () => { p.value.stop = true; } };
+              },
+              template: `
+                <div v-if="p" style="height: 100%; font-size: 11px; display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                  <div style="flex: none; display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                    <div style="display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center">
+                      <strong>模拟挑战</strong>
+                      <span v-if="p.chain" :style="MUTED">{{ p.chain.name }}</span>
+                      <span v-if="p.loading" :style="MUTED">正在读 fork 上的模块和榜…</span>
+                    </div>
+                    <div v-if="p.problem" :style="MUTED + '; overflow-wrap: anywhere'">{{ p.problem }}</div>
+                    <template v-else>
+                      <div v-if="!p.loading && !p.challengers.length" :style="MUTED">本地 fork 上没有这个账户部署的坦克网络。先用「链上部署」把网络部署到「本地 fork」，然后“重置”。</div>
+                      <div style="display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center">
+                        <label>挑战者
+                          <select v-model="p.challenger" :disabled="p.running" style="max-width: 13em">
+                            <option v-for="c in p.challengers" :key="c.module" :value="c.module">{{ challengerLabel(c) }}</option>
+                          </select>
+                        </label>
+                        <label>擂主
+                          <select v-model="p.defender" :disabled="p.running" style="max-width: 13em">
+                            <option v-for="e in p.board" :key="e.module" :value="e.module">{{ defenderLabel(e) }}</option>
+                          </select>
+                        </label>
+                        <label>种子数 <input type="number" v-model.number="p.seeds" :min="MIN_SEEDS" :max="MAX_SEEDS" :disabled="p.running" style="width: 4em" /></label>
+                        <button type="button" :style="BUTTON" :disabled="p.running || p.loading || !p.challenger || !p.defender" @click="start()">运行</button>
+                        <button v-if="p.running" type="button" :style="BUTTON" :disabled="p.stop" @click="stop()">停止</button>
+                      </div>
+                      <div v-if="summary" :style="MUTED">{{ summary }}</div>
+                    </template>
+                  </div>
+                  <div v-if="!p.problem && rows.length" style="flex: 1 1 auto; min-height: 0; overflow: auto; scrollbar-width: thin">
+                    <table style="border-collapse: collapse; font-family: var(--mono)">
+                      <thead>
+                        <tr>
+                          <th :style="TH">种子</th><th :style="TH">6 局（点一局回放）</th><th :style="TH">比分</th><th :style="TH">结果</th><th :style="TH">gas</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="r in rows" :key="r.seed" style="border-top: 1px solid var(--line)">
+                          <td :style="TD">{{ r.seed }}</td>
+                          <td :style="TD"><button v-for="ep in r.episodes" :key="ep.key" type="button" :title="ep.title" :style="EPISODE + '; color: ' + ep.color + (replayingIs(r, ep) ? '; border-color: currentColor' : '')" @click="replay(r, ep.key)">{{ ep.text }}</button></td>
+                          <td :style="TD">{{ r.score }}</td>
+                          <td :style="TD + '; white-space: normal'"><span :style="{ color: r.error ? 'var(--bad, #f0684d)' : r.won ? 'var(--ok, #3bb273)' : 'var(--ink)' }">{{ r.status }}</span></td>
+                          <td :style="TD">{{ r.gas }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>`,
+            };
   vs_mid_net: { kind: network, title: 中（对战）, config: *mid }
   vs_mid_readout: { kind: readout, title: 读出（中，对战）, config: *readout }
   vs_big_net: { kind: network, title: 大（对战）, config: *big }
   vs_big_readout: { kind: readout, title: 读出（大，对战）, config: *readout }
+  s1_a_deployment: { kind: deployment, title: 链上部署（中，阶段 1） }
+  s1_b_deployment: { kind: deployment, title: 链上部署（大，阶段 1） }
+  s2_a_deployment: { kind: deployment, title: 链上部署（中，阶段 2） }
+  s2_b_deployment: { kind: deployment, title: 链上部署（大，阶段 2） }
 wires:
   value:
+    - s1_a_cands.artifact→s1_a_deployment.artifact
+    - s1_b_cands.artifact→s1_b_deployment.artifact
+    - s2_a_cands.artifact→s2_a_deployment.artifact
+    - s2_b_cands.artifact→s2_b_deployment.artifact
     - params.params→scene.params
     - scene.actions→s1_a_readout.actions
     - scene.actions→s1_b_readout.actions
@@ -1495,6 +2079,7 @@ wires:
     - scene.view→vs_battle.view
     - scene.play→vs_battle.play
     - scene.botMove→vs_battle.机器人
+    - vs_node.node→vs_battle.node
 # 每个训练模块训练一个网络：阶段 1 和阶段 2 各有“中”和“大”两个带槽位的组合，每个组合有一个训练器和一个回路框。
 # 它们外面的模块是共用的：参数、奖励参数、种子分区、场景和 5 个指标。
 # 阶段 2 的 init 和 gate 连线从阶段 1 同一个结构的候选和评估器来，它们是预期的连线，不是槽位。

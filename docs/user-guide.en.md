@@ -193,15 +193,16 @@ This section deploys ADD4 on a local Anvil node, then sends one step transaction
    forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:18545 --unlocked --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 --broadcast
    ```
 
-   The `factory` in the output must be `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0`. This is the official factory of 31337 in `frontend/chain.js`.
+   The `factory` in the output must be `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0`. This is the official Factory of 31337 in `ladder/data/deployments.json`. The workbench and ladder share this record.
 
 3. On an empty canvas, open `?preset=arithmetic-add4`.
 4. In the "Add" drawer, under "Blank modules", click "+ On-chain deployment".
 5. Drag a wire from the `cands · artifact` port on the right side of the training module to the `artifact` input of the deployment module.
-6. On the deployment module, select the network "Local dev · unlocked Anvil account (31337)" and click "Connect".
-7. Click "Deploy current artifact". Then click "Verify on-chain module".
-8. Under "input 8 bits (LSB first)", turn on bits 0, 2, 4 and 5. This means a = 5 and b = 3.
-9. Click "On-chain inference (free eth_call)", then click "step transaction".
+6. On the deployment module, select the network "Local dev (31337)" and click "Connect".
+7. Enter `add4` in "Module id".
+8. Click "Deploy current artifact". Then click "Verify on-chain module".
+9. Under "input 8 bits (LSB first)", turn on bits 0, 2, 4 and 5. This means a = 5 and b = 3.
+10. Click "On-chain inference (free eth_call)", then click "step transaction".
 
 You must see these results:
 
@@ -211,9 +212,94 @@ You must see these results:
 
 <p align="center"><img src="images/deploy-en.png" alt="The deployment module: on chain, step transaction result 8" width="520"></p>
 
-Deploy, step and reset are transactions. Read-only previews are eth_call. Local dev uses the unlocked Anvil test accounts and does not open a browser wallet. The testnet and the mainnet have no official factory yet, so you cannot deploy or verify on these two networks.
+Deploy, step and reset are transactions. Read-only previews are eth_call. Local dev uses unlocked Anvil accounts and does not open a browser wallet. Monad Testnet has an official Factory. Mainnet is not deployed, so mainnet deployment and verification are not available.
 
 CAUTION: Do not expose an unlocked Anvil node to the internet. If you do, anyone can send transactions from the unlocked accounts.
+
+### Deploy a tank model in the workbench, then register it
+
+1. Start the workbench and ladder on the same local chain:
+
+   ```sh
+   node ladder/scripts/dev-chain.mjs --no-seed --no-play
+   ```
+
+2. Open `http://localhost:5174/studio/?preset=tank-battle`.
+3. Train a network, then accept a candidate.
+4. Find the deployment module for the same stage and structure.
+5. Enter `tank-mid` in "Module id".
+6. Select a network, then click "Connect".
+7. Click "Deploy current artifact".
+8. Wait for completion.
+9. Open `http://localhost:5174/ladder/#/entries`.
+10. Log in with the same account that deployed the module.
+11. Select `tank-mid` under "Your deployed modules".
+12. Click "Register".
+
+The template connects a deployment module to 中 and 大 for each stage. Each deployment module reads the accepted candidate directly. No JSON export is necessary. Existing template instances do not gain modules automatically. For an old instance, add a deployment module from the drawer and connect the candidate's `artifact`.
+
+The workbench deploys weight chunks and modules through the unified ModuleFactory. The Factory saves the Deployment Archive in the same transaction. The submission page reads the current account's archive from the chain. The ladder sends only the registration transaction. The contract checks Factory origin, ports, tools, weight size and duplicate weights.
+
+A Module ID has 3–64 characters and starts with a lowercase letter. Other characters can be lowercase letters, digits, `-` and `_`. IDs are unique within one deploying account. Different accounts can use the same ID. The ID cannot change after deployment. It is separate from the contest display name.
+
+If the workspace has a deployment record for the same artifact, click "Connect" to verify that module automatically. After verification, the page restores the runtime session without a new deployment plan. Deployment and plan buttons are unavailable when the current account already deployed that module under the same ID. Enter a new Module ID only to create another contract.
+
+The session label selects on-chain runtime state. The contract separates state by module address, caller address and session ID. You can use the default label, `session-1`. For a plain-text label, the session ID is the keccak256 hash of its UTF-8 bytes. It is neither a Module ID nor a Privy account. A label change does not deploy a contract or rename the module.
+
+
+The archive fixes the module address, deploying account and Module ID. Ownership transfer does not change the archive. Reads support pages and need no browser storage or name service. Factory upgrades preserve existing storage. Modules from an older version do not enter the new archive automatically.
+
+CAUTION: Deploy and register with the account for the contest. The submission page lists only modules that this account deployed. The current ladder contract still assigns the entry to the first registration account. It does not check the module deployer.
+
+### Practice challenge (local fork)
+
+A practice challenge lets the ladder contract play a challenge on a local fork. After each seed, the fork goes back to its earlier state. It spends nothing and changes no real rank (ADR 0028).
+
+1. Install Foundry.
+2. Run this command, and keep the terminal open:
+
+   ```sh
+   anvil --network monad --fork-url https://testnet-rpc.monad.xyz --chain-id 1014300 --port 18645
+   ```
+
+   In the repository, you can also run `node ladder/scripts/dev-chain.mjs --fork`. It starts the fork with the same values, then starts the site.
+3. Open `http://localhost:5174/studio/?preset=tank-battle`.
+4. Make sure that 「链节点（本地 fork）」 (chain node, local fork) shows a connection. If it does not, it shows the command to run, the node address and the chain id.
+5. Train a network, then accept a candidate.
+6. In a 「链上部署」 (deployment) module, select the network 「Local fork of Monad Testnet」, then deploy.
+7. In the 「模拟挑战」 (practice challenge) panel of 「坦克对战」 (tank battle), select the challenger, the defender and the number of seeds.
+8. Click 「运行」 (run).
+9. In a result row, click 1 to 6 to replay that episode.
+
+For each seed, the panel shows the results of the 6 episodes, the score, the ranks and the gas. It also counts how many challenges the challenger won. The challenger can challenge any defender on the board, because the script puts the challenger one rank below the defender. `TankLadder.sol` itself decides each result.
+
+Note: a restart of the fork loses the deployed model. Deploy it again. This costs no MON. After a restart, the fork reads the newest board of the testnet.
+
+### Share a Privy wallet between the workbench and ladder
+
+Training needs no login. With Privy configured, both pages use the same user's embedded EVM wallet. Neither page substitutes an external wallet. Archives of different addresses do not merge.
+
+1. Set `VITE_PRIVY_APP_ID` in `.env.local` at the repository root.
+2. Set `VITE_LADDER_CHAIN_ID` to `10143`.
+3. Add `http://localhost:5174` and `http://127.0.0.1:5174` to Allowed origins in Privy.
+4. Enable email login and automatic EVM wallet creation in Privy.
+5. Disable smart wallets and enable Disable confirmation modals.
+6. Run `npm run dev -w ladder`. This server always uses port 5174. If the port is in use, the server stops. It does not move to another port.
+7. Open `http://localhost:5174/studio/`.
+8. Log in from the workbench header.
+9. Select `Monad Testnet (10143)` in the deployment module.
+10. Set a Module ID, then deploy.
+11. Log in to the ladder as the same Privy user.
+12. Confirm that both wallet addresses match.
+13. Select the module from the archive, then register it.
+
+Both pages read environment settings from the repository root, not `ladder/.env.local`. `/studio/` and `/ladder/` are on the same origin, so one login is enough. The same user gets the same wallet address after another login.
+
+Logout or an account change invalidates the workbench's on-chain session. Training records and deployed modules do not change. After login, click "Connect" to verify the existing module before further on-chain operations.
+
+Without Privy configuration, public-chain deployment in the workbench can still use a browser wallet. Local dev always uses Anvil. The single-file page can still train over `file://`, but cannot log in to Privy. Open the page over HTTP(S) for Privy deployment.
+
+
 
 ## 8. Save, share and templates
 
@@ -330,6 +416,7 @@ The page runs each call outside the sandbox and sends only the result back to th
 
 - A network runs through the `run` of its readout. The argument is an array of 0/1 bits, and the result is the bits of the readout. A bits readout and an argmax readout both work. The network uses its accepted weights. Each call starts from a zero state, so the network keeps no memory across calls.
 - A code function runs its program and reads the inputs and constants of its file. The arguments can be numbers, booleans, strings, arrays and records.
+- A chain node: the script reads and writes the chain with `ctx.chain.<name>`, a viem client connected to the chain node. The global `viem` of the script is the viem library. The page sends only the methods that the chain node allows. Reads are always allowed. With 「允许写入」 (allow writes) on a local node, transactions and the Anvil snapshot, revert and storage writes are allowed too (ADR 0028).
 - After 「重置」, the calls of the old run that have no reply yet are dropped.
 
 The module reports a problem when:
@@ -614,7 +701,7 @@ The checks of the training are:
 | Tool layers and bit wires | designed: a tool layer runs only the chosen tool on each step. It gives the zero-extended result to the next layers or out as the output. Bit wires slice and concatenate bit vectors | `frontend/core/loop.js`, `frontend/runtime/dense-policy.js`, module kinds `network` / `bits` |
 | Mining / memory policies | learned: REINFORCE trains the mining FF 185→32→7, and cross-entropy trains the memory-map LIF 55→32→7. Both are integer networks | the user trains them on the canvas, no builtin artifact. Each training produces new candidates |
 | Scenario rules | designed: the scenario module and other code modules in the templates | `frontend/templates/*.yaml` |
-| The deploy button | local Anvil: deploy, verify, step and reset clicked for real. Public-chain signing is not verified | real receipts, event summaries and persistent potentials, checked item by item against the local integer results |
+| The deploy button | Anvil checks cover deploy, verify, step and reset. Monad Testnet checks cover Privy deployment and ladder registration | Actual receipts. The Factory deployer and the ladder owner are the same wallet address |
 
 Modules are immutable. To improve a module, train a new module. Each module gets an exhaustive check over its own input space, and these checks make the composition correct.
 
@@ -629,5 +716,5 @@ Modules are immutable. To improve a module, train a new module. Each module gets
 | A conflict panel opens with the page | The local workspace save does not restore | Click "Export local save" first. Then open a corrected file, or discard the local save |
 | The execution or the evaluator says that the network has no accepted weights | Mining and the memory map have no builtin artifact | Train first, then click "Accept" on a candidate |
 | A candidate shows "Different environment" | After the training, you changed the scenario, `budget` or the episode kind of a partition | Train again |
-| Deployment does not work on the testnet or the mainnet | These two networks have no official factory yet | Use Local dev (Anvil) |
+| Deployment reports no official Factory | The selected network has an empty `factory` configuration. Mainnet is not deployed | Select Monad Testnet or Local dev. Check `ladder/data/deployments.json` |
 | Local dev cannot verify or cannot find the factory | The protocol contracts are not deployed on a freshly started Anvil node | Run `Deploy.s.sol` as step 2 of [section 7](#7-deploy-on-a-local-chain) tells |

@@ -57,15 +57,15 @@ onBeforeUnmount(() => { if (menu.value) listen(false); });
   </Teleport>
 </template>
 <style scoped>
-.edge-menu{position:fixed;z-index:1000;min-width:190px;max-width:280px;padding:4px;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line-strong);border-radius:7px;color:var(--ink);font-size:12px;box-shadow:0 6px 20px #0007;user-select:none}
+.edge-menu{position:fixed;z-index:1000;min-width:190px;max-width:280px;padding:4px;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);color:var(--ink);font-size:12px;box-shadow:var(--shadow-pop);user-select:none}
 .edge-menu-title{padding:5px 8px 6px;color:var(--muted);font-size:11px;overflow-wrap:anywhere;border-bottom:1px solid var(--line);margin-bottom:3px}
-button{font:inherit;color:inherit;background:none;border:0;border-radius:4px;padding:5px 8px;text-align:left;cursor:pointer}
+button{font:inherit;color:inherit;background:none;border:0;border-radius:var(--radius);padding:5px 8px;text-align:left;cursor:pointer}
 button:hover:not(:disabled),button:focus-visible{background:var(--soft);outline:none}
 button:disabled{color:var(--muted);cursor:default}
 button[aria-pressed=true]{color:var(--focus)}
 .edge-menu-row{display:flex;align-items:center;gap:6px;padding:2px 0 2px 8px}
 .edge-menu-row label{display:flex;align-items:center;gap:8px;flex:1}
-input[type=color]{width:30px;height:22px;padding:1px;cursor:pointer;background:none;border:1px solid var(--line);border-radius:4px}
+input[type=color]{width:30px;height:22px;padding:1px;cursor:pointer;background:none;border:1px solid var(--line);border-radius:var(--radius)}
 hr{border:0;border-top:1px solid var(--line);margin:3px 0;width:100%}
 .edge-menu-danger{color:var(--bad)}
 </style>

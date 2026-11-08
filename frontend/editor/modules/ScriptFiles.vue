@@ -168,18 +168,18 @@ onMounted(() => dialog.value?.showModal());
 </template>
 
 <style scoped>
-.smf{width:min(1100px,92vw);height:min(760px,86vh);max-width:none;max-height:none;padding:0;border:1px solid var(--line-strong);border-radius:10px;background:var(--panel);color:var(--ink);box-shadow:0 24px 64px -16px rgba(0,0,0,.9);font-size:12px}
+.smf{width:min(1100px,92vw);height:min(760px,86vh);max-width:none;max-height:none;padding:0;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--panel);color:var(--ink);box-shadow:var(--shadow-pop);font-size:12px}
 .smf[open]{display:flex;flex-direction:column}
-.smf::backdrop{background:rgba(0,0,0,.55)}
+.smf::backdrop{background:rgba(24,24,27,.45)}
 .smf-head{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 14px;border-bottom:1px solid var(--line);background:var(--panel-head)}
 .smf-head h2{margin:0;flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smf-main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,clamp(190px,26%,280px)) minmax(0,1fr)}
 .smf-files{min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg)}
 h3{margin:0 6px 2px;font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.04em}
 ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
-li{display:flex;align-items:center;min-width:0;border-radius:5px}
+li{display:flex;align-items:center;min-width:0;border-radius:var(--radius)}
 li:hover{background:var(--soft)}
-li.on{background:color-mix(in srgb,var(--focus) 22%,transparent)}
+li.on{background:var(--focus-soft)}
 .smf-file{flex:1;min-width:0;padding:4px 8px;border:0;background:transparent;color:var(--muted);text-align:left;font-family:var(--mono);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smf-file:hover{background:transparent;color:var(--ink)}
 li.on .smf-file{color:var(--ink)}
@@ -203,6 +203,6 @@ li.smf-decl .smf-del{visibility:visible}
 .smf-code :deep(.cm-editor){flex:1 1 0;min-height:0}
 .smf-code :deep(.cm-scroller){max-height:none}
 .smf-foot{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line);background:var(--panel-head)}
-.smf-save{border-color:var(--focus);background:color-mix(in srgb,var(--focus) 24%,var(--soft))}
-.smf-save:hover{background:color-mix(in srgb,var(--focus) 38%,var(--soft))}
+.smf-save{border-color:var(--focus);background:var(--focus);color:#fff}
+.smf-save:hover{background:var(--focus);filter:brightness(1.08)}
 </style>

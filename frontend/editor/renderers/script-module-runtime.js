@@ -1,15 +1,18 @@
 // editor/renderers/script-module-runtime.js — the sandbox side of the script module (ADR 0019). This is a classic
-// script, not an ES module. script-frame.js inlines it after Vue (the global `Vue`) into the frame document of
-// scriptModuleDocument. It has no access to the workbench: the frame has the sandbox and the CSP of a view script
-// (ADR 0013).
+// script, not an ES module. script-frame.js inlines it after Vue (the global `Vue`) and viem (the global `viem`) into
+// the frame document of scriptModuleDocument. It has no access to the workbench: the frame has the sandbox and the
+// CSP of a view script (ADR 0013).
 //
 // Messages, host → frame:
 // - { type: 'load', modules, text }: the rewritten files (script-module.js compileScript) and the texts of `@ui` in the
 //   UI language. The frame runs `main.js` one time.
 // - { type: 'text', text }: new texts after a change of the UI language.
-// - { type: 'values', functions, values }: the declared function inputs, and each value input as `{ value }` or
-//   `{ error }`. The host sends it before `load` and again when one of them changes.
-// - { type: 'reply', id, result } or { type: 'reply', id, error }: the answer to the call `id`.
+// - { type: 'values', functions, values, chains }: the declared function inputs, each value input as `{ value }` or
+//   `{ error }`, and the function inputs wired to a chain node (ADR 0028) with what the script knows of the chain:
+//   `{ chainId, name, local, write, factory, ladder }`. The host sends it before `load` and again when one of them
+//   changes.
+// - { type: 'reply', id, result }, { type: 'reply', id, error } or { type: 'reply', id, error, data }: the answer to
+//   the call `id`. `data` is the revert data of a failed chain request.
 // - { type: 'play' }: play, as the play button of `Controls` does (「运行到这里」 sends it right after `load`).
 // Messages, frame → host (`window.parent`):
 // - { type: 'ready' } when the frame listens.
@@ -25,8 +28,11 @@
 // - play releases rounds in sequence, one each INTERVAL ms. pause stops that.
 // - reset starts `main` again with a new `ctx.state`. The old `main` waits forever on its next `frame()` and on the
 //   calls it made: the frame drops their replies.
-// `ctx.call.<name>(…args)` returns a promise of the result. `ctx.values.<name>` is the value of a value input. A name
-// that is not declared, and a value input without a value, throw an error at the line of the script that reads it.
+// `ctx.call.<name>(…args)` returns a promise of the result. `ctx.values.<name>` is the value of a value input.
+// `ctx.chain.<name>` is a viem client on the chain node wired into the function input `name`: each request of the
+// client is one call of that input with `{ method, params }`. `ctx.call.<name>` is the raw request function then. A
+// name that is not declared, and a value input without a value, throw an error at the line of the script that reads
+// it.
 (() => {
   'use strict';
   const { reactive, shallowReactive, markRaw, createApp, h, toRaw } = Vue;
@@ -50,7 +56,7 @@
   addEventListener('unhandledrejection', e => fail(e.reason));
 
   // ------------------------------------------------------------------ `@ui`
-  const text = reactive({ reset: 'reset', step: 'step', play: 'play', pause: 'pause', round: '{n}', done: 'done', call: 'no function input {name}', value: 'no value input {name}' });
+  const text = reactive({ reset: 'reset', step: 'step', play: 'play', pause: 'pause', round: '{n}', done: 'done', call: 'no function input {name}', value: 'no value input {name}', chain: 'no chain node on {name}' });
   const fill = (s, params) => s.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m));
   const Controls = {
     name: 'Controls',
@@ -84,8 +90,8 @@
     return exports;
   }
 
-  // ------------------------------------------------------------------ inputs: `ctx.call`, `ctx.values`
-  let functions = new Set(), values = {}, lastId = 0;
+  // ------------------------------------------------------------------ inputs: `ctx.call`, `ctx.values`, `ctx.chain`
+  let functions = new Set(), values = {}, chains = {}, lastId = 0;
   /** the calls that wait for a reply: id → { resolve, reject, error } */
   const waiting = new Map();
   /** a copy without Vue proxies, so postMessage can clone it (a script passes `ctx.state.…`) */
@@ -104,12 +110,12 @@
       send({ type: 'call', id, name, args: plain(args) });
     });
   }
-  function answer({ id, result, error }) {
+  function answer({ id, result, error, data }) {
     const w = waiting.get(id);
     if (!w) return;   // a call of a run that was reset
     waiting.delete(id);
     if (error === undefined) w.resolve(result);
-    else { w.error.message = String(error); w.reject(w.error); }
+    else { w.error.message = String(error); if (data !== undefined) w.error.data = data; w.reject(w.error); }
   }
   const call = new Proxy({}, {
     get(_, name) {
@@ -129,6 +135,31 @@
     has: (_, name) => Object.hasOwn(values, name),
     ownKeys: () => Object.keys(values),
     getOwnPropertyDescriptor: (_, name) => (Object.hasOwn(values, name) ? { enumerable: true, configurable: true } : undefined),
+  });
+  /** the viem clients of the chain inputs, one per name until the host sends new `chains`. The transport does not
+   *  retry: the page answers each request one time, and a revert is not a transport error. The client does not
+   *  cache the block number: a script with `write` mines blocks itself. */
+  const clients = new Map();
+  function clientOf(name) {
+    if (clients.has(name)) return clients.get(name);
+    const network = chains[name];
+    const transport = viem.custom({ request: ({ method, params }) => callInput(name, [{ method, params }]) }, { retryCount: 0 });
+    const client = network.write
+      ? viem.createTestClient({ mode: 'anvil', transport, cacheTime: 0 }).extend(viem.publicActions).extend(viem.walletActions)
+      : viem.createPublicClient({ transport, cacheTime: 0 });
+    client.network = network;
+    clients.set(name, client);
+    return client;
+  }
+  const chain = new Proxy({}, {
+    get(_, name) {
+      if (typeof name !== 'string') return undefined;
+      if (!Object.hasOwn(chains, name)) throw new Error(fill(text.chain, { name }));
+      return clientOf(name);
+    },
+    has: (_, name) => Object.hasOwn(chains, name),
+    ownKeys: () => Object.keys(chains),
+    getOwnPropertyDescriptor: (_, name) => (Object.hasOwn(chains, name) ? { enumerable: true, configurable: true } : undefined),
   });
 
   // ------------------------------------------------------------------ run
@@ -159,7 +190,7 @@
     start();
   }
   function start() {
-    const g = gen, ctx = { state: view.state, frame: () => frame(g), call, values: valueOf };
+    const g = gen, ctx = { state: view.state, frame: () => frame(g), call, values: valueOf, chain };
     Promise.resolve().then(() => main(ctx)).then(
       () => { if (g === gen) { run.done = true; pause(); } },
       err => { if (g === gen) { run.done = true; fail(err); } });
@@ -203,7 +234,7 @@
   addEventListener('message', e => {
     if (e.source !== parent || !e.data) return;
     if (e.data.text) Object.assign(text, e.data.text);
-    if (e.data.type === 'values') { functions = new Set(e.data.functions); values = e.data.values; return; }
+    if (e.data.type === 'values') { functions = new Set(e.data.functions); values = e.data.values; chains = e.data.chains || {}; clients.clear(); return; }
     if (e.data.type === 'reply') { answer(e.data); return; }
     if (e.data.type === 'play') { play(); return; }
     if (e.data.type !== 'load') return;

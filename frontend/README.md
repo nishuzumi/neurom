@@ -4,7 +4,7 @@
 
 `index.html` 是唯一入口。画布上的一切都是**模块**，例如参数、代码、随机数、回路、网络、读出、位线、训练器、候选、评估器、执行实例、视图和链上部署。每种模块只在代码里实现一次。一个任务是一个**训练模块**：它由若干模块和连线组成，是一份组合模板（YAML 数据文件），不是代码。系统设计见 [docs/design.md](../docs/design.md)。术语见 [CONTEXT.md](../CONTEXT.md)。
 
-画布使用 Vue 3 + TypeScript + Vue Flow。一个宿主节点组件承载所有模块，每种模块有一个内容组件。组合节点承载模板实例和回路框。训练模块节点画展开的预制模块。领域内核（`core/`）、程序解释器（`ir/`）、训练器（`training/`）和整数执行器（`runtime/`）与画布分离。Vite 负责开发与打包，ethers 用于链上交互。
+画布使用 Vue 3 + TypeScript + Vue Flow。一个宿主节点组件承载所有模块，每种模块有一个内容组件。组合节点承载模板实例和回路框。训练模块节点画展开的预制模块。领域内核（`core/`）、程序解释器（`ir/`）、训练器（`training/`）和整数执行器（`runtime/`）与画布分离。Vite 负责开发与打包，ethers 用于链上交互。工作台和擂台页面共用 `ui/brand.css` 里的品牌令牌：字体、强调色和顶栏的字号。工作台用擂台页面的浅色样式：浅灰的地、白色卡片、1px 浅色边框、2px 圆角、一个靛蓝强调色、900 字重的标题和等宽的数字。`styles.css` 的 `:root` 声明所有颜色令牌，视图脚本的 iframe 收到同一套令牌。`docs/images/` 里的截图还是旧的深色界面。
 
 第一次使用时，先读 [使用指南](../docs/user-guide.md)。开发环境、测试矩阵和常见开发任务见 [开发者文档](../docs/development.md)。
 
@@ -92,7 +92,7 @@ python3 -m venv ~/.cache/neurom-venv
   - 标题栏显示 `budget`。回路框放在训练模块里时，问题显示在训练模块的标题栏上。
   - 折叠时，框多一行回路体摘要，例如“每一步：输入位 → 网络 → 读出 → 动作”。
   - 连线决定回路体，框只是回路体的视图。框里多了或少了模块时，回路报“回路框的成员与回路体不一致”。
-- **训练模块**：从带槽位（`slots`）的模板整件实例化的组合是一个**预制模块**。模板里写了 `slots` 的嵌套分组也是预制模块，它外面的模块可以被几个训练模块共用，例如坦克大战的场景。展开时，它画成一个深色框，徽标是“训练模块 · 方法”。标题栏有存为模板、折叠和删除。它是不是训练模块只看这条预制记录，与里面有几个训练器无关。成员增减不会让框消失。
+- **训练模块**：从带槽位（`slots`）的模板整件实例化的组合是一个**预制模块**。模板里写了 `slots` 的嵌套分组也是预制模块，它外面的模块可以被几个训练模块共用，例如坦克大战的场景。展开时，它画成一个白色框，徽标是“训练模块 · 方法”。标题栏有存为模板、折叠和删除。它是不是训练模块只看这条预制记录，与里面有几个训练器无关。成员增减不会让框消失。
   - 左栏顶部是**槽位**：
     - 模板声明槽位，例如场景、训练集、验证集、目标、指标、评估、执行。每个槽位一枚按钮，按钮排成一行，放不下时换行。
     - 按钮列出接在槽位上的模块。点一下模块，就定位到那一段。
@@ -171,6 +171,7 @@ python3 -m venv ~/.cache/neurom-venv
 | 执行实例 | 每个网络用已接受的权重，逐步运行整条回路。操作有选回合、reset / step / 连续运行和手动动作。历史记录每步的输入位和回路体每个模块的值。历史还记录每个工具层调用了哪个工具，以及它的数据位和结果 | 值 `loop`、`partition`。输出 `execution` |
 | 视图 | 渲染执行实例或报告。渲染方式有 `grid`（地图 + 标记）、`series`、`table`、`kv` 和 `script`。`script` 是视图脚本（ADR 0013），在沙箱 iframe 里自己画 | 输入 `execution` 或 `report` |
 | 链上部署 | 通过所选网络的官方 ModuleFactory 部署一份产物。带工具层的网络先部署或复用它的工具模块。链上部署还核对产物和它的工具、读状态、reset、逐步交易。本地镜像用来对照 | 输入 `artifact`。输出 `deployment` |
+| 链节点 | 给脚本模块一个到所选网络的连接（ADR 0028）。脚本用 `ctx.chain.<名字>`（viem 客户端）。默认只读。「允许写入」只能在本地节点上打开。没连上 fork 时，它显示 anvil 命令、节点地址和 chain id | 输出 `node`（接到脚本模块的函数输入） |
 
 ## 代码模块
 
@@ -316,14 +317,29 @@ export function reward(transition) {
 7. **部署**：
    1. 在链上部署模块里选网络。
    2. 连接。
-   3. 部署一份产物。
-   4. 核对、读状态、reset，或逐步发交易。
+   3. 填模块 ID。
+   4. 部署一份产物。
+   5. 核对、读状态、reset，或逐步发交易。
 
-   链上部署模块用这个网络的**官方 Factory**（ADR 0016）。Factory 地址写在 `chain.js` 的 `CHAINS` 里，不用手填。面板显示这个地址，有区块浏览器的网络带链接。本地镜像用产物快照里的同一环境与整数执行器逐项对照。
+   模块 ID 是部署者给模块起的英文名：3..64 个字符，小写字母开头，只用小写字母、数字、“-”和“_”。同一账户下不能重复，不同账户可以用相同的 ID。ID 存在模块配置里，随工作区保存。ID 为空或不合规时，“部署计划”和“部署当前产物”不可用，面板说明原因。再部署同一份产物时，换一个 ID。
 
-   别的 Factory 创建的模块即使代码和权重完全相同，核对也不通过，也不会作为工具复用。还没有官方 Factory 的网络（目前是测试网和主网）会直接说明这一点。在这些网络上不能部署和核对。
+   工作区有同一产物的部署记录时，「连接」先调用链上核对，再恢复运行会话，不查询新部署计划。页面只信任通过官方 Factory、描述符、引擎和权重核对的模块。当前账号已用同一 ID 部署该模块时，页面禁用部署和计划按钮。另一个账号仍可使用相同 ID。
 
-   Local dev 用 `http://127.0.0.1:18545` 的 Anvil 解锁账户。如果节点是新启动的 `anvil --network monad`，先用默认账户 0 运行 `contracts/script/Deploy.s.sol`。这样 Factory 代理才落在 `CHAINS[31337].factory` 的地址。部署 / step / reset 是交易，预览是 eth_call。
+   会话标签用于隔离同一模块的链上运行状态，不是模块 ID 或登录账号。默认值 `session-1` 可直接使用。普通标签通过 keccak256 转成会话 ID。合约按模块地址、调用者地址和会话 ID 隔离状态。
+
+
+   部署时 Factory 把 ID 和部署账户一起存档（`moduleIdOf`、`deployerOf`、`moduleById`、`modulesByDeployer`）。面板的部署记录显示地址、ID 和部署者。擂台按部署账户列出模块，不用复制地址。桥接在发第一笔交易前查 ID 是否已被这个账户用过，工具模块的 ID 也查。工具模块的 ID 是 `tool-` 加产物 id 的前 48 位十六进制。
+
+   链上部署模块用这个网络的官方 Factory（ADR 0016）。工作台和擂台共用 `ladder/data/deployments.json` 里的网络与 Factory 地址。`chain.js` 从这份记录生成 `CHAINS`，不用手填。带 `forkOf` 的条目是那条链的本地分叉，地址取自被分叉的条目，`forkCommand` 给出起这个分叉的 `anvil` 命令（ADR 0028）。两个页面都用 `chain.js` 的 `connect(chainId, { write })` 连接链：只读走注册表里的 RPC，写入走本地节点的解锁账户、Privy 或注入的钱包。面板显示 Factory 地址。有区块浏览器时，地址带链接。本地镜像用产物快照里的环境与整数执行器逐项对照。
+
+   配置 `VITE_PRIVY_APP_ID` 后，工作台和擂台共用 `wallet/privy.js`。两边只使用同一个 Privy 用户的嵌入式 EVM 钱包，不改用外部钱包。两个 Vite 配置都从仓库根目录读取 `.env.local`。Privy 按 origin 保存登录状态。线上的工作台（擂台网站的 `/studio/`）和擂台在同一个 origin，登录一次就够了。本机的工作台要另外登录。退出或切换账号后，链上会话作废，训练不受影响。没有配置 Privy 时，公共链仍使用浏览器钱包，Local dev 始终使用 Anvil。
+
+   训练台和擂台通过 `chain-error.js` 显示错误。页面显示钱包或节点给出的具体原因和错误码。`could not coalesce error` 本身不表示余额不足。没有具体原因时，页面会说明这一点。
+
+
+   别的 Factory 创建的模块即使代码和权重完全相同，核对也不通过，也不会作为工具复用。还没有官方 Factory 的网络会直接说明这一点。Monad 测试网已有官方 Factory，主网仍未部署。
+
+   Local dev 用 `http://127.0.0.1:18545` 的 Anvil 解锁账户。默认是账户 0。环境变量 `VITE_DEV_ACCOUNT` 可以换成别的账户（下标或地址）。擂台的开发链用它让工作台从擂台页面的账户部署。如果节点是新启动的 `anvil --network monad`，先用默认账户 0 运行 `contracts/script/Deploy.s.sol`。这样 Factory 代理才落在 `CHAINS[31337].factory` 的地址。部署 / step / reset 是交易，预览是 eth_call。
 8. **存模板**：
    1. 选中模块或组合。
    2. 点“存为模板”。
@@ -385,8 +401,11 @@ export function reward(transition) {
 | `editor/CanvasEdge.vue`, `edge-presentation.ts`, `EdgeSettings.vue`, `EdgeMenu.vue`, `wiring.ts`, `wire-palette.js` | 两种线的绘制、外观、中转点、菜单与配色 |
 | `editor/history.ts`, `layout.ts`, `workbench-context.ts` | 撤销 / 重做与复制粘贴。视角持久化。内容组件读取工作台的注入 |
 | `ui/template-library.js`, `ui/static-text.js` | 模板库抽屉。`index.html` 静态文字的翻译 |
+| `ui/brand.css` | 两个页面共用的品牌令牌：无衬线和等宽字体栈、强调色、顶栏的字号和字重。`styles.css` 和 `ladder/src/styles.css` 都用 `@import` 加载它 |
 | `i18n.js`, `i18n/en.json`, `i18n/check.mjs` | 界面语言、英文词条、覆盖检查 |
-| `module-chain.js`, `chain.js` | ModuleFactory / 模块桥接（ADR 0014、ADR 0017）。**部署计划**（只读）：需要几个权重块、链上已有几个、要发哪几笔交易。**部署**：默认用最新引擎版本，调用方可以指定一个版本。先部署工具。Factory 已有同一产物且核对通过的模块时，就复用这个模块。每个模块和它缺的权重块用一笔交易。放不下 30M 时，先为每个缺的块各发一笔交易。每笔交易发送和上链时回报进度。部署先在链上查一遍，所以中断后再部署只发还缺的交易。**核对**：必须给出官方 Factory。模块记的 factory 必须是它，它的 `isModule` 必须认这个模块。核对还检查描述符、引擎、形状和权重块地址。引擎必须是 Factory 为其引擎 id 列出的版本。核对报告这是第几个版本、是否最新，部署面板显示这个结果。另有 step 和收据校验。只接受 `neurom-module` 产物。**链列表**：每个网络的官方 Factory，没部署的为 null。另有钱包连接。**测试**：装有 Foundry 时，`module-chain.test.js` 在本地 anvil 上运行五种对象：四位算术 / 组合器的内置产物、计数回路上自带的 LIF 产物、跨两个权重块的网络（与只共用第一块的网络）、第二笔交易失败后续部署的三块网络、宽于 256 的网络（1020 → 300 → 300）。它检查 Factory 代理就是 `CHAINS[31337].factory`。这个代理来自在新节点上用账户 0 广播的 `contracts/script/Deploy.s.sol`，以及按它的顺序部署的 `anvil.fixture.js`。它还检查：第二个 Factory 上代码和权重相同的模块核对不通过，也不作为工具复用。`core/sessions/deployment.test.js` 用 `core/sessions/fixtures.js` 的计数回路 LIF 模型，经 `module-chain.js` 驱动部署会话（`anvil.fixture.js`，否则跳过） |
+| `wallet/privy.js`, `ui/wallet.js` | 两个页面共用的 Privy 会话，以及训练台顶栏的钱包控件。当前账号和实际链决定签名者。退出或切换账号会使旧签名者作废。私钥不进入工作区 |
+| `chain-error.js` | 两个页面用此模块读取嵌套错误的原因和错误码 |
+| `module-chain.js`, `chain.js` | ModuleFactory / 模块桥接（ADR 0014、ADR 0017）。**部署计划**（只读）：需要几个权重块、链上已有几个、要发哪几笔交易。**部署**：默认用最新引擎版本，调用方可以指定一个版本。先部署工具。Factory 已有同一产物且核对通过的模块时，就复用这个模块。每个模块和它缺的权重块用一笔交易。放不下 30M 时，先为每个缺的块各发一笔交易。每笔交易发送和上链时回报进度。部署先在链上查一遍，所以中断后再部署只发还缺的交易。**模块 ID**：`planDeployment` 和 `deployModule` 必须带 `moduleId`。桥接先检查 ID 合规，再查这个账户是否已用过（`moduleById`），然后才发交易。工具模块用 `toolModuleId`（`tool-` + 48 位十六进制）。结果带存档的 `moduleId` 和 `deployer`。**核对**：必须给出官方 Factory。模块记的 factory 必须是它，它的 `isModule` 必须认这个模块。核对还检查描述符、引擎、形状和权重块地址。引擎必须是 Factory 为其引擎 id 列出的版本。核对报告这是第几个版本、是否最新，部署面板显示这个结果。另有 step 和收据校验。只接受 `neurom-module` 产物。**链列表**：每个网络的官方 Factory，没部署的为 null。另有钱包连接。**测试**：装有 Foundry 时，`module-chain.test.js` 在本地 anvil 上运行五种对象：四位算术 / 组合器的内置产物、计数回路上自带的 LIF 产物、跨两个权重块的网络（与只共用第一块的网络）、第二笔交易失败后续部署的三块网络、宽于 256 的网络（1020 → 300 → 300）。它检查 Factory 代理就是 `CHAINS[31337].factory`。这个代理来自在新节点上用账户 0 广播的 `contracts/script/Deploy.s.sol`，以及按它的顺序部署的 `anvil.fixture.js`。它还检查：第二个 Factory 上代码和权重相同的模块核对不通过，也不作为工具复用。它还检查模块 ID：Factory 存档（部署者，ID）→ 模块，用过的 ID 在发第一笔交易前被拒绝，同一产物换一个 ID 可以再部署，另一个账户可以用相同的 ID。`core/sessions/deployment.test.js` 用 `core/sessions/fixtures.js` 的计数回路 LIF 模型，经 `module-chain.js` 驱动部署会话（`anvil.fixture.js`，否则跳过） |
 | `runtime/dense-policy.js`, `runtime/threshold-layers.js` | 整数执行引擎：dense FF / LIF（格式 `dense-policy`）与阈值层（`threshold-layers`）。不依赖 UI |
 | `abi/` | 从 Solidity 生成的 ABI（ModuleFactory、NeuromModule、Roles） |
 
@@ -403,3 +422,5 @@ npm run build
 ```
 
 构建结果发布到 `frontend/dist/neurom-studio.html`（不入库）。单文件内联代码、样式、内置模板与产物、ABI 和训练 Worker，所以可以用 `file://` 实际训练。ethers 也已打包，所以链上操作不依赖 CDN。Python 训练需要同源 Workspace 服务。
+
+`node frontend/build.mjs --hosted --out <文件>` 构建擂台网站上的工作台（`ladder` 的 `npm run build` 用它，见 ADR 0027）。这个版本不连 Python 工作区，只在浏览器里训练。它的标题栏有回到擂台的链接。新部署记录默认用擂台的链（`VITE_LADDER_CHAIN_ID`）。

@@ -19,18 +19,20 @@ interface ILadderModule {
 /// @title TankLadder — the ladder and the referee of the tank battle contest (ADR 0026).
 /// @notice An entry is a module of the official Factory with 572 input bits and 9 scores, without tools, whose weight
 ///         size is at most `maxWeightBytes` and whose weight chunks differ from every other entry. The entry's owner
-///         is the account that registered it. A new entry takes the last rank.
-///         A challenge is 3 mirror pairs (6 episodes) between a challenger and a defender 1 to `range` ranks above
-///         it. Only an EOA without code starts a challenge, with at least `minStartGas` gas left at the entry. The seed
-///         is keccak256(block.prevrandao, id). The transaction that starts the challenge plays steps until less than
-///         `reserveGas` gas is left, then saves the position. Anyone continues it with `advance`. The transaction that
-///         ends episode 6 settles. A challenge that is not settled `timeoutBlocks` blocks after its start is a
-///         defense, and anyone settles it with `expire`.
+///         is the account that registered it. The board holds the ranks 1 to `boardSize`. A new entry takes the last
+///         rank when the board is not full. Else it stays off the board, and it challenges as the rank below the last.
+///         A challenge is 3 mirror pairs (6 episodes) between a challenger and a defender on the board 1 to `range`
+///         ranks above it. Only an EOA without code starts a challenge, with at least `minStartGas` gas left at the
+///         entry. The seed is keccak256(block.prevrandao, id). The transaction that starts the challenge plays steps
+///         until less than `reserveGas` gas is left, then saves the position. Anyone continues it with `advance`. The
+///         transaction that ends episode 6 settles. A challenge that is not settled `timeoutBlocks` blocks after its
+///         start is a defense, and anyone settles it with `expire`.
 ///         The challenger wins when it wins more episodes than the defender, or the same number with a weight size
 ///         of at most (1 − δ) times the defender's. Then it takes the defender's rank, and the defender and every
-///         entry between them move down one rank. Every other result is a defense. The same challenger cannot
-///         challenge the same defender again for `cooldownBlocks` blocks. After `endBlock` the ladder accepts no new
-///         entry and no new challenge. A started challenge plays to its end.
+///         entry between them move down one rank. A challenger from off the board pushes the last entry off the
+///         board. When the defender is off the board at the settlement, no rank changes. Every other result is a
+///         defense. The same challenger cannot challenge the same defender again for `cooldownBlocks` blocks. After
+///         `endBlock` the ladder accepts no new entry and no new challenge. A started challenge plays to its end.
 ///         The page replays a challenge from the seed and the `Steps` events alone. The referee is TankScene, which
 ///         mirrors the template scene bit for bit. The ladder reads the scores of each side with the read-only
 ///         `forward` from the rest state and takes the first maximum (the readout of the workbench).
@@ -40,6 +42,7 @@ contract TankLadder {
         uint32 maxWeightBytes;
         uint16 deltaBps;
         uint8 range;
+        uint8 boardSize;
         uint32 timeoutBlocks;
         uint32 cooldownBlocks;
         uint32 minStartGas;
@@ -47,7 +50,7 @@ contract TankLadder {
         uint64 endBlock;
     }
 
-    /// @notice An entry as the views return it. `rank` is 1-based, `activeChallenge` 0 = none.
+    /// @notice An entry as the views return it. `rank` is 1-based, 0 = off the board. `activeChallenge` 0 = none.
     struct Entry {
         address module;
         address owner;
@@ -80,6 +83,7 @@ contract TankLadder {
     uint8 public constant STATUS_EXPIRED = 4;
     uint8 public constant EPISODES = 6;
 
+    /// @notice `rank` 0 = off the board (the board was full).
     event EntryRegistered(address indexed module, address indexed owner, uint32 weightBytes, uint32 rank);
     event ChallengeStarted(uint256 indexed id, address indexed challenger, address indexed defender, bytes32 seed, uint64 startBlock);
     /// @notice The actions of the steps `fromStep`.. of `episode`: one byte per step, a0 · 9 + a1, the actions that
@@ -87,6 +91,7 @@ contract TankLadder {
     event Steps(uint256 indexed id, uint8 episode, uint8 fromStep, bytes actions);
     /// @notice `end` as the scene: 0 side 0 wins, 1 side 1 wins, 2 draw.
     event EpisodeEnded(uint256 indexed id, uint8 episode, int8 end, uint8 steps);
+    /// @notice `newRank` is the rank of the challenger after the settlement, 0 = off the board.
     event ChallengeSettled(uint256 indexed id, uint8 status, uint8 challengerWins, uint8 defenderWins, uint32 newRank);
 
     error BadConfig();
@@ -107,7 +112,6 @@ contract TankLadder {
     error NotPlaying();
     error Expired();
     error NotExpired();
-    error BadRank();
     error ForwardFailed(address module);
 
     // ------------------------------------------------------------------------------------------------ configuration
@@ -116,6 +120,7 @@ contract TankLadder {
     uint32 public immutable maxWeightBytes;
     uint16 public immutable deltaBps;
     uint8 public immutable range;
+    uint8 public immutable boardSize;
     uint32 public immutable timeoutBlocks;
     uint32 public immutable cooldownBlocks;
     uint32 public immutable minStartGas;
@@ -123,11 +128,12 @@ contract TankLadder {
     uint64 public immutable endBlock;
 
     constructor(Config memory c) {
-        if (c.factory.code.length == 0 || c.deltaBps > 10000 || c.range == 0 || c.reserveGas == 0 || c.timeoutBlocks == 0) revert BadConfig();
+        if (c.factory.code.length == 0 || c.deltaBps > 10000 || c.range == 0 || c.boardSize == 0 || c.reserveGas == 0 || c.timeoutBlocks == 0) revert BadConfig();
         factory = c.factory;
         maxWeightBytes = c.maxWeightBytes;
         deltaBps = c.deltaBps;
         range = c.range;
+        boardSize = c.boardSize;
         timeoutBlocks = c.timeoutBlocks;
         cooldownBlocks = c.cooldownBlocks;
         minStartGas = c.minStartGas;
@@ -136,18 +142,23 @@ contract TankLadder {
     }
 
     function config() external view returns (Config memory) {
-        return Config(factory, maxWeightBytes, deltaBps, range, timeoutBlocks, cooldownBlocks, minStartGas, reserveGas, endBlock);
+        return Config(factory, maxWeightBytes, deltaBps, range, boardSize, timeoutBlocks, cooldownBlocks, minStartGas, reserveGas, endBlock);
     }
 
     // ------------------------------------------------------------------------------------------------ storage
 
-    /// @dev One slot: owner 160 | weightBytes 32 | rank 32 | wins 16 | losses 16.
-    struct EntryData { address owner; uint32 weightBytes; uint32 rank; uint16 wins; uint16 losses; uint256 activeChallenge; }
+    /// @dev Two slots: owner 160 | weightBytes 32 | wins 16 | losses 16, then activeChallenge. An entry has an owner,
+    ///      so owner 0 = not entered.
+    struct EntryData { address owner; uint32 weightBytes; uint16 wins; uint16 losses; uint256 activeChallenge; }
     /// @dev head: challenger 160 | startBlock 64 | status 8 | episode 8 | challengerWins 8 | defenderWins 8.
     ///      body: defender 160 | scene meta 96 (TankScene.packMeta). cells: the 81 cells of the current episode.
     struct ChallengeData { uint256 head; uint256 body; bytes32 seed; uint256 cells; }
 
-    address[] private _ranks;
+    /// @dev The entries on the board in rank order, at most `boardSize`: rank r is _board[r - 1]. The ladder finds a
+    ///      rank with a scan of this array. Its slots are adjacent, so a scan touches few storage pages (MIP-8).
+    address[] private _board;
+    /// @dev Every entry in the order of registration, on the board and off it. Entries never leave.
+    address[] private _entered;
     mapping(address => EntryData) private _entries;
     /// @dev keccak256 of the chunk list of each entry → the entry.
     mapping(bytes32 => address) private _byChunks;
@@ -158,10 +169,11 @@ contract TankLadder {
 
     // ------------------------------------------------------------------------------------------------ registration
 
-    /// @notice Enter `module` on the ladder at the last rank. msg.sender becomes its owner.
+    /// @notice Enter `module` on the ladder: at the last rank when the board is not full, else off the board.
+    ///         msg.sender becomes its owner.
     function register(address module) external {
         if (block.number >= endBlock) revert SeasonOver();
-        if (_entries[module].rank != 0) revert AlreadyEntered();
+        if (_entries[module].owner != address(0)) revert AlreadyEntered();
         if (!ILadderFactory(factory).isModule(module)) revert NotOfficialModule();
         ModuleDescriptor memory d = ILadderModule(module).descriptor();
         if (d.inputs != TankScene.INPUTS || d.outputs != TankScene.ACTIONS) revert WrongShape(d.inputs, d.outputs);
@@ -173,9 +185,13 @@ contract TankLadder {
         bytes32 key = keccak256(abi.encode(chunks));
         if (_byChunks[key] != address(0)) revert DuplicateWeights(_byChunks[key]);
         _byChunks[key] = module;
-        _ranks.push(module);
-        uint32 rank = uint32(_ranks.length);
-        _entries[module] = EntryData(msg.sender, uint32(weightBytes), rank, 0, 0, 0);
+        _entered.push(module);
+        uint32 rank;
+        if (_board.length < boardSize) {
+            _board.push(module);
+            rank = uint32(_board.length);
+        }
+        _entries[module] = EntryData(msg.sender, uint32(weightBytes), 0, 0, 0);
         emit EntryRegistered(module, msg.sender, uint32(weightBytes), rank);
     }
 
@@ -189,9 +205,11 @@ contract TankLadder {
         if (block.number >= endBlock) revert SeasonOver();
         EntryData storage c = _entries[challenger];
         EntryData storage d = _entries[defender];
-        if (c.rank == 0 || d.rank == 0) revert NotEntered();
+        if (c.owner == address(0) || d.owner == address(0)) revert NotEntered();
         if (c.owner != msg.sender) revert NotOwner();
-        if (d.rank >= c.rank || c.rank - d.rank > range) revert OutOfRange();
+        (uint256 cr, uint256 dr) = _ranksOf(challenger, defender);
+        if (cr == 0) cr = _board.length + 1;   // off the board: the board is full, and the challenger is below the last
+        if (dr == 0 || dr >= cr || cr - dr > range) revert OutOfRange();
         if (c.activeChallenge != 0) revert Busy();
         bytes32 pair = _pair(challenger, defender);
         if (block.number < _cooldownUntil[pair]) revert Cooldown(_cooldownUntil[pair]);
@@ -237,8 +255,8 @@ contract TankLadder {
     }
 
     /// @dev Plays steps of `id` while at least `reserveGas` gas is left. The reserve holds one step (at most about
-    ///      1.2M gas for two 大 networks), the save, the events and the settlement (about 5k gas per rank the
-    ///      challenger climbs). Emits `Steps` per episode segment played here, `EpisodeEnded` per finished episode.
+    ///      1.2M gas for two 大 networks), the save, the events and the settlement (a scan and a shift of the board,
+    ///      about 1k gas per rank). Emits `Steps` per episode segment played here, `EpisodeEnded` per finished episode.
     function _play(uint256 id, ChallengeData storage ch) private {
         uint256 head = ch.head;
         uint256 body = ch.body;
@@ -292,7 +310,7 @@ contract TankLadder {
             assembly ("memory-safe") { mstore(actions, played) }
             emit Steps(id, uint8(episode), fromStep, actions);
         }
-        if (head != ch.head) ch.head = head;
+        ch.head = head;
         ch.body = uint256(uint160(defender)) | (TankScene.packMeta(s) << 160);
         ch.cells = s.cells;
     }
@@ -331,6 +349,16 @@ contract TankLadder {
         return uint256(_entries[challenger].weightBytes) * 10000 <= uint256(_entries[defender].weightBytes) * (10000 - deltaBps);
     }
 
+    /// @dev The ranks of `a` and `b` (1-based, 0 = off the board) from one scan of the board.
+    function _ranksOf(address a, address b) private view returns (uint256 ra, uint256 rb) {
+        uint256 n = _board.length;
+        for (uint256 k; k < n && (ra == 0 || rb == 0); k++) {
+            address m = _board[k];
+            if (m == a) ra = k + 1;
+            if (m == b) rb = k + 1;
+        }
+    }
+
     /// @dev Records `status` of challenge `id`, counts the win and the loss, moves the ranks when the challenger won.
     function _settle(uint256 id, ChallengeData storage ch, uint256 head, uint8 status) private {
         address challenger = address(uint160(head));
@@ -339,53 +367,60 @@ contract TankLadder {
         EntryData storage c = _entries[challenger];
         EntryData storage d = _entries[defender];
         c.activeChallenge = 0;
-        uint32 newRank = c.rank;
+        (uint256 cr, uint256 dr) = _ranksOf(challenger, defender);
+        uint256 newRank = cr;
         if (status == STATUS_CHALLENGER_WON) {
             c.wins++;
             d.losses++;
-            // the defender is above the challenger: every rank change keeps the order of two entries, except for a
-            // winner that climbs, and the challenger climbs only here
-            newRank = d.rank;
-            for (uint256 r = c.rank - 1; r > newRank - 1; r--) {
-                address below = _ranks[r - 1];
-                _ranks[r] = below;
-                _entries[below].rank = uint32(r + 1);
+            // the defender stays above the challenger until this settlement: every rank change keeps the order of two
+            // entries, except for a winner that climbs, and the challenger climbs only here. Only the last entry leaves
+            // the board, so a defender off the board has its challenger off the board too. Then no rank changes.
+            if (dr != 0 && (cr == 0 || dr < cr)) {
+                // a challenger from off the board pushes the last entry off the board: the entry above takes its slot
+                for (uint256 r = cr == 0 ? _board.length : cr; r > dr; r--) _board[r - 1] = _board[r - 2];
+                _board[dr - 1] = challenger;
+                newRank = dr;
             }
-            _ranks[newRank - 1] = challenger;
-            c.rank = newRank;
         } else {
             d.wins++;
             c.losses++;
         }
-        emit ChallengeSettled(id, status, uint8(head >> 240), uint8(head >> 248), newRank);
+        emit ChallengeSettled(id, status, uint8(head >> 240), uint8(head >> 248), uint32(newRank));
     }
 
     // ------------------------------------------------------------------------------------------------ views
 
-    function entryCount() external view returns (uint256) { return _ranks.length; }
-
-    /// @notice The module at `rank` (1-based).
-    function entryAt(uint256 rank) external view returns (address) {
-        if (rank == 0 || rank > _ranks.length) revert BadRank();
-        return _ranks[rank - 1];
-    }
+    /// @notice How many entries have entered, on the board and off it.
+    function entryCount() external view returns (uint256) { return _entered.length; }
 
     /// @notice The owner of entry `module`, address(0) when it is not entered.
     function entryOwner(address module) external view returns (address) { return _entries[module].owner; }
 
+    /// @notice Entry `module`. Owner 0 = not entered.
     function entry(address module) public view returns (Entry memory) {
-        EntryData storage e = _entries[module];
-        return Entry(module, e.owner, e.weightBytes, e.rank, e.wins, e.losses, e.activeChallenge);
+        (uint256 rank,) = _ranksOf(module, module);
+        return _entry(module, rank);
     }
 
-    /// @notice Up to `count` entries from `fromRank` (1-based) on, in rank order.
-    function entries(uint256 fromRank, uint256 count) external view returns (Entry[] memory out) {
-        if (fromRank == 0) revert BadRank();
-        uint256 n = _ranks.length;
-        uint256 end = fromRank - 1 + count;
-        if (end > n) end = n;
-        out = new Entry[](end >= fromRank - 1 ? end - (fromRank - 1) : 0);
-        for (uint256 k; k < out.length; k++) out[k] = entry(_ranks[fromRank - 1 + k]);
+    /// @notice The entries on the board in rank order: element k has rank k + 1.
+    function board() external view returns (Entry[] memory out) {
+        uint256 n = _board.length;
+        out = new Entry[](n);
+        for (uint256 k; k < n; k++) out[k] = _entry(_board[k], k + 1);
+    }
+
+    /// @notice Up to `count` entries from index `from` (0-based) on, in the order of registration, on the board and
+    ///         off it.
+    function entries(uint256 from, uint256 count) external view returns (Entry[] memory out) {
+        uint256 n = _entered.length;
+        uint256 end = from >= n ? from : (count > n - from ? n : from + count);
+        out = new Entry[](end - from);
+        for (uint256 k; k < out.length; k++) out[k] = entry(_entered[from + k]);
+    }
+
+    function _entry(address module, uint256 rank) private view returns (Entry memory) {
+        EntryData storage e = _entries[module];
+        return Entry(module, e.owner, e.weightBytes, uint32(rank), e.wins, e.losses, e.activeChallenge);
     }
 
     function challengeInfo(uint256 id) external view returns (ChallengeInfo memory info) {

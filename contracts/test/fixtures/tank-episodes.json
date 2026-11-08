@@ -1,7 +1,7 @@
 {
  "template": {
   "id": "tank-battle",
-  "revision": 16
+  "revision": 17
  },
  "abi": {
   "module": "tuple(bytes32 engineId, uint8 kind, uint16 inputs, uint16 outputs, uint256[] shape, bytes[] chunks, bytes32 artifactId, bytes32 taskId)",

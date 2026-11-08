@@ -54,7 +54,7 @@ const trainViews = (id: string) => { const v = flow.findNode<TrainingModuleView>
     <template #node-trainmod="props"><TrainingModuleNode v-bind="props" /></template>
     <template #edge-wire="props"><CanvasEdge v-bind="props" /></template>
     <Background :variant="BackgroundVariant.Dots" :gap="24" :size="2" color="var(--grid-dot)" />
-    <MiniMap pannable zoomable position="bottom-left" mask-color="rgba(22,23,27,.72)" :node-class-name="(n: MiniNode) => n.type === 'module' ? `kind-${n.data?.kind}` : 'group'" :node-stroke-width="2">
+    <MiniMap pannable zoomable position="bottom-left" mask-color="rgba(250,250,250,.72)" :node-class-name="(n: MiniNode) => n.type === 'module' ? `kind-${n.data?.kind}` : 'group'" :node-stroke-width="2">
       <!-- a training module: its outline, the well, and each section where the column draws it (its sections are no flow nodes) -->
       <template #node-trainmod="m">
         <g v-for="v in trainViews(m.id)" :key="m.id">

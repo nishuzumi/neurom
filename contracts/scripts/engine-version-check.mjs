@@ -93,7 +93,8 @@ export async function checkVersion({ rpcUrl, factory, engine, candidate, log = (
 
     fork = await forkOf(rpcUrl, block);
     const signer = await fork.provider.getSigner(0), modules = [];
-    for (const c of cases) modules.push({ c, address: (await deployModule(signer, factory, c.artifact, { artifacts })).address });
+    // one module per case on the fork, each under its own id (the id of a module is unique under its deployer)
+    for (const [k, c] of cases.entries()) modules.push({ c, address: (await deployModule(signer, factory, c.artifact, { artifacts, moduleId: `case-${k + 1}-${c.artifact.id.slice(2, 10)}` })).address });
     const snapshot = await fork.provider.send('evm_snapshot', []);
     /** The cases' decisions with `at`'s code at every version of the engine id. */
     const runWith = async (at, who) => {

@@ -215,8 +215,22 @@ contract ModulesTest {
         for (uint256 k; k < d.length; k++) d[k] = _content[spec.chunks[k]];
     }
 
-    /// One transaction: the missing chunks of `spec`, then its module.
+    uint256 private _ids;
+
+    /// A module id no earlier call returned: "m-1", "m-2", ... Every spec helper takes one, and _deploy takes a fresh
+    /// one, so a test deploys one spec many times (the id is unique per deployer).
+    function _id() internal returns (string memory) { return string.concat("m-", _dec(++_ids)); }
+
+    function _dec(uint256 v) internal pure returns (string memory s) {
+        if (v == 0) return "0";
+        bytes memory b;
+        while (v != 0) { b = bytes.concat(bytes1(uint8(0x30 + v % 10)), b); v /= 10; }
+        s = string(b);
+    }
+
+    /// One transaction: the missing chunks of `spec`, then its module, under a fresh id.
     function _deploy(ModuleFactory.ModuleSpec memory spec) internal returns (address) {
+        spec.moduleId = _id();
         return factory.deploy(spec, _data(spec));
     }
 
@@ -248,7 +262,7 @@ contract ModulesTest {
     function _denseSpec(uint256 bits, uint8 kind, uint16 inputs, uint16 outputs, Layer[] memory l, uint8 ticks_, uint8 leak, uint32 th, int16 rst, bytes memory rowMajor, bytes32 art, bytes32 task)
         internal returns (ModuleFactory.ModuleSpec memory spec)
     {
-        spec = ModuleFactory.ModuleSpec(DENSE, address(0), kind, inputs, outputs, _denseShape(l, bits, ticks_, leak, th, rst), _toolList(l), _pieces(_denseBlob(rowMajor, inputs, l, outputs, bits)), art, task);
+        spec = ModuleFactory.ModuleSpec(DENSE, address(0), kind, inputs, outputs, _denseShape(l, bits, ticks_, leak, th, rst), _toolList(l), _pieces(_denseBlob(rowMajor, inputs, l, outputs, bits)), art, task, _id());
     }
 
     function _dense(uint256 bits, uint8 kind, uint16 inputs, uint16 outputs, Layer[] memory l, uint8 ticks_, uint8 leak, uint32 th, int16 rst, bytes memory rowMajor, bytes32 art, bytes32 task) internal returns (NeuromModule) {
@@ -263,7 +277,7 @@ contract ModulesTest {
     }
 
     function _thresholdSpec(uint256 bits, uint16[] memory widths, bytes memory rowMajor, bytes32 art, bytes32 task) internal returns (ModuleFactory.ModuleSpec memory) {
-        return ModuleFactory.ModuleSpec(THRESHOLD, address(0), 0, widths[0], widths[widths.length - 1], _thresholdShape(widths, bits), new address[](0), _pieces(_thresholdBlob(rowMajor, widths, bits)), art, task);
+        return ModuleFactory.ModuleSpec(THRESHOLD, address(0), 0, widths[0], widths[widths.length - 1], _thresholdShape(widths, bits), new address[](0), _pieces(_thresholdBlob(rowMajor, widths, bits)), art, task, _id());
     }
 
     function _threshold(uint256 bits, uint16[] memory widths, bytes memory rowMajor, bytes32 art, bytes32 task) internal returns (NeuromModule) {
@@ -1031,10 +1045,10 @@ contract ModulesTest {
         NeuromModule m = NeuromModule(_deploy(s));                              // both chunks missing: one call creates all
         require(first.code.length == 1 + _content[s.chunks[0]].length && second.code.length == 1 + _content[s.chunks[1]].length, "both chunks created");
         require(factory.isModule(address(m)) && m.chunks()[0] == first && m.chunks()[1] == second, "and the module reading them");
-        s.artifactId = keccak256("resumed");
+        s.artifactId = keccak256("resumed"); s.moduleId = _id();
         bytes[] memory half = _data(s); half[0] = "";                          // chunk 0 sent before, chunk 1 sent again
         require(NeuromModule(factory.deploy(s, half)).chunks()[1] == second, "an existing chunk sent again is skipped");
-        s.artifactId = keccak256("twin");
+        s.artifactId = keccak256("twin"); s.moduleId = _id();
         NeuromModule twin = NeuromModule(factory.deploy(s, new bytes[](2)));   // both exist: nothing comes along
         require(twin.chunks()[1] == second && factory.count() == 3, "every module shares the chunks");
     }
@@ -1163,8 +1177,8 @@ contract ModulesTest {
     }
 
     /// A factory upgrade keeps everything in the proxy's storage: count, isModule, depthOf, the chunks, the artifact
-    /// index, the module implementation and the versions. Every module decides as before, and its session continues.
-    /// Only an UPGRADER upgrades, only to a contract with the same Roles. initialize runs once.
+    /// index, the archive, the module implementation and the versions. Every module decides as before, and its
+    /// session continues. Only an UPGRADER upgrades, only to a contract with the same Roles. initialize runs once.
     function testFactoryUpgradeKeepsItsState() public {
         NeuromModule lif = _lif(8);
         NeuromModule x = _xor(8);
@@ -1173,6 +1187,8 @@ contract ModulesTest {
         require(v[0] == -2, "first step");
         (int256[] memory selBefore,,,) = sel.forward(_bits2(true, false));
         (uint256 n, address impl, address chunk) = (factory.count(), factory.implementation(), lif.chunks()[0]);
+        string memory lifId = factory.moduleIdOf(address(lif));
+        require(bytes(lifId).length != 0 && factory.deploymentCount(address(this)) == 5, "archived before the upgrade");
         FactoryProxy proxy = FactoryProxy(address(factory));
         address next = address(new ModuleFactory(address(roles)));
         _expectRevert(address(foreign), abi.encodeCall(foreign.exec, (address(proxy), abi.encodeCall(proxy.upgradeToAndCall, (next, "")))), "upgrader");
@@ -1186,6 +1202,8 @@ contract ModulesTest {
         require(factory.count() == n && factory.isModule(address(lif)) && factory.isModule(address(x)) && factory.isModule(address(sel)), "count, isModule");
         require(factory.depthOf(address(sel)) == 1 && factory.implementation() == impl && factory.latestOf(DENSE) == dense, "depthOf, implementation, versions");
         require(factory.modulesOf(ART).length == 1 && factory.modulesOf(ART)[0] == address(lif) && factory.chunkAddress(_denseSpec(8, 1, IN, OUT, _one(1), 1, 2, 4, 0, _lifWeights(), ART, TASK).chunks[0]) == chunk, "artifact index, chunks");
+        require(keccak256(bytes(factory.moduleIdOf(address(lif)))) == keccak256(bytes(lifId)) && factory.deployerOf(address(lif)) == address(this), "the archive entry");
+        require(factory.moduleById(address(this), lifId) == address(lif) && factory.deploymentCount(address(this)) == 5 && factory.modulesByDeployer(address(this), 4, 1)[0] == address(sel), "the archive index");
         (,,, v) = lif.step(S0, _obs(false, false));
         require(v[0] == -3, "the session continues");
         (int256[] memory selAfter,,,) = sel.forward(_bits2(true, false));
@@ -1220,8 +1238,107 @@ contract ModulesTest {
         require(m.stateOf(address(deployer), S0)[0] == -2 && m.stateOf(address(next), S0)[0] == -3, "per actor");
         ModuleDescriptor memory d = m.descriptor();
         require(d.engine == address(dense) && d.factory == address(factory) && m.chunks().length == 1 && m.tools().length == 0, "identity unchanged");
+        require(factory.deployerOf(address(m)) == address(deployer) && keccak256(bytes(factory.moduleIdOf(address(m)))) == keccak256(bytes(spec.moduleId)), "the archive keeps the deployer and the id");
+        require(factory.moduleById(address(deployer), spec.moduleId) == address(m) && factory.moduleById(address(next), spec.moduleId) == address(0), "the id stays in the deployer's namespace");
+        require(factory.modulesByDeployer(address(deployer), 0, 10)[0] == address(m) && factory.deploymentCount(address(next)) == 0, "the new owner's list is empty");
         (bool ok,) = address(m).call(abi.encodeWithSignature("setEngine(address)", address(this)));
         require(!ok, "no other entry point");
+    }
+
+    // ------------------------------------------------------------------------------------------------ archive
+
+    /// A module id is 3..64 bytes: the first a..z, the rest a..z, 0..9, '-' or '_'. Anything else is refused ("id") by
+    /// checkDeploy and deploy alike. The bounds themselves deploy.
+    function testModuleIdCharsetAndLength() public {
+        require(factory.MIN_ID_BYTES() == 3 && factory.MAX_ID_BYTES() == 64, "the bounds");
+        ModuleFactory.ModuleSpec memory s = _denseSpec(8, 1, IN, OUT, _one(1), 1, 2, 4, 0, _lifWeights(), ART, TASK);
+        bytes[] memory data = _data(s);
+        _badId(s, data, "");
+        _badId(s, data, "a");
+        _badId(s, data, "ab");                                               // 2 bytes
+        _badId(s, data, "Abc");                                              // upper case
+        _badId(s, data, "1abc");                                             // a digit first
+        _badId(s, data, "-abc");
+        _badId(s, data, "_abc");
+        _badId(s, data, "a bc");
+        _badId(s, data, "a.bc");
+        _badId(s, data, "abC");
+        _badId(s, data, unicode"abcé");                                      // not ASCII
+        _badId(s, data, "abc\x00");
+        _badId(s, data, string(_fill(65, "a")));                             // 65 bytes
+        s.moduleId = "abc"; address three = factory.deploy(s, data);
+        s.moduleId = "a-0_z9"; address mixed = factory.deploy(s, data);
+        s.moduleId = string(_fill(64, "z")); address longest = factory.deploy(s, data);
+        require(factory.moduleById(address(this), "abc") == three && factory.moduleById(address(this), "a-0_z9") == mixed, "3 bytes, every class");
+        require(factory.moduleById(address(this), string(_fill(64, "z"))) == longest && factory.moduleById(address(this), "ab") == address(0), "64 bytes");
+        require(keccak256(bytes(factory.moduleIdOf(longest))) == keccak256(_fill(64, "z")) && factory.deployerOf(longest) == address(this), "stored as sent");
+    }
+
+    function _fill(uint256 n, bytes1 c) internal pure returns (bytes memory b) {
+        b = new bytes(n);
+        for (uint256 i; i < n; i++) b[i] = c;
+    }
+
+    /// One deployer uses an id once. A second module under the same id is refused ("taken") before anything is
+    /// created: its new chunk does not appear, count stays. Another account uses the same id for its own module.
+    function testModuleIdIsUniquePerDeployer() public {
+        ModuleFactory.ModuleSpec memory first = _denseSpec(8, 1, IN, OUT, _one(1), 1, 2, 4, 0, _lifWeights(), ART, TASK);
+        first.moduleId = "alpha";
+        address mine = factory.deploy(first, _data(first));
+        ModuleFactory.ModuleSpec memory second = _denseSpec(8, 0, WI, WO, _one(WH), 1, 0, 1, 0, _gen(WH * (WI + 1) + WO * (WH + 1)), keccak256("second"), TASK);
+        address chunk = factory.chunkAddress(second.chunks[0]);
+        require(chunk.code.length == 0, "a chunk only this module brings");
+        second.moduleId = "alpha";
+        _refused(second, _data(second), "taken");
+        require(chunk.code.length == 0 && factory.count() == 1 && factory.deploymentCount(address(this)) == 1, "the refusal left nothing");
+        require(factory.modulesOf(keccak256("second")).length == 0, "and no index entry");
+        Actor other = new Actor();
+        address theirs = other.deploy(factory, second, _data(second));           // the same id in another namespace
+        require(theirs != mine && factory.moduleById(address(other), "alpha") == theirs && factory.moduleById(address(this), "alpha") == mine, "one id, two deployers");
+        require(factory.deployerOf(theirs) == address(other) && chunk.code.length != 0, "deployed with its chunk");
+        second.moduleId = "alpha-2";
+        address again = factory.deploy(second, new bytes[](1));                  // the chunk exists now
+        require(factory.moduleById(address(this), "alpha-2") == again && factory.deploymentCount(address(this)) == 2, "a free id deploys");
+        second.moduleId = "Alpha-2";
+        _expectRevert(address(other), abi.encodeCall(other.deploy, (factory, second, _data(second))), "id");   // a free id in another case is still no id
+    }
+
+    function _badId(ModuleFactory.ModuleSpec memory s, bytes[] memory data, string memory id) internal {
+        s.moduleId = id;
+        _refused(s, data, "id");
+    }
+
+    /// modulesByDeployer lists one account's modules in deployment order, by pages: `offset` past the end gives an
+    /// empty page, a `limit` past the end gives the rest, the largest limit is safe. An address that is no module has
+    /// an empty id and no deployer. An account that deployed nothing has an empty list.
+    function testArchiveListsOneAccountsModulesByPage() public {
+        address[] memory want = new address[](5);
+        for (uint256 k; k < 5; k++) want[k] = address(_lif(8));
+        Actor other = new Actor();
+        ModuleFactory.ModuleSpec memory spec = _denseSpec(8, 1, IN, OUT, _one(1), 1, 2, 4, 0, _lifWeights(), ART, TASK);
+        address theirs = other.deploy(factory, spec, _data(spec));
+        require(factory.deploymentCount(address(this)) == 5 && factory.deploymentCount(address(other)) == 1 && factory.count() == 6, "per deployer");
+        address[] memory page = factory.modulesByDeployer(address(this), 0, 2);
+        require(page.length == 2 && page[0] == want[0] && page[1] == want[1], "page 0");
+        page = factory.modulesByDeployer(address(this), 2, 2);
+        require(page.length == 2 && page[0] == want[2] && page[1] == want[3], "page 1");
+        page = factory.modulesByDeployer(address(this), 4, 2);
+        require(page.length == 1 && page[0] == want[4], "the last page is short");
+        require(factory.modulesByDeployer(address(this), 5, 2).length == 0 && factory.modulesByDeployer(address(this), 100, 1).length == 0, "past the end: empty");
+        page = factory.modulesByDeployer(address(this), 0, type(uint256).max);
+        require(page.length == 5 && page[4] == want[4], "the largest limit lists all");
+        page = factory.modulesByDeployer(address(this), 3, type(uint256).max);
+        require(page.length == 2 && page[0] == want[3], "the largest limit from an offset");
+        require(factory.modulesByDeployer(address(this), 0, 0).length == 0, "limit 0: empty");
+        page = factory.modulesByDeployer(address(other), 0, 10);
+        require(page.length == 1 && page[0] == theirs, "the other account's list");
+        require(factory.deploymentCount(address(foreign)) == 0 && factory.modulesByDeployer(address(foreign), 0, 10).length == 0, "no deployments: empty");
+        require(bytes(factory.moduleIdOf(address(foreign))).length == 0 && factory.deployerOf(address(foreign)) == address(0), "no module: no entry");
+        for (uint256 k; k < 5; k++) {
+            string memory id = factory.moduleIdOf(want[k]);
+            require(factory.moduleById(address(this), id) == want[k] && factory.deployerOf(want[k]) == address(this), "every entry resolves");
+            require(keccak256(bytes(id)) != keccak256(bytes(factory.moduleIdOf(want[(k + 1) % 5]))), "distinct ids");
+        }
     }
 
     /// A module is a clone of the Factory's implementation with its identity in its code. Only the Factory sets a
@@ -1486,7 +1603,7 @@ contract ModulesTest {
             ids[k] = keccak256(piece);
             factory.createChunk(piece);
         }
-        return NeuromModule(factory.deploy(ModuleFactory.ModuleSpec(engineId, address(0), 0, inputs, outputs, shape, new address[](0), ids, art, TASK), new bytes[](n)));
+        return NeuromModule(factory.deploy(ModuleFactory.ModuleSpec(engineId, address(0), 0, inputs, outputs, shape, new address[](0), ids, art, TASK, _id()), new bytes[](n)));
     }
 
     /// Cold gas of one forward and one step of `m` on `x` (every account of the call cooled first), and the forward's result.
@@ -1662,12 +1779,12 @@ contract ModulesTest {
         n += 7 * (width + 1);
         bytes memory old = new bytes(2 * n);
         for (uint256 k; k < n; k++) _i16(old, k, int256((37 * k + 11) % 201) - 100);
-        ModuleFactory.ModuleSpec memory spec = ModuleFactory.ModuleSpec(DENSE, address(0), 0, 185, 7, _denseShape(l, bits, 1, 0, 1, 0), new address[](0), _pieces(_denseBlob(old, 185, l, 7, bits)), keccak256(abi.encode(hidden, bits)), TASK);
+        ModuleFactory.ModuleSpec memory spec = ModuleFactory.ModuleSpec(DENSE, address(0), 0, 185, 7, _denseShape(l, bits, 1, 0, 1, 0), new address[](0), _pieces(_denseBlob(old, 185, l, 7, bits)), keccak256(abi.encode(hidden, bits)), TASK, _id());
         bytes[] memory data = _data(spec);
         uint256 g = gasleft();
         m = NeuromModule(factory.deploy(spec, data));
         oneTx = g - gasleft();
-        spec.artifactId = keccak256(abi.encode(hidden, bits, "twin"));
+        spec.artifactId = keccak256(abi.encode(hidden, bits, "twin")); spec.moduleId = _id();
         data = new bytes[](1);
         g = gasleft();
         factory.deploy(spec, data);

@@ -283,9 +283,9 @@ function requestClose(e?: Event) {
 </template>
 
 <style scoped>
-.pdecl{width:min(1100px,92vw);height:min(760px,86vh);max-width:none;max-height:none;padding:0;border:1px solid var(--line-strong);border-radius:10px;background:var(--panel);color:var(--ink);box-shadow:0 24px 64px -16px rgba(0,0,0,.9);font-size:12px}
+.pdecl{width:min(1100px,92vw);height:min(760px,86vh);max-width:none;max-height:none;padding:0;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--panel);color:var(--ink);box-shadow:var(--shadow-pop);font-size:12px}
 .pdecl[open]{display:flex;flex-direction:column}
-.pdecl::backdrop{background:rgba(0,0,0,.55)}
+.pdecl::backdrop{background:rgba(24,24,27,.45)}
 .pdecl-head{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 14px;border-bottom:1px solid var(--line);background:var(--panel-head)}
 .pdecl-head h2{margin:0;flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pdecl-main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}

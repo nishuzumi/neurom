@@ -17,14 +17,15 @@ const freePort = () => new Promise((resolve, reject) => { const srv = net.create
 const reachable = port => new Promise(resolve => { const c = net.connect(port, '127.0.0.1', () => { c.end(); resolve(true); }); c.on('error', () => resolve(false)); });
 
 /**
- * `anvil --network <network> ...args` on a free port, once it accepts connections → `{ url, provider, stop }`. The
- * network defaults to monad. Anvil also stops when this process exits. Throws when anvil is missing or does not start
- * (with its stderr).
+ * `anvil --network <network> ...args` on a free port (or on `port`), once it accepts connections → `{ url, provider, stop }`.
+ * The network defaults to monad. Anvil also stops when this process exits. Throws when anvil is missing or does not
+ * start (with its stderr).
  */
-export async function startAnvil(args = [], { network = 'monad' } = {}) {
+export async function startAnvil(args = [], { network = 'monad', port = null } = {}) {
   const anvil = foundryBinary('anvil');
   if (!anvil) throw new Error('needs anvil (Foundry) on PATH or in ANVIL');
-  const port = await freePort();
+  if (port === null) port = await freePort();
+  else if (await reachable(port)) throw new Error(`port ${port} is in use: another node is already there`);
   const proc = spawn(anvil, ['--network', network, ...args, '--port', String(port)], { stdio: ['ignore', 'ignore', 'pipe'] });
   const kill = () => { proc.kill(); process.off('exit', kill); };
   process.once('exit', kill);

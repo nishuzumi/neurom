@@ -21,13 +21,21 @@ contract TankParityTest is LadderBase {
         for (uint256 k = 1; k < scores.length; k++) if (scores[k] > scores[best]) best = uint8(k);
     }
 
+    /// The 572 input bits of `side` as bytes, the way the ladder fills its call buffer.
+    function inputOf(TankScene.State memory s, uint256 side) internal pure returns (bytes memory v) {
+        v = new bytes(TankScene.INPUTS);
+        uint256 ptr;
+        assembly ("memory-safe") { ptr := add(v, 32) }
+        TankScene.fillInput(s, side, ptr);
+    }
+
     function decide(address module, TankScene.State memory s, uint256 side) internal view returns (uint8) {
-        (int256[] memory scores,,,) = INeuromModule(module).forward(TankScene.inputOf(s, side));
+        (int256[] memory scores,,,) = INeuromModule(module).forward(inputOf(s, side));
         require(scores.length == 9, "9 scores");
         return argmax(scores);
     }
 
-    /// Every recorded episode, step by step: the scene from `battle`, the inputs from `inputOf`, the modules' scores.
+    /// Every recorded episode, step by step: the scene from `battle`, the inputs from `fillInput`, the modules' scores.
     function testEpisodesMatchTheTemplate() public {
         Episode[] memory episodes = abi.decode(vm.parseJsonBytes(fixture, ".episodesData"), (Episode[]));
         uint256 steps;
@@ -85,8 +93,7 @@ contract TankParityTest is LadderBase {
             uint256 id = ladder.challenge{gas: GAS_LIMIT}(challenger, defender);
             require(id == c.id, "id");
             require(ladder.challengeInfo(id).seed == c.seed, "seed");
-            uint256 transactions = 1;
-            while (ladder.challengeInfo(id).status == ladder.STATUS_PLAYING()) { ladder.advance{gas: GAS_LIMIT}(id); transactions++; }
+            uint256 transactions = settle(ladder, id);
             IVm.Log[] memory logs = vm.getRecordedLogs();
             bytes[6] memory actions;
             uint256[6] memory nextStep;
