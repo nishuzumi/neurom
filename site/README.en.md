@@ -100,19 +100,17 @@ Both Vite configurations read `.env.local` from the repository root, not `site/.
 
 
 - `VITE_PRIVY_APP_ID`: the shared Privy app ID. Public chains use the Privy embedded wallet for login and signatures. Without it, the ladder is read-only. Local dev (31337) always uses public Anvil development accounts and shows the LOCAL DEV label.
-- `VITE_LADDER_CHAIN_ID`: the chain of the page, a key of `data/deployments.json`. Default: the first chain of the file with a ladder address, else 31337.
-- `VITE_LADDER_RPC`, `VITE_LADDER_FACTORY`, `VITE_LADDER_ADDRESS`: optional. Override the RPC, the official Factory and the ladder address of `deployments.json`. The dev script uses them to point at its anvil.
+- `VITE_LADDER_CHAIN_ID`: the chain of the ladder, a key of `data/deployments.json`. Default: the first public chain of the file with a ladder address, else 31337. The ladder page, the workbench and the name service read it through the one rule of `src/chain/ladder-chain.js`, so the three always use the same chain.
+- `VITE_LADDER_RPC`, `VITE_LADDER_FACTORY`, `VITE_LADDER_ADDRESS`: optional. Override the RPC, the official Factory and the ladder address of `deployments.json`. The dev script uses them to point at its anvil. The name service also reads `VITE_LADDER_ADDRESS`.
 - `VITE_DEV_ACCOUNT`: the index of the local dev account in the mnemonic, default 1.
 
 The configuration of the contract (δ, range, board size, cooldown, timeout, maximum weight size, season end block) is read from the contract, never written in the page.
 
-Name service (Vercel functions):
+Name service (Vercel functions). At run time, a function sees all environment variables of the project, the `VITE_` variables above too. So the chain and the ladder need no other variables:
 
 - `DATABASE_URL`: the connection string of Neon Postgres. The Vercel Marketplace sets it when you add Neon.
 - `ADMIN_TOKEN`: the bearer token of the admin clear. Without it, every `DELETE` is refused.
-- `LADDER_CHAIN_ID`: the chain of the service, a key of `data/deployments.json`.
-- `LADDER_RPC_URL`: optional. Overrides the RPC of `deployments.json`.
-- `LADDER_ADDRESS`: optional. Overrides the ladder address of `deployments.json`.
+- `LADDER_RPC_URL`: optional, for the name service only. Overrides the RPC of `deployments.json`. It has no `VITE_` prefix, so it does not go into the page, and it can hold a private RPC with a key.
 
 ## The pages
 
@@ -196,7 +194,7 @@ Stages:
 9. The Vercel project: Root Directory `site`, "Include source files outside of the Root Directory in the Build Step" on.
 10. Neon from the Vercel Marketplace, connected to the project's Production and Preview environments; `DATABASE_URL` is injected. The name service creates its table on its first request.
 11. In Privy, enable email and automatic EVM wallet creation under Authentication → Login methods. Enable Disable confirmation modals under Authentication → Advanced. Disable smart wallets. Add the origin of the site under Basics → Domains and clients. The ladder and the workbench share this origin. To log in on a local workbench too, also add the origin of the local workbench. All pages must use the same App ID.
-12. Vercel environment variables: `VITE_PRIVY_APP_ID`, `VITE_LADDER_CHAIN_ID`, `LADDER_CHAIN_ID`, `LADDER_RPC_URL`, `LADDER_ADDRESS`, `ADMIN_TOKEN` (generated). The testnet run writes Production and Preview, the mainnet run replaces Production only. Then redeploy.
+12. Vercel environment variables: `VITE_PRIVY_APP_ID`, `VITE_LADDER_CHAIN_ID`, `LADDER_RPC_URL`, `ADMIN_TOKEN` (generated). The testnet run writes Production and Preview, the mainnet run replaces Production only. Then redeploy.
 13. A walk through the live page: log in, set an English ID and deploy in the workbench, choose the module and register, challenge, set a name. Confirm that no confirmation modal appeared during the whole challenge.
 14. (mainnet) The known limits go into the contest rules: gas-limit pricing, challengers must be plain EOAs, the end block and who can move it, δ and range, cooldown, timeout.
 
