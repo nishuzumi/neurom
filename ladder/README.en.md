@@ -63,7 +63,7 @@ The home page is at `/`, the ladder at `/ladder/`, the workbench at `/studio/`. 
 
 Without login configuration, the ladder can still read ranks, rules and replays. Do not put deployment keys in `VITE_*` variables. Public web pages and the name service still need Vercel, Privy and Neon configuration.
 
-The previous ladder contract `0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2` passed all 5 testnet checks. Challenge `#1` ran 6 episodes and 270 steps. The score was `2 : 2`, with a successful defense. The archive stores the English IDs of both verification modules. These modules only check deployment and the contest flow.
+The previous ladder contract `0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2` passed all 5 testnet checks. Challenge `#1` ran 6 episodes and 230 steps. The score was `3 : 3`. The two modules have the same weight size, so the tie does not satisfy δ, and the result was a successful defense. The archive stores the English IDs of both verification modules. These modules only check deployment and the contest flow.
 
 The current ladder contract only adds `setEndBlock`. The contest rules did not change, so the 5 checks did not run again. After the deployment, `admin` called `setEndBlock` once on chain with the same end block, and the contract emitted `EndBlockChanged`. A call from another account reverted `NotAdmin`.
 
