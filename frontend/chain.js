@@ -4,11 +4,13 @@ import { BrowserProvider, JsonRpcProvider } from 'ethers';
 import { t } from './i18n.js';
 import { describeChainError } from './chain-error.js';
 import deployments from '../site/data/deployments.json' with { type: 'json' };
+import { ladderChainId } from '../site/src/chain/ladder-chain.js';
 
 /** The workbench and ladder share the official Factory registry.
  * Local development uses the same RPC and Factory overrides as the ladder page. */
 const env = import.meta.env ?? {};
-const devChainId = Number(env.VITE_LADDER_CHAIN_ID ?? 31337);
+/** The chain of the ladder, by the same rule as the ladder page and the name service. */
+const ladderChain = ladderChainId(env);
 const registry = Object.fromEntries(Object.entries(deployments).filter(([id]) => /^\d+$/.test(id)).map(([id, network]) => [Number(id), network]));
 /** The port of an RPC URL (the default of its scheme when the URL names none). */
 const portOf = rpc => { const u = new URL(rpc); return Number(u.port || (u.protocol === 'https:' ? 443 : 80)); };
@@ -17,7 +19,7 @@ const portOf = rpc => { const u = new URL(rpc); return Number(u.port || (u.proto
  * `factory` and `ladder` of the entry it forks and carries `fork: { of, port }`. The JSON holds no address twice.
  */
 export const CHAINS = Object.fromEntries(Object.entries(registry).map(([id, network]) => {
-  const chainId = Number(id), dev = chainId === devChainId;
+  const chainId = Number(id), dev = chainId === ladderChain;
   const forked = network.forkOf ? registry[Number(network.forkOf)] : null;
   const factory = forked ? forked.factory : network.factory, ladder = forked ? forked.ladder : network.ladder;
   const c = {
@@ -33,7 +35,7 @@ export const CHAINS = Object.fromEntries(Object.entries(registry).map(([id, netw
 /** The hosted workbench on the ladder site (`frontend/build.mjs --hosted`, ADR 0027). It trains in the browser only. */
 export const STUDIO_HOSTED = env.VITE_STUDIO_HOSTED === '1';
 /** Chain a fresh deployment record starts on: the ladder chain in the hosted workbench, else the local dev node. */
-export const DEFAULT_CHAIN_ID = STUDIO_HOSTED ? devChainId : 31337;
+export const DEFAULT_CHAIN_ID = STUDIO_HOSTED ? ladderChain : 31337;
 /** The unlocked account of the local dev node that Local dev signs with: an index of anvil's accounts (default 0) or an
  *  address. The ladder dev chain sets VITE_DEV_ACCOUNT so that the studio deploys from the account of its first ladder page. */
 const DEV_ACCOUNT = /^0x[0-9a-fA-F]{40}$/.test(String(env.VITE_DEV_ACCOUNT ?? '')) ? env.VITE_DEV_ACCOUNT : Number(env.VITE_DEV_ACCOUNT ?? 0);
@@ -52,7 +54,7 @@ export const PRIVY_APP_ID = env.VITE_PRIVY_APP_ID || null;
 export const PRIVY_NETWORKS = Object.entries(CHAINS).filter(([, c]) => !c.local)
   .map(([id, c]) => ({ chainId: Number(id), name: c.name, rpc: c.rpc, explorer: c.explorer ?? null, local: false }));
 /** The network the embedded wallet starts on: the ladder chain when it is public, else the first public network. */
-export const PRIVY_CHAIN_ID = CHAINS[devChainId] && !CHAINS[devChainId].local ? devChainId : PRIVY_NETWORKS[0]?.chainId ?? null;
+export const PRIVY_CHAIN_ID = CHAINS[ladderChain] && !CHAINS[ladderChain].local ? ladderChain : PRIVY_NETWORKS[0]?.chainId ?? null;
 /** Why the Privy App cannot serve this page, else null. Login talks to Privy over HTTP(S), so the single-file
  *  distribution opened from file:// cannot log in. Training does not need login. */
 export function privyProblem() {

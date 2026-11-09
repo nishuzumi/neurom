@@ -100,19 +100,17 @@ VITE_LADDER_CHAIN_ID=10143 npm run dev -w site
 
 
 - `VITE_PRIVY_APP_ID`：两个页面共用的 Privy 应用 id。公共链用 Privy 嵌入式钱包登录和签名。没有配置时，擂台只读。Local dev（31337）始终使用公开的 Anvil 开发账号，并标明“本地开发”。
-- `VITE_LADDER_CHAIN_ID`：页面所在的链，`data/deployments.json` 的一个键。默认是文件里第一条有擂台地址的正式链，没有时是 31337。
-- `VITE_LADDER_RPC`、`VITE_LADDER_FACTORY`、`VITE_LADDER_ADDRESS`：可选。覆盖 `deployments.json` 里的 RPC、官方 Factory 和擂台合约地址。开发脚本用它们指向临时的 anvil。
+- `VITE_LADDER_CHAIN_ID`：擂台所在的链，`data/deployments.json` 的一个键。默认是文件里第一条有擂台地址的正式链，没有时是 31337。擂台页面、工作台和名字服务都用 `src/chain/ladder-chain.js` 的同一条规则读它，所以三者的链总是一样的。
+- `VITE_LADDER_RPC`、`VITE_LADDER_FACTORY`、`VITE_LADDER_ADDRESS`：可选。覆盖 `deployments.json` 里的 RPC、官方 Factory 和擂台合约地址。开发脚本用它们指向临时的 anvil。名字服务也读 `VITE_LADDER_ADDRESS`。
 - `VITE_DEV_ACCOUNT`：本地开发账号在助记词里的序号，默认 1。
 
 合约的配置（δ、范围、榜的名次数、冷却、超时、上限、赛季结束块）都从合约读，不写在页面里。
 
-名字服务（Vercel 函数）：
+名字服务（Vercel 函数）。函数在运行时能读到项目的全部环境变量，包括上面的 `VITE_` 变量。所以链和擂台合约不用另外设置：
 
 - `DATABASE_URL`：Neon Postgres 的连接串。Vercel Marketplace 接入 Neon 以后会自动设置。
 - `ADMIN_TOKEN`：管理员清除名字的 bearer token。不设置时，`DELETE` 一律拒绝。
-- `LADDER_CHAIN_ID`：服务所在的链，对应 `data/deployments.json` 的一个键。
-- `LADDER_RPC_URL`：可选。覆盖 `deployments.json` 里的 RPC。
-- `LADDER_ADDRESS`：可选。覆盖 `deployments.json` 里的擂台合约地址。
+- `LADDER_RPC_URL`：可选，只给名字服务用。覆盖 `deployments.json` 里的 RPC。它不带 `VITE_` 前缀，所以不会写进页面，可以放带 key 的私有 RPC。
 
 ## 页面
 
@@ -196,7 +194,7 @@ site/scripts/deploy-wizard.sh --dry-run           # 只列出步骤和找到的�
 9. Vercel 项目：Root Directory `site`，打开 “Include source files outside of the Root Directory in the Build Step”。
 10. Neon：从 Vercel Marketplace 安装，把数据库连到项目的 Production 和 Preview 环境，`DATABASE_URL` 自动注入。名字服务第一次被调用时自己建表。
 11. Privy 应用：在 Authentication → Login methods 中启用邮箱和自动创建 EVM 钱包。在 Authentication → Advanced 中启用 Disable confirmation modals。关闭智能钱包。在 Basics → Domains and clients 中加入网站的 origin。擂台和工作台共用这个 origin。如果也要在本机的工作台登录，再加入本机工作台的 origin。所有页面必须使用同一个 App ID。
-12. Vercel 环境变量：`VITE_PRIVY_APP_ID`、`VITE_LADDER_CHAIN_ID`、`LADDER_CHAIN_ID`、`LADDER_RPC_URL`、`LADDER_ADDRESS`、`ADMIN_TOKEN`（脚本生成）。测试网写 Production 和 Preview，主网只覆盖 Production。然后重新部署。
+12. Vercel 环境变量：`VITE_PRIVY_APP_ID`、`VITE_LADDER_CHAIN_ID`、`LADDER_RPC_URL`、`ADMIN_TOKEN`（脚本生成）。测试网写 Production 和 Preview，主网只覆盖 Production。然后重新部署。
 13. 在上线的页面上走一遍：登录、在工作台里起英文 ID 并部署、选模块注册、挑战、起名字。确认整场挑战没有弹出任何确认框。
 14. （主网）比赛说明里写清已知限制：按 gas 上限收费、挑战者必须是无代码的 EOA、结束块和谁能调整它、δ 和范围、冷却、超时。
 

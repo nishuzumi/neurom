@@ -488,29 +488,24 @@ stage "Vercel environment variables"
 existing_token=$(_existing ADMIN_TOKEN || true)
 if [[ -n "$existing_token" ]]; then ADMIN_TOKEN="$existing_token"; else ADMIN_TOKEN=$(openssl rand -hex 32); say "generated ADMIN_TOKEN (the bearer token that clears a name: DELETE /api/names)."; fi
 write_env ADMIN_TOKEN "$ADMIN_TOKEN"
-write_env LADDER_CHAIN_ID "$CHAIN_ID"
 write_env LADDER_RPC_URL "$RPC_URL"
 say "The project needs these variables for: ${VERCEL_ENVS[*]} (DATABASE_URL already comes from Neon):"
 say "  VITE_PRIVY_APP_ID   = $VITE_PRIVY_APP_ID        (page: the Privy app)"
-say "  VITE_LADDER_CHAIN_ID= $CHAIN_ID                    (page: the chain of data/deployments.json to use)"
-say "  LADDER_CHAIN_ID     = $CHAIN_ID                    (name service: the same chain)"
-say "  LADDER_RPC_URL      = $RPC_URL   (name service: the RPC)"
-say "  LADDER_ADDRESS      = $LADDER_ADDRESS   (name service: the ladder; overrides deployments.json)"
+say "  VITE_LADDER_CHAIN_ID= $CHAIN_ID                    (page and name service: the chain of data/deployments.json)"
+say "  LADDER_RPC_URL      = $RPC_URL   (name service only: the RPC; a private RPC stays out of the page)"
 say "  ADMIN_TOKEN         = (hidden, in $ENV_FILE)"
 if command -v vercel >/dev/null 2>&1 && confirm "Set them through the Vercel CLI now (needs 'vercel link' in site/; the wizard runs it if missing)?"; then
   [[ -f "$SITE/.vercel/project.json" ]] || (cd "$SITE" && vercel link) || warn "vercel link did not finish"
   vercel_env VITE_PRIVY_APP_ID "$VITE_PRIVY_APP_ID" "${VERCEL_ENVS[@]}"
   vercel_env VITE_LADDER_CHAIN_ID "$CHAIN_ID" "${VERCEL_ENVS[@]}"
-  vercel_env LADDER_CHAIN_ID "$CHAIN_ID" "${VERCEL_ENVS[@]}"
   vercel_env LADDER_RPC_URL "$RPC_URL" "${VERCEL_ENVS[@]}"
-  vercel_env LADDER_ADDRESS "$LADDER_ADDRESS" "${VERCEL_ENVS[@]}"
   vercel_env ADMIN_TOKEN "$ADMIN_TOKEN" "${VERCEL_ENVS[@]}"
 else
   open_url "https://vercel.com/dashboard"
-  step "Open the project → Settings → Environment Variables and add the six variables above for ${VERCEL_ENVS[*]}."
+  step "Open the project → Settings → Environment Variables and add the four variables above for ${VERCEL_ENVS[*]}."
   step "Mark ADMIN_TOKEN as Sensitive."
   pause "Done? Press Enter."
-  SKIPPED+=("confirm the six Vercel variables for ${VERCEL_ENVS[*]} (listed in stage 12)")
+  SKIPPED+=("confirm the four Vercel variables for ${VERCEL_ENVS[*]} (listed in stage 12)")
 fi
 step "Redeploy the project (Deployments → ⋯ → Redeploy) so the build picks up the variables and deployments.json."
 pause "Press Enter when the deployment is live."
