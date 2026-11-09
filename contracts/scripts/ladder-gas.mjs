@@ -5,7 +5,7 @@
 // reserve of 29.9M, which plays exactly one step per transaction (the gas of one step with the cold accesses, the
 // load, the save and the events: what the reserve must hold). 中 against 中 and 大 against 大 play a twin whose last
 // weight byte (padding of the output bias column) differs, because the ladder refuses the same weights twice.
-//   ANVIL=/tmp/foundry-1.8.0/anvil FORGE=/tmp/foundry-1.8.0/forge node contracts/scripts/ladder-gas.mjs [single steps per pair = 40]
+//   node contracts/scripts/ladder-gas.mjs [single steps per pair = 40]   (Foundry >= 1.8; ANVIL= and FORGE= select others)
 // Prints a JSON report. The README of contracts/ records the numbers.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

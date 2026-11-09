@@ -451,7 +451,7 @@ cd contracts && forge test --network monad --match-path 'test/ladder/*'
 `scripts/ladder-gas.mjs` 在 `anvil --network monad` 上测得（2026-10-29）。数字不含 21,000 基础费和 calldata。“循环”是一笔 30M 交易里每步的均摊。“单步”是一步单独一笔交易：含冷访问、读取、保存和事件，预留值要装得下它。
 
 ```sh
-ANVIL=/tmp/foundry-1.8.0/anvil FORGE=/tmp/foundry-1.8.0/forge node contracts/scripts/ladder-gas.mjs
+node contracts/scripts/ladder-gas.mjs   # 需要 Foundry ≥ 1.8。默认用 ~/.foundry/bin，ANVIL= 和 FORGE= 可以指定别的路径
 ```
 
 | 对局 | 循环每步（中位 / 最大） | 单步（中位 / 最大） | 每笔 30M 的步数 | 600 步的交易数 |
