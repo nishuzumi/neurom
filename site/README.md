@@ -1,4 +1,4 @@
-# 网站和坦克擂台页面（`ladder/`）
+# 网站（`site/`）
 
 这个目录是 NEUROM 网站：首页、坦克大战擂台赛的网页、参与指南和名字服务（ADR 0026、ADR 0027）。它是仓库根目录的一个 npm workspace，也是 Vercel 项目的根目录。网站有四个页面，都在同一个 origin：首页 `/`，擂台 `/ladder/`，工作台 `/studio/`，参与指南 `/guide/`。本地开发和线上用同样的路径。页面和工作台一样用 Vue 3 和 Vite。登录用 `frontend/wallet/privy.js` 里的 Privy 会话，它把 Privy 的 React SDK 挂到页面给它的一个元素上。页面直接导入 `../frontend/` 里的工作台模块，不复制代码。
 
@@ -14,13 +14,13 @@
 一条命令起整套本地环境：
 
 ```
-ANVIL=~/.foundry/bin/anvil FORGE=~/.foundry/bin/forge node ladder/scripts/dev-chain.mjs
+ANVIL=~/.foundry/bin/anvil FORGE=~/.foundry/bin/forge node site/scripts/dev-chain.mjs
 ```
 
 脚本做这些事：
 
 1. 编译合约，起一个新的 `anvil --network monad`，部署协议合约和擂台合约（`frontend/ladder.fixture.js`）。`--board-size 3` 把榜部署成 3 名，所以默认的出战模型就把榜占满，页面显示榜外的出战模型。
-2. 用 anvil 账号 0 和 2 注册几个出战模型。默认用 `ladder/data/artifacts/` 里训练好的“中”和“大”。如果本机 `.scratch/jolt/` 里有别的模型产物，也一起注册。`--artifacts a.json,b.json` 指定别的文件。`--no-seed` 不注册，擂台从空的开始。
+2. 用 anvil 账号 0 和 2 注册几个出战模型。默认用 `site/data/artifacts/` 里训练好的“中”和“大”。如果本机 `.scratch/jolt/` 里有别的模型产物，也一起注册。`--artifacts a.json,b.json` 指定别的文件。`--no-seed` 不注册，擂台从空的开始。
 3. 打几场挑战，直到结算。`--no-play` 跳过这一步。
 4. 在进程内用 PGlite 起名字服务，挂在页面的 `/api/names`，并给已注册的出战模型起好名字。
 5. 给每个登录账号起一个 Vite 开发服务器，通过 `VITE_LADDER_RPC`、`VITE_LADDER_FACTORY` 和 `VITE_LADDER_ADDRESS` 指向这个 anvil。第一个服务器用 `--port`（默认 5174），后面的依次加 1。每个服务器在 `/` 提供首页，在 `/ladder/` 提供擂台。
@@ -33,12 +33,12 @@ ANVIL=~/.foundry/bin/anvil FORGE=~/.foundry/bin/forge node ladder/scripts/dev-ch
 要试多个用户时，用 `--accounts` 列出账号序号（0 到 9）。每个账号一个页面，端口不同，所以登录状态各自独立。所有页面用同一条链和同一个名字服务。例如：
 
 ```bash
-npm run dev:chain -w ladder -- --accounts 1,3,4,5,6,7 --no-seed
+npm run dev:chain -w site -- --accounts 1,3,4,5,6,7 --no-seed
 ```
 
 这样起 6 个页面，端口是 5174 到 5179，擂台是空的。每个端口的 `/ladder/` 都是擂台，`/studio/` 都是工作台。
 
-只起本地链的页面时，运行 `VITE_LADDER_CHAIN_ID=31337 npm run dev -w ladder`。擂台在 `/ladder/`，它连接 `data/deployments.json` 中的本地 RPC，名字服务不可用。工作台在同一个端口的 `/studio/`。不指定链时，页面优先选择已有擂台地址的公共链。
+只起本地链的页面时，运行 `VITE_LADDER_CHAIN_ID=31337 npm run dev -w site`。擂台在 `/ladder/`，它连接 `data/deployments.json` 中的本地 RPC，名字服务不可用。工作台在同一个端口的 `/studio/`。不指定链时，页面优先选择已有擂台地址的公共链。
 
 ## 测试网赛季
 
@@ -56,7 +56,7 @@ npm run dev:chain -w ladder -- --accounts 1,3,4,5,6,7 --no-seed
 `data/deployments.json` 是工作台和擂台的共同配置。运行：
 
 ```bash
-VITE_LADDER_CHAIN_ID=10143 npm run dev -w ladder
+VITE_LADDER_CHAIN_ID=10143 npm run dev -w site
 ```
 
 首页在 `/`，擂台在 `/ladder/`，工作台在 `/studio/`。在工作台的部署模块中选择 `Monad Testnet (10143)`。工作台和擂台通过 `frontend/wallet/privy.js` 使用同一个 Privy 用户的嵌入式 EVM 钱包。两边只选择该钱包，不改用外部钱包。两个页面在同一个 origin，所以登录一次就够了，地址也相同，提交页才会列出对应的部署存档。
@@ -96,7 +96,7 @@ VITE_LADDER_CHAIN_ID=10143 npm run dev -w ladder
 ## 环境变量
 
 页面（Vite，构建时读入）：
-两个 Vite 配置都读取仓库根目录的 `.env.local`，不读取 `ladder/.env.local`。两边共用 `VITE_PRIVY_APP_ID` 和链配置。Privy 按 origin 保存登录状态。线上和本机的擂台开发服务器都在 `/studio/` 提供工作台，和擂台在同一个 origin，所以登录一次就够了。用根目录 `npm run dev` 单独起的工作台在另一个 origin，要另外登录。不要把 App Secret 或钱包私钥放进 `VITE_*`。
+两个 Vite 配置都读取仓库根目录的 `.env.local`，不读取 `site/.env.local`。两边共用 `VITE_PRIVY_APP_ID` 和链配置。Privy 按 origin 保存登录状态。线上和本机的擂台开发服务器都在 `/studio/` 提供工作台，和擂台在同一个 origin，所以登录一次就够了。用根目录 `npm run dev` 单独起的工作台在另一个 origin，要另外登录。不要把 App Secret 或钱包私钥放进 `VITE_*`。
 
 
 - `VITE_PRIVY_APP_ID`：两个页面共用的 Privy 应用 id。公共链用 Privy 嵌入式钱包登录和签名。没有配置时，擂台只读。Local dev（31337）始终使用公开的 Anvil 开发账号，并标明“本地开发”。
@@ -158,27 +158,27 @@ name: <名字，原样>
 ## 测试
 
 ```
-npm test -w ladder
+npm test -w site
 ```
 
 数据库用进程内的 PGlite。链上的拥有者检查用本地 anvil 上的真实擂台合约。没有 Foundry 时，链上测试跳过。根目录的 `npm test` 也会运行这些测试。
 
 ## 部署到 Vercel
 
-1. 新建 Vercel 项目，Root Directory 填 `ladder`。
+1. 新建 Vercel 项目，Root Directory 填 `site`。
 2. 打开 “Include source files outside of the Root Directory in the Build Step”。构建要读 `../frontend/` 的模块。
 3. Install Command 用默认值。Vercel 在仓库根目录运行 `npm install`，因为根目录的 `package.json` 声明了 workspace。
-4. `ladder/vercel.json` 设定了 Build Command `npm run build` 和 Output Directory `dist`。构建先做首页、擂台页面和参与指南，再用 `frontend/build.mjs --hosted` 把工作台做成 `dist/studio/index.html`。网站在 `/` 提供首页，在 `/ladder/` 提供擂台，在 `/studio/` 提供工作台，在 `/guide/` 提供参与指南（ADR 0027）。`/ladder`、`/studio` 和 `/guide` 跳转到带斜杠的地址。线上的工作台只在浏览器里训练，不连 Python 工作区。
+4. `site/vercel.json` 设定了 Build Command `npm run build` 和 Output Directory `dist`。构建先做首页、擂台页面和参与指南，再用 `frontend/build.mjs --hosted` 把工作台做成 `dist/studio/index.html`。网站在 `/` 提供首页，在 `/ladder/` 提供擂台，在 `/studio/` 提供工作台，在 `/guide/` 提供参与指南（ADR 0027）。`/ladder`、`/studio` 和 `/guide` 跳转到带斜杠的地址。线上的工作台只在浏览器里训练，不连 Python 工作区。
 5. 在 Marketplace 接入 Neon，然后设置上面的环境变量。
 
 ## 部署一个赛季（测试网和主网）
 
-把一个赛季放到 Monad 上要做的事，`scripts/deploy-wizard.sh` 一步一步带着人做。它先在链上部署，再配置 Vercel、Neon 和 Privy，最后在上线的页面上走一遍。每一步只做一件事，捕获的值写进 `ladder/.env.deploy-<network>`（已在 `.gitignore` 里），重新运行时已保存的值是默认值。
+把一个赛季放到 Monad 上要做的事，`scripts/deploy-wizard.sh` 一步一步带着人做。它先在链上部署，再配置 Vercel、Neon 和 Privy，最后在上线的页面上走一遍。每一步只做一件事，捕获的值写进 `site/.env.deploy-<network>`（已在 `.gitignore` 里），重新运行时已保存的值是默认值。
 
 ```
-ladder/scripts/deploy-wizard.sh                     # Monad 测试网（10143）
-ladder/scripts/deploy-wizard.sh --network mainnet   # Monad 主网（143）
-ladder/scripts/deploy-wizard.sh --dry-run           # 只列出步骤和找到的工具
+site/scripts/deploy-wizard.sh                     # Monad 测试网（10143）
+site/scripts/deploy-wizard.sh --network mainnet   # Monad 主网（143）
+site/scripts/deploy-wizard.sh --dry-run           # 只列出步骤和找到的工具
 ```
 
 需要 Foundry ≥ 1.8（`FORGE=` 可以指定 forge 的路径）、Node ≥ 22.12 并已 `npm install`。装了 Vercel CLI 时，环境变量从脚本里直接设置；没有时脚本列出名字和值，由人在 Vercel 的设置页填。
@@ -193,7 +193,7 @@ ladder/scripts/deploy-wizard.sh --dry-run           # 只列出步骤和找到�
 6. 擂台合约：`contracts/script/DeployLadder.s.sol`，配置用规格的默认值；要改就在运行脚本前导出 `LADDER_*` 变量（见该脚本的注释）。
 7. 把 Factory 和擂台地址写进 `data/deployments.json` 对应链的条目（只改这两行），之后要提交这个文件。
 8. 链上核对（下一节）。
-9. Vercel 项目：Root Directory `ladder`，打开 “Include source files outside of the Root Directory in the Build Step”。
+9. Vercel 项目：Root Directory `site`，打开 “Include source files outside of the Root Directory in the Build Step”。
 10. Neon：从 Vercel Marketplace 安装，把数据库连到项目的 Production 和 Preview 环境，`DATABASE_URL` 自动注入。名字服务第一次被调用时自己建表。
 11. Privy 应用：在 Authentication → Login methods 中启用邮箱和自动创建 EVM 钱包。在 Authentication → Advanced 中启用 Disable confirmation modals。关闭智能钱包。在 Basics → Domains and clients 中加入网站的 origin。擂台和工作台共用这个 origin。如果也要在本机的工作台登录，再加入本机工作台的 origin。所有页面必须使用同一个 App ID。
 12. Vercel 环境变量：`VITE_PRIVY_APP_ID`、`VITE_LADDER_CHAIN_ID`、`LADDER_CHAIN_ID`、`LADDER_RPC_URL`、`LADDER_ADDRESS`、`ADMIN_TOKEN`（脚本生成）。测试网写 Production 和 Preview，主网只覆盖 Production。然后重新部署。
@@ -210,8 +210,8 @@ ladder/scripts/deploy-wizard.sh --dry-run           # 只列出步骤和找到�
 - 每步 gas 和 `data/step-gas.json` 的 `mid-mid` 数字比较，偏差超过 30% 算失败，因为页面用这些数字估费用。
 
 ```
-ANVIL=… FORGE=… node ladder/scripts/verify-chain.mjs --anvil                       # 自测：新起的 anvil --network monad
-DEPLOYER_PRIVATE_KEY=0x… node ladder/scripts/verify-chain.mjs --rpc https://testnet-rpc.monad.xyz [--ladder 0x…]
+ANVIL=… FORGE=… node site/scripts/verify-chain.mjs --anvil                       # 自测：新起的 anvil --network monad
+DEPLOYER_PRIVATE_KEY=0x… node site/scripts/verify-chain.mjs --rpc https://testnet-rpc.monad.xyz [--ladder 0x…]
 ```
 
 `--ladder` 默认取 `data/deployments.json` 里这条链的地址。脚本打印每笔交易的 gas、部署账号实际付的钱，最后每项 PASS/FAIL；有失败时退出码是 1。真实网络上一次运行大约 20 MON（基础费 100 gwei 时）。

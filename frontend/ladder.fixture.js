@@ -2,7 +2,7 @@
 // It starts a fresh anvil --network monad with the protocol (anvil.fixture.js localChain) and deploys a TankLadder
 // from account 0 with the configuration of the spec, or the overrides given. `enter` deploys an artifact through the
 // official Factory and registers it on the ladder. Tests skip with NO_FOUNDRY.
-// `mined` and `playChallenge` are for the scripts that drive a ladder from a signer (ladder/scripts, contracts/scripts).
+// `mined` and `playChallenge` are for the scripts that drive a ladder from a signer (site/scripts, contracts/scripts).
 import { ethers } from 'ethers';
 import { deployOut, localChain } from './anvil.fixture.js';
 import { deployModule } from './module-chain.js';

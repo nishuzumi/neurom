@@ -1,4 +1,4 @@
-/* ui/brand.css — the brand tokens that the ladder page (ladder/src/styles.css) and the workbench (frontend/styles.css)
+/* ui/brand.css — the brand tokens that the ladder page (site/src/styles.css) and the workbench (frontend/styles.css)
    share: the two font stacks, the accent and the header type scale. Both pages are light. Each page keeps its own
    layout, and each declares its own ground, ink and line tokens with the same values.
    No web font: both stacks name installed fonts only, so the single-file workbench works from file:// and offline.

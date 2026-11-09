@@ -1,4 +1,4 @@
-# The site and the tank ladder page (`ladder/`)
+# The site (`site/`)
 
 This directory is the NEUROM site: the home page, the page of the tank battle contest, the participation guide and the name service (ADR 0026, ADR 0027). It is an npm workspace of the repo root and the root directory of the Vercel project. The site has four pages on one origin: the home page at `/`, the ladder at `/ladder/`, the workbench at `/studio/` and the participation guide at `/guide/`. Local development and the live site use the same paths. The pages use Vue 3 and Vite, as the workbench does. The login uses the Privy session of `frontend/wallet/privy.js`, which mounts the Privy React SDK into one element the page gives it. The page imports the workbench modules of `../frontend/` directly. It does not copy code.
 
@@ -14,13 +14,13 @@ This directory is the NEUROM site: the home page, the page of the tank battle co
 One command starts the whole local stack:
 
 ```
-ANVIL=~/.foundry/bin/anvil FORGE=~/.foundry/bin/forge node ladder/scripts/dev-chain.mjs
+ANVIL=~/.foundry/bin/anvil FORGE=~/.foundry/bin/forge node site/scripts/dev-chain.mjs
 ```
 
 The script does this:
 
 1. Builds the contracts, starts a fresh `anvil --network monad` and deploys the protocol and the ladder (`frontend/ladder.fixture.js`). `--board-size 3` deploys the ladder with a board of 3 ranks, so the default entries fill it and the page shows entries off the board.
-2. Registers a few entries from anvil accounts 0 and 2. By default it uses the trained 中 and 大 networks in `ladder/data/artifacts/`. If `.scratch/jolt/` on this machine has other artifacts, it registers them too. `--artifacts a.json,b.json` selects other files. `--no-seed` registers nothing, so the ladder starts empty.
+2. Registers a few entries from anvil accounts 0 and 2. By default it uses the trained 中 and 大 networks in `site/data/artifacts/`. If `.scratch/jolt/` on this machine has other artifacts, it registers them too. `--artifacts a.json,b.json` selects other files. `--no-seed` registers nothing, so the ladder starts empty.
 3. Plays a few challenges to the end. `--no-play` skips this step.
 4. Starts the name service on PGlite in the process, mounts it at `/api/names` of the page and names the registered entries.
 5. Starts one Vite dev server for each login account, pointed at this anvil through `VITE_LADDER_RPC`, `VITE_LADDER_FACTORY` and `VITE_LADDER_ADDRESS`. The first server uses `--port` (default 5174). Each next server uses the next port. Each server serves the home page at `/` and the ladder at `/ladder/`.
@@ -33,12 +33,12 @@ The Log in button of each page uses one account of the anvil default mnemonic (`
 To try several users, list the account indices (0 to 9) with `--accounts`. Each account gets one page on its own port, so each page keeps its own login. All pages use the same chain and the same name service. For example:
 
 ```bash
-npm run dev:chain -w ladder -- --accounts 1,3,4,5,6,7 --no-seed
+npm run dev:chain -w site -- --accounts 1,3,4,5,6,7 --no-seed
 ```
 
 This starts 6 pages on the ports 5174 to 5179, with an empty ladder. `/ladder/` of each port is the ladder and `/studio/` is the workbench.
 
-To start only the local-chain page, run `VITE_LADDER_CHAIN_ID=31337 npm run dev -w ladder`. The ladder is at `/ladder/`. It uses the local RPC in `data/deployments.json`. The name service is not available. The workbench is at `/studio/` of the same port. Without a chain selection, the page prefers a public chain with a ladder address.
+To start only the local-chain page, run `VITE_LADDER_CHAIN_ID=31337 npm run dev -w site`. The ladder is at `/ladder/`. It uses the local RPC in `data/deployments.json`. The name service is not available. The workbench is at `/studio/` of the same port. Without a chain selection, the page prefers a public chain with a ladder address.
 
 ## Testnet season
 
@@ -56,7 +56,7 @@ The contracts are on Monad Testnet (Chain ID `10143`). The web pages still run l
 The workbench and ladder share `data/deployments.json`. Run:
 
 ```bash
-VITE_LADDER_CHAIN_ID=10143 npm run dev -w ladder
+VITE_LADDER_CHAIN_ID=10143 npm run dev -w site
 ```
 
 The home page is at `/`, the ladder at `/ladder/`, the workbench at `/studio/`. Select `Monad Testnet (10143)` in the deployment module. The workbench and ladder share `frontend/wallet/privy.js` and the same Privy user's embedded EVM wallet. Neither page substitutes an external wallet. The two pages have one origin, so one login is enough, and the addresses match, which the submission page needs to list the corresponding archive.
@@ -96,7 +96,7 @@ The workbench and ladder share `frontend/chain-error.js`. The page shows the spe
 ## Environment variables
 
 Page (Vite, read at build time):
-Both Vite configurations read `.env.local` from the repository root, not `ladder/.env.local`. Both pages share `VITE_PRIVY_APP_ID` and chain configuration. Privy keeps the login state per origin. The live site and the local ladder dev server both serve the workbench at `/studio/`, on the origin of the ladder, so one login is enough. A workbench started alone with the root `npm run dev` has another origin and needs its own login. Never put an App Secret or wallet private key in `VITE_*`.
+Both Vite configurations read `.env.local` from the repository root, not `site/.env.local`. Both pages share `VITE_PRIVY_APP_ID` and chain configuration. Privy keeps the login state per origin. The live site and the local ladder dev server both serve the workbench at `/studio/`, on the origin of the ladder, so one login is enough. A workbench started alone with the root `npm run dev` has another origin and needs its own login. Never put an App Secret or wallet private key in `VITE_*`.
 
 
 - `VITE_PRIVY_APP_ID`: the shared Privy app ID. Public chains use the Privy embedded wallet for login and signatures. Without it, the ladder is read-only. Local dev (31337) always uses public Anvil development accounts and shows the LOCAL DEV label.
@@ -158,27 +158,27 @@ Rules: a name is 3 to 24 characters, English letters, digits, space, `_` and `-`
 ## Tests
 
 ```
-npm test -w ladder
+npm test -w site
 ```
 
 The database is PGlite in the process. The owner check runs against the real ladder contract on a local anvil. Without Foundry, the chain test skips. The root `npm test` also runs these tests.
 
 ## Deployment on Vercel
 
-1. Create a Vercel project with Root Directory `ladder`.
+1. Create a Vercel project with Root Directory `site`.
 2. Enable "Include source files outside of the Root Directory in the Build Step". The build reads modules of `../frontend/`.
 3. Keep the default Install Command. Vercel runs `npm install` in the repo root, because the root `package.json` declares the workspace.
-4. `ladder/vercel.json` sets the Build Command `npm run build` and the Output Directory `dist`. The build makes the home page, the ladder page and the participation guide first. Then `frontend/build.mjs --hosted` makes the workbench into `dist/studio/index.html`. The site serves the home page at `/`, the ladder at `/ladder/`, the workbench at `/studio/` and the participation guide at `/guide/` (ADR 0027). `/ladder`, `/studio` and `/guide` redirect to the URL with the slash. The live workbench trains in the browser only and does not connect to a Python workspace.
+4. `site/vercel.json` sets the Build Command `npm run build` and the Output Directory `dist`. The build makes the home page, the ladder page and the participation guide first. Then `frontend/build.mjs --hosted` makes the workbench into `dist/studio/index.html`. The site serves the home page at `/`, the ladder at `/ladder/`, the workbench at `/studio/` and the participation guide at `/guide/` (ADR 0027). `/ladder`, `/studio` and `/guide` redirect to the URL with the slash. The live workbench trains in the browser only and does not connect to a Python workspace.
 5. Add Neon from the Marketplace, then set the environment variables above.
 
 ## Deploying a season (testnet and mainnet)
 
-`scripts/deploy-wizard.sh` walks a human through everything a season on Monad needs: the chain first, then Vercel, Neon and Privy, then one walk through the live page. Each stage does one thing; captured values go to `ladder/.env.deploy-<network>` (gitignored), and a re-run offers every saved value as the default.
+`scripts/deploy-wizard.sh` walks a human through everything a season on Monad needs: the chain first, then Vercel, Neon and Privy, then one walk through the live page. Each stage does one thing; captured values go to `site/.env.deploy-<network>` (gitignored), and a re-run offers every saved value as the default.
 
 ```
-ladder/scripts/deploy-wizard.sh                     # Monad testnet (10143)
-ladder/scripts/deploy-wizard.sh --network mainnet   # Monad mainnet (143)
-ladder/scripts/deploy-wizard.sh --dry-run           # list the stages and the tools found only
+site/scripts/deploy-wizard.sh                     # Monad testnet (10143)
+site/scripts/deploy-wizard.sh --network mainnet   # Monad mainnet (143)
+site/scripts/deploy-wizard.sh --dry-run           # list the stages and the tools found only
 ```
 
 It needs Foundry ≥ 1.8 (`FORGE=` points at forge), Node ≥ 22.12 and a done `npm install`. With the Vercel CLI installed, the script sets the environment variables itself; without it, it lists names and values for the project settings page.
@@ -193,7 +193,7 @@ Stages:
 6. The ladder contract: `contracts/script/DeployLadder.s.sol` with the configuration of the spec; export `LADDER_*` variables before running the wizard to change it (see the script's comment).
 7. The Factory and ladder addresses go into the chain's entry of `data/deployments.json` (only those two lines change); commit the file afterwards.
 8. The chain checks (next section).
-9. The Vercel project: Root Directory `ladder`, "Include source files outside of the Root Directory in the Build Step" on.
+9. The Vercel project: Root Directory `site`, "Include source files outside of the Root Directory in the Build Step" on.
 10. Neon from the Vercel Marketplace, connected to the project's Production and Preview environments; `DATABASE_URL` is injected. The name service creates its table on its first request.
 11. In Privy, enable email and automatic EVM wallet creation under Authentication → Login methods. Enable Disable confirmation modals under Authentication → Advanced. Disable smart wallets. Add the origin of the site under Basics → Domains and clients. The ladder and the workbench share this origin. To log in on a local workbench too, also add the origin of the local workbench. All pages must use the same App ID.
 12. Vercel environment variables: `VITE_PRIVY_APP_ID`, `VITE_LADDER_CHAIN_ID`, `LADDER_CHAIN_ID`, `LADDER_RPC_URL`, `LADDER_ADDRESS`, `ADMIN_TOKEN` (generated). The testnet run writes Production and Preview, the mainnet run replaces Production only. Then redeploy.
@@ -210,8 +210,8 @@ The facts the prototype proved only on anvil, proved again on the real network:
 - The gas per step against the `mid-mid` numbers of `data/step-gas.json`; a deviation over 30% fails, because the page estimates costs from these numbers.
 
 ```
-ANVIL=… FORGE=… node ladder/scripts/verify-chain.mjs --anvil                       # self-test on a fresh anvil --network monad
-DEPLOYER_PRIVATE_KEY=0x… node ladder/scripts/verify-chain.mjs --rpc https://testnet-rpc.monad.xyz [--ladder 0x…]
+ANVIL=… FORGE=… node site/scripts/verify-chain.mjs --anvil                       # self-test on a fresh anvil --network monad
+DEPLOYER_PRIVATE_KEY=0x… node site/scripts/verify-chain.mjs --rpc https://testnet-rpc.monad.xyz [--ladder 0x…]
 ```
 
 `--ladder` defaults to the chain's address in `data/deployments.json`. The script prints the gas of every transaction, what the deployer actually paid, and PASS/FAIL per check; the exit code is 1 on any failure. A run on a real network costs about 20 MON at a 100 gwei base fee.

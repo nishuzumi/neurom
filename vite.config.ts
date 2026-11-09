@@ -1,5 +1,5 @@
 // vite.config.ts — source dev server for frontend/ (TS / SFC / JSON imports). frontend/build.mjs makes the single-file
-// distribution. It uses this config through the build() API of vite. ladder/vite.config.js imports `workspaceProxy`
+// distribution. It uses this config through the build() API of vite. site/vite.config.js imports `workspaceProxy`
 // and `viemGlobal` from here: the ladder dev server serves the workbench at /studio/ with the same proxy to the Python
 // workspace and the same virtual module.
 import { fileURLToPath } from 'node:url';

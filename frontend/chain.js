@@ -3,7 +3,7 @@
 import { BrowserProvider, JsonRpcProvider } from 'ethers';
 import { t } from './i18n.js';
 import { describeChainError } from './chain-error.js';
-import deployments from '../ladder/data/deployments.json' with { type: 'json' };
+import deployments from '../site/data/deployments.json' with { type: 'json' };
 
 /** The workbench and ladder share the official Factory registry.
  * Local development uses the same RPC and Factory overrides as the ladder page. */

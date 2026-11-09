@@ -14,7 +14,7 @@ Thumbs.db
 # Node / frontend
 node_modules/
 frontend/dist/
-ladder/dist/
+site/dist/
 .vercel/
 .vite/
 *.tsbuildinfo

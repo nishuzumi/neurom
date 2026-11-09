@@ -13,10 +13,10 @@
 // It prints every transaction, the gas, what the deployer paid (Monad charges the gas limit, not the gas used) and
 // ends with PASS/FAIL per check; the exit code is 1 when a check failed.
 //
-//   node ladder/scripts/verify-chain.mjs --anvil
+//   node site/scripts/verify-chain.mjs --anvil
 //       self-test: a fresh `anvil --network monad` with the protocol and a ladder (frontend/ladder.fixture.js), the
 //       deployer is anvil account 0. ANVIL=… FORGE=… select the Foundry binaries (contracts/scripts/foundry.mjs).
-//   DEPLOYER_PRIVATE_KEY=0x… node ladder/scripts/verify-chain.mjs --rpc https://testnet-rpc.monad.xyz [--ladder 0x…]
+//   DEPLOYER_PRIVATE_KEY=0x… node site/scripts/verify-chain.mjs --rpc https://testnet-rpc.monad.xyz [--ladder 0x…]
 //       a real network. `--ladder` defaults to the entry of data/deployments.json for the chain id of the RPC. The key
 //       pays for everything: two module deployments (~9.5M gas each), two registrations, the delegation and five play
 //       transactions (each charged at its 30M limit). At a 100 gwei base fee that is about 20 MON; keep 30 on the key.

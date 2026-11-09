@@ -28,7 +28,7 @@ We measured on `anvil --network monad` (Foundry 1.8.0) and on the public Monad t
 ## Decision
 
 1. One connection function, `connect(chainId, { write })`, serves every caller. It returns an EIP-1193 `request` and the account. Its adapters are a public RPC (read), a local node with unlocked accounts, Privy, and an injected wallet. A caller that uses ethers wraps the `request` in `BrowserProvider`. A caller that uses viem wraps it in `custom()`.
-2. The network registry (`ladder/data/deployments.json`) gets an entry for a local fork of the ladder chain. One function makes the `anvil` command from that entry. The chain node and `ladder/scripts/dev-chain.mjs --fork` both use it.
+2. The network registry (`site/data/deployments.json`) gets an entry for a local fork of the ladder chain. One function makes the `anvil` command from that entry. The chain node and `site/scripts/dev-chain.mjs --fork` both use it.
 3. A new module kind, the chain node, gives a connection to script modules. Its configuration names a chain of the registry. It reads by default. "Allow writes" can turn on only for a local node. A public chain needs a signature and real MON for a write, so the chain node never writes there.
 4. The script sandbox has viem as a global, the same way it has Vue. When a function input of a script module is wired to a chain node, the script gets `ctx.chain.<name>`: a viem client on that connection. The kind of the wired module decides this, not the name of the input. The page sends each request and refuses methods that the chain node does not allow.
 5. A practice challenge runs only on a local fork. The tank battle script does it, from template data:
@@ -55,6 +55,6 @@ We measured on `anvil --network monad` (Foundry 1.8.0) and on the public Monad t
 
 - A practice challenge needs Foundry and a running fork. The chain node shows the command and the two values to enter.
 - A restart of the fork loses the deployed challenger, and the user deploys it again. A fork that is started again sees the newest board.
-- The template script holds a second, short copy of the challenge loop. The first copy is `ladder/src/chain/client.js`. A test on Anvil runs the template's practice challenge against the current contract, so a change of the contract or of its storage layout fails the test.
+- The template script holds a second, short copy of the challenge loop. The first copy is `site/src/chain/client.js`. A test on Anvil runs the template's practice challenge against the current contract, so a change of the contract or of its storage layout fails the test.
 - A change of the order of the ladder's storage variables changes the slot in the template data.
 - The script sandbox can now reach a chain through the page. It still has no direct network access, and it cannot write to a public chain.

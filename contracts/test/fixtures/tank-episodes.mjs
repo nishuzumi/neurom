@@ -46,7 +46,7 @@ const CHALLENGE = 'tuple(string challenger, string defender, bytes32 prevrandao,
 const MODULE = 'tuple(bytes32 engineId, uint8 kind, uint16 inputs, uint16 outputs, uint256[] shape, bytes[] chunks, bytes32 artifactId, bytes32 taskId)';
 const coder = AbiCoder.defaultAbiCoder();
 
-const [midPath = join(ROOT, 'ladder', 'data', 'artifacts', 'mid.json'), bigPath = join(ROOT, 'ladder', 'data', 'artifacts', 'big.json')] = process.argv.slice(2);
+const [midPath = join(ROOT, 'site', 'data', 'artifacts', 'mid.json'), bigPath = join(ROOT, 'site', 'data', 'artifacts', 'big.json')] = process.argv.slice(2);
 const artifacts = { mid: JSON.parse(readFileSync(midPath, 'utf8')), big: JSON.parse(readFileSync(bigPath, 'utf8')) };
 
 /** The scene calls of the template's script module 坦克对战: call(name, ...args). */

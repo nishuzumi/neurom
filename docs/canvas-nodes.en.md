@@ -118,7 +118,7 @@ The script module 坦克对战 of the tank battle template has 3 files: `main.js
 
 The content component of the chain node is `ChainNodeBody.vue` (`core/kinds/chain-node.js`, ADR 0028). The node has one call output, `node`, for a function input of a script module.
 
-- The first row: the network (an entry of the registry `ladder/data/deployments.json`), 「允许写入」 (allow writes, only a local node can have it) and 「连接」 (connect).
+- The first row: the network (an entry of the registry `site/data/deployments.json`), 「允许写入」 (allow writes, only a local node can have it) and 「连接」 (connect).
 - The status line: the page checks the node through `chain.js readConnection`. The chain id must equal the configured chain id. Then the line shows the block number, and whether the Factory and the ladder of the registry have code on this node.
 - When the entry is a fork and the node is not reachable, the body shows the guide: the anvil command of `forkCommand`, the node address and the chain id (each with a copy button), and three steps (run the command and keep the terminal open → select this fork in 「链上部署」 and deploy → run the practice challenge in 「坦克对战」).
 - In the sandbox, a function input wired to a chain node is `ctx.chain.<name>`: a viem client (the global `viem` comes from `vite.config.ts viemGlobal`, which bundles it into the sandbox document at build time). Each request of the client is one call of that input with `{ method, params }`. The page lets through only the methods the chain node allows (`READ_METHODS`, plus `WRITE_METHODS` with writes on). `ctx.call.<name>` is the raw request function.

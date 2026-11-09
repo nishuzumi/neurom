@@ -1,4 +1,4 @@
-// ladder/names.js — the page side of the name service (`/api/names`, see ladder/README.md). The message the owner
+// ladder/names.js — the page side of the name service (`/api/names`, see site/README.md). The message the owner
 // signs comes from `server/names.js`, so the page and the service never disagree about it.
 import { BATCH_LIMIT, nameMessage, validateName } from '../../server/names.js';
 import banned from '../../data/banned-words.json' with { type: 'json' };

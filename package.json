@@ -8,7 +8,7 @@
   },
   "type": "module",
   "workspaces": [
-    "ladder"
+    "site"
   ],
   "scripts": {
     "workspace": "python3 training/workspace.py",

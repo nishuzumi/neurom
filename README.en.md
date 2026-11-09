@@ -235,7 +235,7 @@ Open the address that the terminal shows, and add `?preset=arithmetic-combiner`.
 Next:
 
 - [User guide](docs/user-guide.en.md): train your first model, change the rules, train in Python, deploy on a local chain, and troubleshooting.
-- [Join the tank ladder](ladder/guide/index.html): train a tank network from zero, practise, deploy to the testnet, register and challenge. This is the page `/guide/` of the site, in Chinese and English.
+- [Join the tank ladder](site/guide/index.html): train a tank network from zero, practise, deploy to the testnet, register and challenge. This is the page `/guide/` of the site, in Chinese and English.
 - [Developer guide](docs/development.en.md): environment, repository layout, test matrix, CI and common development tasks.
 
 ## Architecture
@@ -273,7 +273,7 @@ flowchart TB
 | Document | Readers | Contents |
 |---|---|---|
 | [User guide](docs/user-guide.en.md) | users | installation, first use, training, on-chain deployment, builtin tasks, troubleshooting |
-| [Join the tank ladder](ladder/guide/index.html) | participants | `/guide/` of the site: training, practice, deployment, registration, challenges, rules |
+| [Join the tank ladder](site/guide/index.html) | participants | `/guide/` of the site: training, practice, deployment, registration, challenges, rules |
 | [Developer guide](docs/development.en.md) | developers | environment, repository layout, commands, test matrix, CI, common development tasks |
 | [Frontend guide](frontend/README.en.md) | users, developers | canvas operations, module kinds, code modules, state boundaries, file boundaries |
 | [Design document](docs/design.en.md) | developers | module kinds, wires, templates, bundles, IR, loop executor, chain |
