@@ -165,8 +165,8 @@ npm test -w site
 
 1. 新建 Vercel 项目，Root Directory 填 `site`。
 2. 打开 “Include source files outside of the Root Directory in the Build Step”。构建要读 `../frontend/` 的模块。
-3. Install Command 用默认值。Vercel 在仓库根目录运行 `npm install`，因为根目录的 `package.json` 声明了 workspace。
-4. `site/vercel.json` 设定了 Build Command `npm run build` 和 Output Directory `dist`。构建先做首页、擂台页面和参与指南，再用 `frontend/build.mjs --hosted` 把工作台做成 `dist/studio/index.html`。网站在 `/` 提供首页，在 `/ladder/` 提供擂台，在 `/studio/` 提供工作台，在 `/guide/` 提供参与指南（ADR 0027）。`/ladder`、`/studio` 和 `/guide` 跳转到带斜杠的地址。线上的工作台只在浏览器里训练，不连 Python 工作区。
+3. Install Command 保持项目里的设置。`site/vercel.json` 把它设成 `cd .. && npm ci`，在仓库根目录按 lockfile 安装。注意：不要改回默认值。默认值在 `site/` 里运行 `npm install`，npm 只装 `site` 这个 workspace 的依赖，不装根目录 `package.json` 的依赖（例如 `react`），所以构建会报错 `failed to resolve import "react"`。
+4. `site/vercel.json` 还设定了 Build Command `npm run build` 和 Output Directory `dist`。构建先做首页、擂台页面和参与指南，再用 `frontend/build.mjs --hosted` 把工作台做成 `dist/studio/index.html`。网站在 `/` 提供首页，在 `/ladder/` 提供擂台，在 `/studio/` 提供工作台，在 `/guide/` 提供参与指南（ADR 0027）。`/ladder`、`/studio` 和 `/guide` 跳转到带斜杠的地址。线上的工作台只在浏览器里训练，不连 Python 工作区。
 5. 在 Marketplace 接入 Neon，然后设置上面的环境变量。
 
 ## 部署一个赛季（测试网和主网）
