@@ -451,7 +451,7 @@ cd contracts && forge test --network monad --match-path 'test/ladder/*'
 `scripts/ladder-gas.mjs` measured on `anvil --network monad` (2026-10-29). The numbers exclude the 21,000 base fee and the calldata. "Loop" is the share of one step in a 30M transaction. "Single" is one step alone in its own transaction: with the cold accesses, the load, the save and the events. The reserve must hold it.
 
 ```sh
-ANVIL=/tmp/foundry-1.8.0/anvil FORGE=/tmp/foundry-1.8.0/forge node contracts/scripts/ladder-gas.mjs
+node contracts/scripts/ladder-gas.mjs   # needs Foundry >= 1.8: ~/.foundry/bin by default, ANVIL= and FORGE= select others
 ```
 
 | Pair | Loop per step (median / max) | Single (median / max) | Steps per 30M transaction | Transactions for 600 steps |
