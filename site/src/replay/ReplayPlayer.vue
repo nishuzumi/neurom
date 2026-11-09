@@ -88,7 +88,7 @@ const toggle = () => { if (playing.value) playing.value = false; else { if (at.v
       <button type="button" class="btn btn-dark" @click="jump(episode, Math.max(0, at - 1))" :disabled="at === 0">{{ t('上一步') }}</button>
       <button type="button" class="btn btn-dark" @click="jump(episode, Math.min(last, at + 1))" :disabled="at >= last">{{ t('下一步') }}</button>
       <button type="button" class="btn btn-dark" @click="jump(episode, last)" :disabled="at >= last">{{ t('最后一步') }}</button>
-      <input type="range" :min="0" :max="last" :value="at" @input="jump(episode, Number($event.target.value))" :aria-label="t('步数')" />
+      <input type="range" :min="0" :max="last" :value="at" @input="jump(episode, Number($event.target.value))" :aria-label="t('当前步')" />
       <span class="mono muted">{{ ep ? t('种子 {seed}', { seed: ep.seed }) : '' }}</span>
     </div>
     <div v-if="!compact" class="replay-note muted">{{ t('棋盘里的“我方”是第 0 方，“机器人”是第 1 方。颜色和上面的两方一致。') }}</div>

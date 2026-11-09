@@ -1,6 +1,7 @@
 // chain/client.js — the ladder client (ticket 06, contract-interface.md "Ladder client API"). Plain JS over ethers 6,
 // no React: the page reaches the chain only through this module.
-//   - Reads: the configuration, the board (the ranked entries), every entry on and off the board, the targets of an
+//   - Reads: the configuration, the board (the ranked entries), the registry of every entry on and off the board
+//     (`entries`, with a cache check that skips the page reads when the registry did not change), the targets of an
 //     entry with the refusal the contract would give, a challenge, the recent challenges and the replay of a
 //     challenge from its events.
 //   - Registration: `register(module)` enters a module that the workbench already deployed through the official
@@ -8,8 +9,8 @@
 //   - The archive: `deploymentCount(deployer)` and `deploymentsOf(deployer)` read the modules an account deployed
 //     through the official Factory, with their English ids and descriptors. The page chooses the module to register
 //     from this list (on-chain state, not events, not local storage).
-//   - A challenge: the start transaction with the gas limit PLAY_GAS (Monad's transaction limit, above the contract's
-//     minStartGas), then `advance` transactions with explicit nonces, at most MAX_IN_FLIGHT in flight. The receipts
+//   - A challenge: the start transaction with the gas limit TX_GAS_LIMIT (Monad's transaction limit, above the
+//     contract's minStartGas), then `advance` transactions with explicit nonces, at most MAX_IN_FLIGHT in flight. The receipts
 //     come by polling the hash: ethers' `wait()` misses the receipts of large transactions on anvil --network monad
 //     (ethers 6.13, measured for 30M-gas transactions). Every receipt reports the progress read from the events. Monad charges the gas
 //     limit of a transaction, so the client keeps no more transactions in flight than the typical remaining steps
@@ -22,9 +23,8 @@ import ModuleFactoryABI from '../../../frontend/abi/ModuleFactory.json' with { t
 import NeuromModuleABI from '../../../frontend/abi/NeuromModule.json' with { type: 'json' };
 import stepGas from '../../data/step-gas.json' with { type: 'json' };
 import { DENSE_KINDS } from '../../../frontend/runtime/dense-policy.js';
+import { TX_GAS_LIMIT } from '../../../frontend/monad.js';
 
-/** The gas limit of a transaction that starts or advances a challenge: Monad's transaction limit. */
-export const PLAY_GAS = 30_000_000;
 /** The most transactions of one account in flight during a challenge. */
 export const MAX_IN_FLIGHT = 3;
 /** Episodes of a challenge (TankLadder.EPISODES) and steps of an episode (TankScene.STEPS). */
@@ -107,7 +107,7 @@ const forwardGas = weightBytes => Math.round(stepGas.forward.intercept + stepGas
  *  gas of one step. */
 function stepPlan(cBytes, dBytes, reserveGas) {
   const step = forwardGas(cBytes) + forwardGas(dBytes) + stepGas.scenePerStep;
-  const stepsPerTransaction = Math.max(1, Math.floor((PLAY_GAS - reserveGas - stepGas.perTransaction) / step));
+  const stepsPerTransaction = Math.max(1, Math.floor((TX_GAS_LIMIT - reserveGas - stepGas.perTransaction) / step));
   return { step, stepsPerTransaction };
 }
 
@@ -180,9 +180,9 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
   }
 
   /** A dry run of `method(...args)` as the signer with the play gas: throws the decoded refusal (with `extra` on the
-   *  error), ignores other failures (a node that caps eth_call below PLAY_GAS cannot tell). */
+   *  error), ignores other failures (a node that caps eth_call below TX_GAS_LIMIT cannot tell). */
   async function precheck(method, args, from, extra = {}) {
-    try { await writer[method].staticCall(...args, { gasLimit: PLAY_GAS, from }); } catch (e) {
+    try { await writer[method].staticCall(...args, { gasLimit: TX_GAS_LIMIT, from }); } catch (e) {
       const name = decodeLadderError(e);
       if (name) throw ladderError(`${method} refused`, revertDataOf(e), { ladderError: name, cause: e, ...extra });
     }
@@ -228,7 +228,7 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
     let depth = depthFor(state, perTransaction);
     while (state.status === STATUS.PLAYING) {
       if (await blockNumber() > deadline) return settleExpired();
-      while (pending.length < depth) pending.push(await s.sendTransaction({ to: ladder, data, gasLimit: PLAY_GAS, nonce: nonce++ }));
+      while (pending.length < depth) pending.push(await s.sendTransaction({ to: ladder, data, gasLimit: TX_GAS_LIMIT, nonce: nonce++ }));
       const tx = pending.shift();
       const rc = await receiptOf(tx.hash);
       state.confirmed++;
@@ -271,12 +271,23 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
     return (await reader.board()).map(entryOf);
   }
 
-  /** Every entry in the order of registration: rank ≥ 1 on the board, rank 0 off it. */
-  async function entries() {
-    const total = num(await reader.entryCount());
+  /**
+   * The registry: `{ entryCount, challengeCount, items }`. `items` are every entry in the order of registration:
+   * rank ≥ 1 on the board, rank 0 off it. `known` is the result of an earlier call (optional).
+   * The invalidation rule: the contract changes an entry only in `register` (entryCount grows), `challenge`
+   * (challengeCount grows, activeChallenge is set) and `_settle` (ranks, wins, losses, activeChallenge cleared).
+   * A settlement needs a playing challenge, and a playing challenge is the activeChallenge of its challenger.
+   * So when the two counts did not change and no known entry is in a challenge, the registry did not change
+   * and `known` comes back after the two count reads. Otherwise the pages are read again.
+   * The two counts of the result come from the same request batch as the check, before the pages. A page that is
+   * newer than the counts makes the next call read the pages again, so the result converges.
+   */
+  async function entries(known = null) {
+    const [entryCount, challengeCount] = (await Promise.all([reader.entryCount(), reader.challengeCount()])).map(num);
+    if (known && known.entryCount === entryCount && known.challengeCount === challengeCount && !known.items.some(e => e.activeChallenge !== 0)) return known;
     const pages = [];
-    for (let from = 0; from < total; from += ENTRY_PAGE) pages.push(reader.entries(from, ENTRY_PAGE));
-    return (await Promise.all(pages)).flat().map(entryOf);
+    for (let from = 0; from < entryCount; from += ENTRY_PAGE) pages.push(reader.entries(from, ENTRY_PAGE));
+    return { entryCount, challengeCount, items: (await Promise.all(pages)).flat().map(entryOf) };
   }
 
   /** Entry `module` (rank 0 = off the board), null when it is not entered. */
@@ -315,7 +326,7 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
       const transactions = Math.max(1, Math.ceil(steps / stepsPerTransaction));
       const gas = steps * step + transactions * stepGas.perTransaction;
       // Monad charges the gas limit of a transaction, not the gas it uses
-      return { steps, transactions, gas, cost: BigInt(transactions) * BigInt(PLAY_GAS) * price };
+      return { steps, transactions, gas, cost: BigInt(transactions) * BigInt(TX_GAS_LIMIT) * price };
     };
     const typical = of(EPISODES * stepGas.stepsPerEpisode.mean), worst = of(EPISODES * STEPS);
     return { gasWorst: worst.gas, gasTypical: typical.gas, txWorst: worst.transactions, txTypical: typical.transactions, costWorstWei: worst.cost, costTypicalWei: typical.cost, stepsPerTransaction };
@@ -349,7 +360,7 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
     let nonce = await provider.getTransactionCount(from, 'pending');
     const state = { id: null, challenger: getAddress(challenger), defender: getAddress(defender), episode: 0, step: 0, status: STATUS.PLAYING, challengerWins: 0, defenderWins: 0, newRank: null, confirmed: 0 };
     onProgress({ ...state, inFlight: 1 });
-    const tx = await s.sendTransaction({ to: ladder, data, gasLimit: PLAY_GAS, nonce: nonce++ });
+    const tx = await s.sendTransaction({ to: ladder, data, gasLimit: TX_GAS_LIMIT, nonce: nonce++ });
     const rc = await receiptOf(tx.hash);
     state.confirmed++;
     if (num(rc.status) !== 1) throw await revertError(tx, rc, 'challenge');
@@ -427,9 +438,9 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
   }
 
   /** The last `count` challenges, newest first, with the gas their transactions used (from the receipts of the
-   *  Steps events). */
-  async function recentChallenges({ count = 20 } = {}) {
-    const total = num(await reader.challengeCount());
+   *  Steps events). `total` is the challengeCount when the caller read it already (optional). */
+  async function recentChallenges({ count = 20, total } = {}) {
+    total ??= num(await reader.challengeCount());
     if (total === 0) return [];
     const ids = [];
     for (let id = total; id > Math.max(0, total - count); id--) ids.push(id);
@@ -453,9 +464,10 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
   }
 
   /** The replay of challenge `id` from its events: the seed and, per episode played so far, the seed of the scene,
-   *  the modules on each side, the action pairs and the end (−1 while the episode is still playing). */
-  async function replay(id) {
-    const info = await challengeInfo(id);
+   *  the modules on each side, the action pairs and the end (−1 while the episode is still playing). `info` is the
+   *  challengeInfo of `id` when the caller read it already (optional). */
+  async function replay(id, info = null) {
+    info ??= await challengeInfo(id);
     if (!info) throw new Error(`challenge ${id} does not exist`);
     const latest = await blockNumber();
     const events = await challengeEvents(info, latest);

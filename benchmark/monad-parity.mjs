@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import { ethers } from 'ethers';
 import { foundryBinary, startAnvil } from '../contracts/scripts/foundry.mjs';
 import { deploymentOf, weightChunks, taskIdOf } from '../frontend/module-chain.js';
+import { TX_GAS_LIMIT } from '../frontend/monad.js';
 import { trainMining, testEpisode } from './mining-network.mjs';
 
 const TESTNET = process.argv[2] || 'https://testnet-rpc.monad.xyz';
@@ -34,7 +35,7 @@ const data = out.bytecode.object + args.slice(2);
 async function probe(url) {
   const provider = new ethers.JsonRpcProvider(url, undefined, { staticNetwork: true });
   try {
-    const [chainId, ret] = [await provider.send('eth_chainId', []), await provider.send('eth_call', [{ data, gas: '0x1c9c380' }, 'latest'])];
+    const [chainId, ret] = [await provider.send('eth_chainId', []), await provider.send('eth_call', [{ data, gas: ethers.toBeHex(TX_GAS_LIMIT) }, 'latest'])];
     return { chainId: Number(chainId), m: ethers.AbiCoder.defaultAbiCoder().decode(['uint256[]'], ret)[0].map(Number) };
   } finally { provider.destroy(); }
 }

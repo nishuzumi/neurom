@@ -17,7 +17,9 @@ This project uses Foundry ≥ 1.8.0. `foundry.toml` sets `network = "monad"` (Mo
 | `src/ladder/` | The tank ladder contest (ADR 0026). `TankScene` is the Solidity port of the template scene. `TankLadder` is the ladder and the referee. See "Ladder". |
 | `test/ladder/` | The tests of the ladder: `TankParity.t.sol` replays `test/fixtures/tank-episodes.json` step by step, `TankLadder.t.sol` tests the rules. See "Ladder". |
 | `test/fixtures/tank-episodes.mjs` | Writes the parity corpus `tank-episodes.json` with the browser code. |
-| `script/DeployLadder.s.sol` | Deploys a TankLadder. The configuration comes from the environment (see "Ladder"). |
+| `script/DeployLadder.s.sol` | Deploys a TankLadder. The defaults come from `ladder-defaults.json`, and the environment overrides them (see "Ladder"). |
+| `ladder-defaults.json` | The default configuration of the TankLadder spec. The deploy script, `test/ladder/LadderBase.sol` and `frontend/ladder.fixture.js` read it. |
+| `scripts/rpc-registry.test.mjs` | Checks that the `[rpc_endpoints]` of `foundry.toml` and the RPCs of `site/data/deployments.json` agree (`npm test`). |
 | `scripts/ladder-gas.mjs` | Measures the gas of a ladder step on a local anvil (see "Ladder"). |
 
 ```sh
@@ -419,7 +421,7 @@ The step in the benchmarks is smaller than the step in the table above, for two 
 
 ### Configuration and deployment
 
-The constructor takes one `Config`: `factory`, `maxWeightBytes` (216,864), `deltaBps` (1000), `range` (10), `boardSize` (20), `timeoutBlocks` (400), `cooldownBlocks` (6000), `minStartGas` (24,000,000), `reserveGas` (2,000,000), `endBlock`. The values in parentheses are the defaults of the spec. The constructor reverts `BadConfig` when `boardSize` is 0. `config()` returns every field, with the current `endBlock`.
+The constructor takes one `Config`: `factory`, `maxWeightBytes`, `deltaBps`, `range`, `boardSize`, `timeoutBlocks`, `cooldownBlocks`, `minStartGas`, `reserveGas`, `endBlock`. The defaults of the spec are in `ladder-defaults.json`. `DeployLadder.s.sol`, `test/ladder/LadderBase.sol` and `frontend/ladder.fixture.js` read that file. The constructor reverts `BadConfig` when `boardSize` is 0. `config()` returns every field, with the current `endBlock`.
 
 ```sh
 LADDER_FACTORY=<official Factory> LADDER_END_BLOCK=<last block of the season> forge script script/DeployLadder.s.sol --rpc-url monad_testnet --private-key $PK --broadcast

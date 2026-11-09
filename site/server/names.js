@@ -12,9 +12,19 @@ const NAME_MAX = 24;
 /** The most modules one batch read takes. */
 export const BATCH_LIMIT = 200;
 
-/** A refusal of the service: `status` is the HTTP status, `code` the machine-readable reason, `details` extra fields. */
+/** Every `error` code that the name service sends: the refusals of this module and of names-http.js, `internal`
+ *  for an unexpected exception (names-http.js) and `misconfigured` when api/names.js cannot build the handler.
+ *  The page maps each code to a message (site/src/ladder/errors.js), and site/src/ladder/errors.test.js checks it. */
+export const ERROR_CODES = Object.freeze([
+  'invalid_module', 'name_length', 'name_chars', 'name_banned', 'bad_signature', 'bad_json', 'bad_request',
+  'not_entered', 'not_owner', 'name_set', 'name_taken', 'unauthorized', 'method_not_allowed', 'body_too_large',
+  'internal', 'misconfigured',
+]);
+
+/** A refusal of the service: `status` is the HTTP status, `code` one of ERROR_CODES, `details` extra fields. */
 export class NameError extends Error {
   constructor(status, code, details = {}) {
+    if (!ERROR_CODES.includes(code)) throw new Error(`NameError: unknown code ${JSON.stringify(code)}. Add it to ERROR_CODES.`);
     super(code);
     this.status = status;
     this.code = code;

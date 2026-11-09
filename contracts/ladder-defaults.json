@@ -1,0 +1,11 @@
+{
+  "_comment": "The default TankLadder.Config of the spec (ADR 0026) without `factory` and `endBlock`. script/DeployLadder.s.sol, test/ladder/LadderBase.sol and frontend/ladder.fixture.js read this file. Do not copy the numbers elsewhere.",
+  "maxWeightBytes": 216864,
+  "deltaBps": 1000,
+  "range": 10,
+  "boardSize": 20,
+  "timeoutBlocks": 400,
+  "cooldownBlocks": 6000,
+  "minStartGas": 24000000,
+  "reserveGas": 2000000
+}

@@ -34,24 +34,32 @@ export function ladderErrorMessage(name, ctx = {}) {
   }
 }
 
-/** The message of a name-service error code. */
+/** The message of each name-service error code (server/names.js ERROR_CODES), from the `details` of the response. */
+const NAME_ERRORS = {
+  name_length: d => t('名字要 {min} 到 {max} 个字符', { min: d.min ?? 3, max: d.max ?? 24 }),
+  name_chars: () => t('名字只能用英文字母、数字、空格、_ 和 -'),
+  name_banned: () => t('名字含违禁词'),
+  name_taken: () => t('这个名字已经有人用了（不区分大小写）'),
+  name_set: () => t('这个出战模型已经有名字了，名字设置以后不能改'),
+  not_entered: () => t('这个模块不是出战模型'),
+  not_owner: () => t('只有注册这个出战模型的账号能起名字'),
+  bad_signature: () => t('签名无效'),
+  invalid_module: () => t('模块地址无效'),
+  bad_json: () => t('名字服务收到的请求不是有效的 JSON'),
+  bad_request: () => t('名字服务收到的请求格式不对'),
+  method_not_allowed: () => t('名字服务不支持这种请求方法'),
+  unauthorized: () => t('没有权限'),
+  body_too_large: () => t('请求太大'),
+  misconfigured: () => t('名字服务没有配置好'),
+  internal: () => t('名字服务出错了'),
+};
+
+/** The codes that have a message. errors.test.js checks the list against the codes of the server. */
+export const NAME_ERROR_CODES = Object.freeze(Object.keys(NAME_ERRORS));
+
+/** The message of a name-service error code. An unknown code shows the code itself. */
 export function nameErrorMessage(code, details = {}) {
-  switch (code) {
-    case 'name_length': return t('名字要 {min} 到 {max} 个字符', { min: details.min ?? 3, max: details.max ?? 24 });
-    case 'name_chars': return t('名字只能用英文字母、数字、空格、_ 和 -');
-    case 'name_banned': return t('名字含违禁词');
-    case 'name_taken': return t('这个名字已经有人用了（不区分大小写）');
-    case 'name_set': return t('这个出战模型已经有名字了，名字设置以后不能改');
-    case 'not_entered': return t('这个模块不是出战模型');
-    case 'not_owner': return t('只有注册这个出战模型的账号能起名字');
-    case 'bad_signature': return t('签名无效');
-    case 'invalid_module': return t('模块地址无效');
-    case 'unauthorized': return t('没有权限');
-    case 'body_too_large': return t('请求太大');
-    case 'misconfigured': return t('名字服务没有配置好');
-    case 'internal': return t('名字服务出错了');
-    default: return t('名字服务拒绝了请求：{code}', { code });
-  }
+  return NAME_ERRORS[code]?.(details) ?? t('名字服务拒绝了请求：{code}', { code });
 }
 
 /** One sentence for any error the page catches. `ctx` as ladderErrorMessage. The custom errors of the contract and

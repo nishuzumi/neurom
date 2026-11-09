@@ -56,6 +56,7 @@ contract LadderBase {
     IVm constant vm = IVm(address(uint160(uint256(keccak256("hevm cheat code")))));
     bytes32 constant DENSE = keccak256("dense-policy");
     string constant FIXTURE = "test/fixtures/tank-episodes.json";
+    string constant DEFAULTS = "ladder-defaults.json";    // the TankLadder.Config of the spec, shared with the deploy script
     uint256 constant GAS_LIMIT = 30_000_000;    // Monad's transaction gas limit
 
     Roles roles;
@@ -166,9 +167,20 @@ contract LadderBase {
         return factory.deploy(ModuleFactory.ModuleSpec(DENSE, address(0), 0, 572, 9, shape, tools, ids, art, keccak256("tank"), idOf(art)), data);
     }
 
-    /// The default configuration of the spec, with `endBlock` far away.
+    /// The default configuration of the spec (ladder-defaults.json), with `endBlock` far away.
     function defaultConfig() internal view returns (TankLadder.Config memory) {
-        return TankLadder.Config(address(factory), 216_864, 1000, 10, 20, 400, 6000, 24_000_000, 2_000_000, type(uint64).max);
+        string memory json = vm.readFile(DEFAULTS);
+        return TankLadder.Config(
+            address(factory),
+            uint32(vm.parseJsonUint(json, ".maxWeightBytes")),
+            uint16(vm.parseJsonUint(json, ".deltaBps")),
+            uint8(vm.parseJsonUint(json, ".range")),
+            uint8(vm.parseJsonUint(json, ".boardSize")),
+            uint32(vm.parseJsonUint(json, ".timeoutBlocks")),
+            uint32(vm.parseJsonUint(json, ".cooldownBlocks")),
+            uint32(vm.parseJsonUint(json, ".minStartGas")),
+            uint32(vm.parseJsonUint(json, ".reserveGas")),
+            type(uint64).max);
     }
 
     function newLadder() internal returns (TankLadder) { return new TankLadder(defaultConfig()); }

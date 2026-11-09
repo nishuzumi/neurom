@@ -17,7 +17,9 @@
 | `src/ladder/` | 坦克大战擂台赛（ADR 0026）。`TankScene` 是模板场景的 Solidity 移植。`TankLadder` 是擂台榜和裁判。见“擂台榜”。 |
 | `test/ladder/` | 擂台榜的测试：`TankParity.t.sol` 逐步重放 `test/fixtures/tank-episodes.json`，`TankLadder.t.sol` 测规则。见“擂台榜”。 |
 | `test/fixtures/tank-episodes.mjs` | 用浏览器端代码生成 parity 语料 `tank-episodes.json`。 |
-| `script/DeployLadder.s.sol` | 部署 TankLadder。配置来自环境变量（见“擂台榜”）。 |
+| `script/DeployLadder.s.sol` | 部署 TankLadder。默认配置来自 `ladder-defaults.json`，环境变量可以覆盖（见“擂台榜”）。 |
+| `ladder-defaults.json` | TankLadder 规格的默认配置。部署脚本、`test/ladder/LadderBase.sol` 和 `frontend/ladder.fixture.js` 都读它。 |
+| `scripts/rpc-registry.test.mjs` | 核对 `foundry.toml` 的 `[rpc_endpoints]` 和 `site/data/deployments.json` 的 RPC 一致（`npm test`）。 |
 | `scripts/ladder-gas.mjs` | 在本地 anvil 上测擂台榜每步的 gas（见“擂台榜”）。 |
 
 ```sh
@@ -419,7 +421,7 @@ int8 让权重块小了约一半。计算上，一个 int8 列词按行号模 4 
 
 ### 配置和部署
 
-构造函数收一个 `Config`：`factory`、`maxWeightBytes`（216,864）、`deltaBps`（1000）、`range`（10）、`boardSize`（20）、`timeoutBlocks`（400）、`cooldownBlocks`（6000）、`minStartGas`（24,000,000）、`reserveGas`（2,000,000）、`endBlock`。括号里是规格的默认值。`boardSize` 是 0 时构造函数回滚 `BadConfig`。`config()` 读出全部字段，其中 `endBlock` 是当前值。
+构造函数收一个 `Config`：`factory`、`maxWeightBytes`、`deltaBps`、`range`、`boardSize`、`timeoutBlocks`、`cooldownBlocks`、`minStartGas`、`reserveGas`、`endBlock`。规格的默认值在 `ladder-defaults.json`。`DeployLadder.s.sol`、`test/ladder/LadderBase.sol` 和 `frontend/ladder.fixture.js` 都读这个文件。`boardSize` 是 0 时构造函数回滚 `BadConfig`。`config()` 读出全部字段，其中 `endBlock` 是当前值。
 
 ```sh
 LADDER_FACTORY=<官方 Factory> LADDER_END_BLOCK=<赛季结束块> forge script script/DeployLadder.s.sol --rpc-url monad_testnet --private-key $PK --broadcast

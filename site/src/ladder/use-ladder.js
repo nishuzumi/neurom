@@ -1,5 +1,9 @@
 // The page publishes core chain data before optional names and historical gas totals.
 // Each reader allows one request at a time. A new block queues one refresh.
+// A block with no change on the ladder costs four requests: the block number, endBlock, entryCount and
+// challengeCount. The client reads the entry pages again only when its invalidation rule says the registry changed
+// (client.entries). The recent list reads again only when challengeCount changed, a listed challenge plays, or
+// `refresh()` asked for it.
 import { computed, inject, markRaw, onScopeDispose, provide, shallowReactive, shallowRef, watch } from 'vue';
 import { createLadderClient } from '../chain/client.js';
 import { fetchNames } from './names.js';
@@ -33,6 +37,7 @@ export function provideLadder({ config, provider, signer, includeRecent }) {
   });
   let namesCache = {};
   let recentCache = { count: -1, items: [], stale: true };
+  let registry = null;
   let flight = null;
   let namesFlight = null;
 
@@ -58,6 +63,7 @@ export function provideLadder({ config, provider, signer, includeRecent }) {
     flight = { busy: false, again: false, recentBusy: false, live: true };
     namesCache = {};
     recentCache = { count: -1, items: [], stale: true };
+    registry = null;
     Object.assign(state, EMPTY());
   }, { immediate: true });
 
@@ -79,14 +85,13 @@ export function provideLadder({ config, provider, signer, includeRecent }) {
         if (namesFlight === f) namesFlight = null;
       });
     };
-    const readRecent = async () => {
+    const readRecent = async count => {
       if (!includeRecent() || f.recentBusy) return;
       f.recentBusy = true;
       try {
-        const count = Number(await client.value.contract.challengeCount());
         const cached = recentCache;
         if (cached.count !== count || cached.stale || cached.items.some(c => c.status === 1)) {
-          const items = await client.value.recentChallenges({ count: RECENT });
+          const items = await client.value.recentChallenges({ count: RECENT, total: count });
           if (!f.live) return;
           recentCache = { count, items, stale: false };
         }
@@ -106,11 +111,12 @@ export function provideLadder({ config, provider, signer, includeRecent }) {
         do {
           f.again = false;
           try {
-            const [cfg, entries] = await Promise.all([client.value.config(), client.value.entries()]);
+            const [cfg, reg] = await Promise.all([client.value.config(), client.value.entries(registry)]);
             if (!f.live) return;
-            Object.assign(state, { config: cfg, entries, error: null, loaded: true });
-            readNames(entries.map(e => e.module));
-            void readRecent();
+            registry = reg;
+            Object.assign(state, { config: cfg, entries: reg.items, error: null, loaded: true });
+            readNames(reg.items.map(e => e.module));
+            void readRecent(reg.challengeCount);
           } catch (error) {
             if (f.live) Object.assign(state, { error, loaded: true });
           }

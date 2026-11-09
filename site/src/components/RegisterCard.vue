@@ -64,13 +64,13 @@ const doneText = computed(() => {
         <option v-for="d in archive.items" :key="d.module" :value="addressKey(d.module)" :disabled="entered.has(addressKey(d.module))">{{ optionLabel(d) }}</option>
       </select>
     </div>
-    <div v-if="archive.loaded && archive.items.length === 0" class="msg">{{ t('先在工作台里部署一个模块。部署以后，这里在下一个块自动出现，不用复制地址。') }}</div>
+    <div v-if="archive.loaded && archive.items.length === 0" class="msg">{{ t('先在工作台里部署一个模块。部署以后回到这个页面，模块会出现在这里，不用复制地址。') }}</div>
     <div v-if="archive.error" class="msg bad">{{ t('读不到 Factory 的存档：{message}', { message: describeError(archive.error) }) }} <button type="button" class="btn-link" @click="archive.reload">{{ t('重试') }}</button></div>
     <dl v-if="selected" class="kv">
       <dt>{{ t('英文 ID') }}</dt><dd>{{ selected.moduleId }}</dd>
       <dt>{{ t('模块地址') }}</dt><dd>{{ selected.module }}</dd>
       <dt>{{ t('结构') }}</dt><dd>{{ selected.kindName }} · {{ selected.inputs }} → {{ selected.outputs }}</dd>
-      <dt>{{ t('产物') }}</dt><dd>{{ selected.artifactId }}</dd>
+      <dt>{{ t('产物 ID') }}</dt><dd>{{ selected.artifactId }}</dd>
       <dt>{{ t('状态') }}</dt><dd><span v-if="selectedEntry" class="pill ok">{{ enteredText(selectedEntry.rank) }}</span><span v-else class="pill">{{ t('还没有注册') }}</span></dd>
     </dl>
     <div v-if="selectedEntry" class="msg warn">{{ t('这个模块已经在擂台上，不能再注册一次。') }}</div>

@@ -7,21 +7,20 @@ import { ethers } from 'ethers';
 import { deployOut, localChain } from './anvil.fixture.js';
 import { deployModule } from './module-chain.js';
 import TankLadderABI from './abi/TankLadder.json' with { type: 'json' };
+import { TX_GAS_LIMIT } from './monad.js';
+import defaults from '../contracts/ladder-defaults.json' with { type: 'json' };
 
-/** The configuration of the spec (TankLadder.Config without `factory` and `endBlock`). */
+/** The configuration of the spec (TankLadder.Config without `factory` and `endBlock`), from contracts/ladder-defaults.json. */
 export const LADDER_DEFAULTS = Object.freeze({
-  maxWeightBytes: 216_864,
-  deltaBps: 1000,
-  range: 10,
-  boardSize: 20,
-  timeoutBlocks: 400,
-  cooldownBlocks: 6000,
-  minStartGas: 24_000_000,
-  reserveGas: 2_000_000,
+  maxWeightBytes: defaults.maxWeightBytes,
+  deltaBps: defaults.deltaBps,
+  range: defaults.range,
+  boardSize: defaults.boardSize,
+  timeoutBlocks: defaults.timeoutBlocks,
+  cooldownBlocks: defaults.cooldownBlocks,
+  minStartGas: defaults.minStartGas,
+  reserveGas: defaults.reserveGas,
 });
-
-/** The gas limit of a transaction that starts or advances a challenge: Monad's transaction limit. */
-export const PLAY_GAS = 30_000_000;
 
 /**
  * A fresh anvil with the protocol and a ladder on it → everything of localChain plus:
@@ -75,7 +74,7 @@ export async function mined(provider, hash, { timeoutMs = 180_000 } = {}) {
 
 /**
  * Play a challenge from the contract until it is settled: `challenge(challenger, defender)` as the signer of `ladder`
- * (a TankLadder Contract of a signer), then `advance` while the challenge is active, each with the gas limit PLAY_GAS.
+ * (a TankLadder Contract of a signer), then `advance` while the challenge is active, each with the gas limit TX_GAS_LIMIT.
  * `onReceipt(rc, info)` gets every receipt with the challengeInfo read after it. `maxTransactions` stops the loop
  * early (the challenge then stays active). A reverted transaction throws.
  *  → `{ id, receipts, info }`: the challenge id, the receipts in sending order and the last challengeInfo.
@@ -84,7 +83,7 @@ export async function playChallenge(ladder, challenger, defender, { onReceipt = 
   const provider = ladder.runner.provider;
   const receipts = [];
   const send = async (method, args) => {
-    const tx = await ladder[method](...args, { gasLimit: PLAY_GAS });
+    const tx = await ladder[method](...args, { gasLimit: TX_GAS_LIMIT });
     const rc = await mined(provider, tx.hash);
     if (rc.status !== 1) throw new Error(`${method} reverted: ${tx.hash}`);
     receipts.push(rc);

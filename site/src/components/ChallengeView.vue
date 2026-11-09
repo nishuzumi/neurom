@@ -1,7 +1,7 @@
 <script setup>
 // components/ChallengeView.vue — the view 挑战进行中: the 6 episodes as cells, the current step, the transaction
 // pipeline (in flight, confirmed), then the result and the rank change. The chain state comes from `challengeInfo`
-// (shown as soon as it answers) and `replay` (the episodes so far) while the challenge plays, the pipeline from the
+// (shown as soon as it answers) and `replay` (the episodes so far, built from that same info) while the challenge plays, the pipeline from the
 // running challenge of the page. Past the deadline the view settles the challenge by itself for the account that
 // owns the challenger (once); anyone logged in can settle it with the button.
 import { computed, shallowRef, watch } from 'vue';
@@ -53,7 +53,7 @@ watch([() => ladder.client, numeric, () => ladder.tick, () => run.value?.phase],
           const i = await client.challengeInfo(id);
           if (!current()) return;
           read.value = i; error.value = null;
-          const r = await client.replay(id);
+          const r = await client.replay(id, i);
           if (!current()) return;
           replay.value = r;
           if (i && Number(i.status) >= 2) { f.settled = true; return; }

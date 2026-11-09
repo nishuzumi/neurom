@@ -63,10 +63,16 @@ contract TankLadderTest is LadderBase {
 
     // ------------------------------------------------------------------------------------------------ registration
 
+    /// `config()` returns every field as deployed. The expected values are the raw numbers of ladder-defaults.json, so
+    /// a default that does not fit its field width (the casts of defaultConfig) fails here too.
     function testConfigIsReadable() public view {
         TankLadder.Config memory c = ladder.config();
-        require(c.factory == address(factory) && c.maxWeightBytes == 216_864 && c.deltaBps == 1000 && c.range == 10 && c.boardSize == 20, "config");
-        require(c.timeoutBlocks == 400 && c.cooldownBlocks == 6000 && c.minStartGas == 24_000_000 && c.reserveGas == 2_000_000 && c.endBlock == type(uint64).max, "config");
+        string memory json = vm.readFile(DEFAULTS);
+        require(c.factory == address(factory) && c.endBlock == type(uint64).max, "config");
+        require(c.maxWeightBytes == vm.parseJsonUint(json, ".maxWeightBytes") && c.deltaBps == vm.parseJsonUint(json, ".deltaBps"), "config");
+        require(c.range == vm.parseJsonUint(json, ".range") && c.boardSize == vm.parseJsonUint(json, ".boardSize"), "config");
+        require(c.timeoutBlocks == vm.parseJsonUint(json, ".timeoutBlocks") && c.cooldownBlocks == vm.parseJsonUint(json, ".cooldownBlocks"), "config");
+        require(c.minStartGas == vm.parseJsonUint(json, ".minStartGas") && c.reserveGas == vm.parseJsonUint(json, ".reserveGas"), "config");
     }
 
     function testConstructorRefusesABadConfig() public {
@@ -213,7 +219,7 @@ contract TankLadderTest is LadderBase {
         vm.expectRevert(abi.encodeWithSelector(TankLadder.TooLarge.selector, bigBytes, bigBytes - 1));
         enter(small, alice, big);
         enter(alice, big);
-        require(ladder.entry(big).weightBytes == 216_864, "at the maximum");
+        require(ladder.entry(big).weightBytes == defaultConfig().maxWeightBytes, "at the maximum");
     }
 
     /// A second module with the same chunks is a copy, whoever deployed it. A twin with one other byte is not.
