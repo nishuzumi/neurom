@@ -165,8 +165,8 @@ The database is PGlite in the process. The owner check runs against the real lad
 
 1. Create a Vercel project with Root Directory `site`.
 2. Enable "Include source files outside of the Root Directory in the Build Step". The build reads modules of `../frontend/`.
-3. Keep the default Install Command. Vercel runs `npm install` in the repo root, because the root `package.json` declares the workspace.
-4. `site/vercel.json` sets the Build Command `npm run build` and the Output Directory `dist`. The build makes the home page, the ladder page and the participation guide first. Then `frontend/build.mjs --hosted` makes the workbench into `dist/studio/index.html`. The site serves the home page at `/`, the ladder at `/ladder/`, the workbench at `/studio/` and the participation guide at `/guide/` (ADR 0027). `/ladder`, `/studio` and `/guide` redirect to the URL with the slash. The live workbench trains in the browser only and does not connect to a Python workspace.
+3. Keep the Install Command of the project. `site/vercel.json` sets it to `cd .. && npm ci`, which installs from the lockfile at the repo root. CAUTION: Do not change it back to the default. The default runs `npm install` in `site/`, and npm then installs only the dependencies of the `site` workspace, not those of the root `package.json` (for example `react`). The build then fails with `failed to resolve import "react"`.
+4. `site/vercel.json` also sets the Build Command `npm run build` and the Output Directory `dist`. The build makes the home page, the ladder page and the participation guide first. Then `frontend/build.mjs --hosted` makes the workbench into `dist/studio/index.html`. The site serves the home page at `/`, the ladder at `/ladder/`, the workbench at `/studio/` and the participation guide at `/guide/` (ADR 0027). `/ladder`, `/studio` and `/guide` redirect to the URL with the slash. The live workbench trains in the browser only and does not connect to a Python workspace.
 5. Add Neon from the Marketplace, then set the environment variables above.
 
 ## Deploying a season (testnet and mainnet)
