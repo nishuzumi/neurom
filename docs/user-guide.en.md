@@ -193,7 +193,7 @@ This section deploys ADD4 on a local Anvil node, then sends one step transaction
    forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:18545 --unlocked --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 --broadcast
    ```
 
-   The `factory` in the output must be `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0`. This is the official Factory of 31337 in `ladder/data/deployments.json`. The workbench and ladder share this record.
+   The `factory` in the output must be `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0`. This is the official Factory of 31337 in `site/data/deployments.json`. The workbench and ladder share this record.
 
 3. On an empty canvas, open `?preset=arithmetic-add4`.
 4. In the "Add" drawer, under "Blank modules", click "+ On-chain deployment".
@@ -221,7 +221,7 @@ CAUTION: Do not expose an unlocked Anvil node to the internet. If you do, anyone
 1. Start the workbench and ladder on the same local chain:
 
    ```sh
-   node ladder/scripts/dev-chain.mjs --no-seed --no-play
+   node site/scripts/dev-chain.mjs --no-seed --no-play
    ```
 
 2. Open `http://localhost:5174/studio/?preset=tank-battle`.
@@ -262,7 +262,7 @@ A practice challenge lets the ladder contract play a challenge on a local fork. 
    anvil --network monad --fork-url https://testnet-rpc.monad.xyz --chain-id 1014300 --port 18645
    ```
 
-   In the repository, you can also run `node ladder/scripts/dev-chain.mjs --fork`. It starts the fork with the same values, then starts the site.
+   In the repository, you can also run `node site/scripts/dev-chain.mjs --fork`. It starts the fork with the same values, then starts the site.
 3. Open `http://localhost:5174/studio/?preset=tank-battle`.
 4. Make sure that 「链节点（本地 fork）」 (chain node, local fork) shows a connection. If it does not, it shows the command to run, the node address and the chain id.
 5. Train a network, then accept a candidate.
@@ -284,7 +284,7 @@ Training needs no login. With Privy configured, both pages use the same user's e
 3. Add `http://localhost:5174` and `http://127.0.0.1:5174` to Allowed origins in Privy.
 4. Enable email login and automatic EVM wallet creation in Privy.
 5. Disable smart wallets and enable Disable confirmation modals.
-6. Run `npm run dev -w ladder`. This server always uses port 5174. If the port is in use, the server stops. It does not move to another port.
+6. Run `npm run dev -w site`. This server always uses port 5174. If the port is in use, the server stops. It does not move to another port.
 7. Open `http://localhost:5174/studio/`.
 8. Log in from the workbench header.
 9. Select `Monad Testnet (10143)` in the deployment module.
@@ -293,7 +293,7 @@ Training needs no login. With Privy configured, both pages use the same user's e
 12. Confirm that both wallet addresses match.
 13. Select the module from the archive, then register it.
 
-Both pages read environment settings from the repository root, not `ladder/.env.local`. `/studio/` and `/ladder/` are on the same origin, so one login is enough. The same user gets the same wallet address after another login.
+Both pages read environment settings from the repository root, not `site/.env.local`. `/studio/` and `/ladder/` are on the same origin, so one login is enough. The same user gets the same wallet address after another login.
 
 Logout or an account change invalidates the workbench's on-chain session. Training records and deployed modules do not change. After login, click "Connect" to verify the existing module before further on-chain operations.
 
@@ -716,5 +716,5 @@ Modules are immutable. To improve a module, train a new module. Each module gets
 | A conflict panel opens with the page | The local workspace save does not restore | Click "Export local save" first. Then open a corrected file, or discard the local save |
 | The execution or the evaluator says that the network has no accepted weights | Mining and the memory map have no builtin artifact | Train first, then click "Accept" on a candidate |
 | A candidate shows "Different environment" | After the training, you changed the scenario, `budget` or the episode kind of a partition | Train again |
-| Deployment reports no official Factory | The selected network has an empty `factory` configuration. Mainnet is not deployed | Select Monad Testnet or Local dev. Check `ladder/data/deployments.json` |
+| Deployment reports no official Factory | The selected network has an empty `factory` configuration. Mainnet is not deployed | Select Monad Testnet or Local dev. Check `site/data/deployments.json` |
 | Local dev cannot verify or cannot find the factory | The protocol contracts are not deployed on a freshly started Anvil node | Run `Deploy.s.sol` as step 2 of [section 7](#7-deploy-on-a-local-chain) tells |

@@ -1,5 +1,5 @@
 // ladder/errors.js — the text of every refusal the page can meet: the custom errors of TankLadder
-// (contract-interface.md), the error codes of the name service (ladder/README.md) and the errors of the chain bridge.
+// (contract-interface.md), the error codes of the name service (site/README.md) and the errors of the chain bridge.
 // `describeError(error, context)` gives one sentence for the user. The context carries the numbers the sentence
 // needs (the configuration, the weight size of the module), so the page never prints a limit from code.
 import { decodeLadderError } from '../chain/client.js';

@@ -1,7 +1,7 @@
 /* styles.css — NEUROM studio shell: fixed top bar, left rail, floating library drawer, full-screen board (see
    editor/editor.css), bottom-right zoom toolbar and bottom status strip. Everything after the shell section is the
    shared vocabulary the drawer and the module bodies use (buttons, inputs, notes, pins, tones).
-   The visual values are the ladder page's (ladder/src/styles.css, after mojo.devnads.com): light grey ground, white
+   The visual values are the ladder page's (site/src/styles.css, after mojo.devnads.com): light grey ground, white
    panels with a 1px light border and 2px corners, one indigo accent, system sans headings at weight 900, monospace
    numbers. The fonts, the accent (--focus) and the header type scale come from ui/brand.css, which the ladder page
    also uses. Every colour in the workbench is one of the tokens below, so a view script (editor/renderers/script-frame.js

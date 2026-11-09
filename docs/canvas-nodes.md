@@ -118,7 +118,7 @@ flowchart LR
 
 链节点的内容组件是 `ChainNodeBody.vue`（`core/kinds/chain-node.js`，ADR 0028）。它只有一个调用输出 `node`，接到脚本模块的函数输入上。
 
-- 第一行：网络（注册表 `ladder/data/deployments.json` 的条目）、「允许写入」（只有本地节点可以勾选）、「连接」。
+- 第一行：网络（注册表 `site/data/deployments.json` 的条目）、「允许写入」（只有本地节点可以勾选）、「连接」。
 - 状态行：页面用 `chain.js readConnection` 检查节点。链 id 必须等于配置的链 id。通过时显示区块号，以及注册表里的 Factory 和擂台在这个节点上有没有代码。
 - 选的是 fork 条目而节点连不上时，显示启动指南：`forkCommand` 给出的 anvil 命令、节点地址和链 id（都有复制按钮），以及三个步骤（运行命令并保持终端打开 → 在「链上部署」里选这个 fork 并部署 → 在「坦克对战」里运行模拟挑战）。
 - 沙箱里，接了链节点的函数输入是 `ctx.chain.<名字>`：一个 viem 客户端（全局 `viem` 由 `vite.config.ts viemGlobal` 在构建时打包进沙箱文档）。它的每个请求是这个输入的一次调用，参数是 `{ method, params }`。页面只放行链节点允许的方法（`READ_METHODS`，开了写入时再加 `WRITE_METHODS`）。`ctx.call.<名字>` 是原始的请求函数。

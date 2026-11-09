@@ -330,7 +330,7 @@ export function reward(transition) {
 
    部署时 Factory 把 ID 和部署账户一起存档（`moduleIdOf`、`deployerOf`、`moduleById`、`modulesByDeployer`）。面板的部署记录显示地址、ID 和部署者。擂台按部署账户列出模块，不用复制地址。桥接在发第一笔交易前查 ID 是否已被这个账户用过，工具模块的 ID 也查。工具模块的 ID 是 `tool-` 加产物 id 的前 48 位十六进制。
 
-   链上部署模块用这个网络的官方 Factory（ADR 0016）。工作台和擂台共用 `ladder/data/deployments.json` 里的网络与 Factory 地址。`chain.js` 从这份记录生成 `CHAINS`，不用手填。带 `forkOf` 的条目是那条链的本地分叉，地址取自被分叉的条目，`forkCommand` 给出起这个分叉的 `anvil` 命令（ADR 0028）。两个页面都用 `chain.js` 的 `connect(chainId, { write })` 连接链：只读走注册表里的 RPC，写入走本地节点的解锁账户、Privy 或注入的钱包。面板显示 Factory 地址。有区块浏览器时，地址带链接。本地镜像用产物快照里的环境与整数执行器逐项对照。
+   链上部署模块用这个网络的官方 Factory（ADR 0016）。工作台和擂台共用 `site/data/deployments.json` 里的网络与 Factory 地址。`chain.js` 从这份记录生成 `CHAINS`，不用手填。带 `forkOf` 的条目是那条链的本地分叉，地址取自被分叉的条目，`forkCommand` 给出起这个分叉的 `anvil` 命令（ADR 0028）。两个页面都用 `chain.js` 的 `connect(chainId, { write })` 连接链：只读走注册表里的 RPC，写入走本地节点的解锁账户、Privy 或注入的钱包。面板显示 Factory 地址。有区块浏览器时，地址带链接。本地镜像用产物快照里的环境与整数执行器逐项对照。
 
    配置 `VITE_PRIVY_APP_ID` 后，工作台和擂台共用 `wallet/privy.js`。两边只使用同一个 Privy 用户的嵌入式 EVM 钱包，不改用外部钱包。两个 Vite 配置都从仓库根目录读取 `.env.local`。Privy 按 origin 保存登录状态。线上的工作台（擂台网站的 `/studio/`）和擂台在同一个 origin，登录一次就够了。本机的工作台要另外登录。退出或切换账号后，链上会话作废，训练不受影响。没有配置 Privy 时，公共链仍使用浏览器钱包，Local dev 始终使用 Anvil。
 
@@ -401,7 +401,7 @@ export function reward(transition) {
 | `editor/CanvasEdge.vue`, `edge-presentation.ts`, `EdgeSettings.vue`, `EdgeMenu.vue`, `wiring.ts`, `wire-palette.js` | 两种线的绘制、外观、中转点、菜单与配色 |
 | `editor/history.ts`, `layout.ts`, `workbench-context.ts` | 撤销 / 重做与复制粘贴。视角持久化。内容组件读取工作台的注入 |
 | `ui/template-library.js`, `ui/static-text.js` | 模板库抽屉。`index.html` 静态文字的翻译 |
-| `ui/brand.css` | 两个页面共用的品牌令牌：无衬线和等宽字体栈、强调色、顶栏的字号和字重。`styles.css` 和 `ladder/src/styles.css` 都用 `@import` 加载它 |
+| `ui/brand.css` | 两个页面共用的品牌令牌：无衬线和等宽字体栈、强调色、顶栏的字号和字重。`styles.css` 和 `site/src/styles.css` 都用 `@import` 加载它 |
 | `i18n.js`, `i18n/en.json`, `i18n/check.mjs` | 界面语言、英文词条、覆盖检查 |
 | `wallet/privy.js`, `ui/wallet.js` | 两个页面共用的 Privy 会话，以及训练台顶栏的钱包控件。当前账号和实际链决定签名者。退出或切换账号会使旧签名者作废。私钥不进入工作区 |
 | `chain-error.js` | 两个页面用此模块读取嵌套错误的原因和错误码 |
@@ -423,4 +423,4 @@ npm run build
 
 构建结果发布到 `frontend/dist/neurom-studio.html`（不入库）。单文件内联代码、样式、内置模板与产物、ABI 和训练 Worker，所以可以用 `file://` 实际训练。ethers 也已打包，所以链上操作不依赖 CDN。Python 训练需要同源 Workspace 服务。
 
-`node frontend/build.mjs --hosted --out <文件>` 构建擂台网站上的工作台（`ladder` 的 `npm run build` 用它，见 ADR 0027）。这个版本不连 Python 工作区，只在浏览器里训练。它的标题栏有回到擂台的链接。新部署记录默认用擂台的链（`VITE_LADDER_CHAIN_ID`）。
+`node frontend/build.mjs --hosted --out <文件>` 构建网站上的工作台（`site` 的 `npm run build` 用它，见 ADR 0027）。这个版本不连 Python 工作区，只在浏览器里训练。它的标题栏有回到擂台的链接。新部署记录默认用擂台的链（`VITE_LADDER_CHAIN_ID`）。

@@ -5,7 +5,7 @@
 //   3. a few challenges, played to the end from the contract,
 //   4. a name service on PGlite, mounted at /api/names of the Vite dev server,
 //   5. the Vite dev server of the site, pointed at the anvil through VITE_LADDER_RPC and the addresses: the home page
-//      at /, the ladder at /ladder/ and the workbench at /studio/ (ladder/vite.config.js), on the same chain and
+//      at /, the ladder at /ladder/ and the workbench at /studio/ (site/vite.config.js), on the same chain and
 //      official Factory.
 // Each page logs in with one anvil account (VITE_DEV_ACCOUNT). The default is one page for account 1, which owns
 // nothing at the start, so the whole flow (register, challenge, name) can be walked in the browser. `--accounts 1,3,4`
@@ -19,8 +19,8 @@
 // and the ladder of the real chain, so nothing is deployed, seeded or played. The pages and the workbench use the fork
 // entry, and the chain node of a tank battle template reaches the same node.
 //
-//   node ladder/scripts/dev-chain.mjs [--port 5174] [--accounts 1] [--board-size 20] [--no-seed] [--no-play] [--artifacts a.json,b.json]
-//   node ladder/scripts/dev-chain.mjs --fork [--port 5174] [--accounts 1]
+//   node site/scripts/dev-chain.mjs [--port 5174] [--accounts 1] [--board-size 20] [--no-seed] [--no-play] [--artifacts a.json,b.json]
+//   node site/scripts/dev-chain.mjs --fork [--port 5174] [--accounts 1]
 //   ANVIL=… FORGE=… select the Foundry binaries (contracts/scripts/foundry.mjs).
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -53,11 +53,11 @@ if (accounts.some(a => !Number.isInteger(a) || a < 0 || a > 9) || new Set(accoun
 }
 
 /** The default entries: name → artifact file (relative to the repo). The two trained networks of
- *  ladder/data/artifacts (the scene of template revision 16) are always there. Other local artifacts in .scratch fill the rest of
+ *  site/data/artifacts (the scene of template revision 16) are always there. Other local artifacts in .scratch fill the rest of
  *  the ladder when they exist. Missing files are skipped. */
 const DEFAULT_ARTIFACTS = [
-  ['Mid', 'ladder/data/artifacts/mid.json'],
-  ['Big', 'ladder/data/artifacts/big.json'],
+  ['Mid', 'site/data/artifacts/mid.json'],
+  ['Big', 'site/data/artifacts/big.json'],
   ['Mid S1', '.scratch/jolt/s1-a-r15.json'],
   ['Big S1', '.scratch/jolt/s1-b-r15.json'],
   ['Mid Jolt', '.scratch/jolt/s2-a-jolt.json'],

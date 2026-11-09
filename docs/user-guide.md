@@ -193,7 +193,7 @@ Python 后端用 PyTorch 训练同一份训练快照。
    forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:18545 --unlocked --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 --broadcast
    ```
 
-   输出里的 `factory` 应该是 `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0`。这是 `ladder/data/deployments.json` 里 31337 的官方 Factory。工作台和擂台共用这份记录。
+   输出里的 `factory` 应该是 `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0`。这是 `site/data/deployments.json` 里 31337 的官方 Factory。工作台和擂台共用这份记录。
 
 3. 在空画布上打开 `?preset=arithmetic-add4`。
 4. 在「添加」抽屉的「空白模块」里点「+ 链上部署」。
@@ -221,7 +221,7 @@ Python 后端用 PyTorch 训练同一份训练快照。
 1. 运行同一条本地链上的工作台和擂台：
 
    ```sh
-   node ladder/scripts/dev-chain.mjs --no-seed --no-play
+   node site/scripts/dev-chain.mjs --no-seed --no-play
    ```
 
 2. 打开 `http://localhost:5174/studio/?preset=tank-battle`。
@@ -262,7 +262,7 @@ Python 后端用 PyTorch 训练同一份训练快照。
    anvil --network monad --fork-url https://testnet-rpc.monad.xyz --chain-id 1014300 --port 18645
    ```
 
-   在仓库里也可以运行 `node ladder/scripts/dev-chain.mjs --fork`。它用同样的参数启动 fork，再启动网站。
+   在仓库里也可以运行 `node site/scripts/dev-chain.mjs --fork`。它用同样的参数启动 fork，再启动网站。
 3. 打开 `http://localhost:5174/studio/?preset=tank-battle`。
 4. 确认「链节点（本地 fork）」显示已连接。如果没有连接，它显示要运行的命令、节点地址和 chain id。
 5. 训练网络，然后接受一个候选。
@@ -284,7 +284,7 @@ Python 后端用 PyTorch 训练同一份训练快照。
 3. 在 Privy 的 Allowed origins 中加入 `http://localhost:5174` 和 `http://127.0.0.1:5174`。
 4. 在 Privy 中启用邮箱登录和自动创建 EVM 钱包。
 5. 关闭智能钱包，启用 Disable confirmation modals。
-6. 运行 `npm run dev -w ladder`。这个服务器固定使用端口 5174。端口被占用时，它会停止，不会换到其他端口。
+6. 运行 `npm run dev -w site`。这个服务器固定使用端口 5174。端口被占用时，它会停止，不会换到其他端口。
 7. 打开 `http://localhost:5174/studio/`。
 8. 在训练台顶栏登录。
 9. 在部署模块中选择 `Monad Testnet (10143)`。
@@ -293,7 +293,7 @@ Python 后端用 PyTorch 训练同一份训练快照。
 12. 确认两边的钱包地址相同。
 13. 从部署存档选择模块，然后注册。
 
-两个页面共用根目录的环境配置，不读取 `ladder/.env.local`。`/studio/` 和 `/ladder/` 在同一个 origin 上，所以登录一次就够了。重新登录同一个用户后，钱包地址不变。
+两个页面共用根目录的环境配置，不读取 `site/.env.local`。`/studio/` 和 `/ladder/` 在同一个 origin 上，所以登录一次就够了。重新登录同一个用户后，钱包地址不变。
 
 退出登录或切换账号会使训练台的链上会话作废。训练记录和已部署模块不变。再次登录后，点「连接」核对已有模块，再继续链上操作。
 
@@ -716,5 +716,5 @@ const grid = ctx.values.p.grid;
 | 打开页面时出现冲突面板 | 本地保存的工作区无法恢复 | 先点「导出本地存档」。然后打开改好的文件，或者丢弃本地存档 |
 | 执行实例或评估器说网络没有已接受的权重 | 挖矿和记忆地图没有内置产物 | 先训练，再在候选上点「接受」 |
 | 候选标为“环境不同” | 训练后改了场景、`budget` 或分区的回合种类 | 重新训练 |
-| 链上部署提示没有官方 Factory | 所选网络的 `factory` 配置为空。主网仍未部署 | 选择 Monad Testnet 或 Local dev。核对 `ladder/data/deployments.json` |
+| 链上部署提示没有官方 Factory | 所选网络的 `factory` 配置为空。主网仍未部署 | 选择 Monad Testnet 或 Local dev。核对 `site/data/deployments.json` |
 | Local dev 核对失败或找不到 Factory | 新启动的 Anvil 上还没有部署协议合约 | 按[第 7 节](#7-部署到本地链)第 2 步运行 `Deploy.s.sol` |

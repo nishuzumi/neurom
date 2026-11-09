@@ -1,4 +1,4 @@
-// guide/main.js — the participation guide at `/guide/` (ladder/guide/index.html). The guide is static HTML that holds
+// guide/main.js — the participation guide at `/guide/` (site/guide/index.html). The guide is static HTML that holds
 // the Chinese and the English text. This entry loads the brand tokens and shows one language. The language is the
 // locale of the site (../i18n.js), so the guide, the ladder and the workbench keep the same choice.
 import '../../../frontend/ui/brand.css';
