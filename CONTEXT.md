@@ -275,7 +275,7 @@ _Avoid_: draw (that is the result of one episode).
 **Weight Size (权重字节数)**: the number of bytes of the weights of an entry. It is the cost of an entry on the ladder. An entry above the maximum weight size cannot enter.
 _Avoid_: gas (the gas of a step changes with the input), parameter count.
 
-**Season (赛季)**: the period in which the ladder accepts challenges. It ends at a fixed block. After the end, the ranks are final.
+**Season (赛季)**: the period in which the ladder accepts challenges. It ends at the end block of the ladder contract. Before the end, the account that deployed the ladder can move the end block earlier or later. After the end, nobody can move it, and the ranks are final.
 
 ### Templates and composites
 
