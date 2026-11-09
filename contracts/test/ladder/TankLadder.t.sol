@@ -612,4 +612,43 @@ contract TankLadderTest is LadderBase {
         vm.expectRevert(TankLadder.SeasonOver.selector);
         season.challenge{gas: GAS_LIMIT}(big, mid);
     }
+
+    function testTheDeployerMovesTheSeasonEnd() public {
+        TankLadder season = ladderWith(1000, 10, 20, uint64(block.number + 5));
+        require(season.admin() == address(this), "the deployer is the admin");
+        vm.recordLogs();
+        season.setEndBlock(uint64(block.number + 100));
+        IVm.Log[] memory logs = vm.getRecordedLogs();
+        require(logs.length == 1 && logs[0].topics[0] == keccak256("EndBlockChanged(uint64)") && abi.decode(logs[0].data, (uint64)) == block.number + 100, "one EndBlockChanged");
+        require(season.endBlock() == block.number + 100 && season.config().endBlock == block.number + 100, "config reads the new end");
+        vm.roll(block.number + 5);
+        enter(season, alice, mid);                                // the old end has passed, the season runs on
+        season.setEndBlock(uint64(block.number + 1));             // earlier: the next block is the end
+        vm.roll(block.number + 1);
+        vm.expectRevert(TankLadder.SeasonOver.selector);
+        enter(season, bob, big);
+    }
+
+    function testOnlyTheAdminMovesTheSeasonEnd() public {
+        TankLadder season = ladderWith(1000, 10, 20, uint64(block.number + 5));
+        vm.prank(alice, alice);
+        vm.expectRevert(TankLadder.NotAdmin.selector);
+        season.setEndBlock(uint64(block.number + 100));
+        require(season.endBlock() == block.number + 5, "unchanged");
+    }
+
+    function testTheSeasonEndMovesOnlyToALaterBlock() public {
+        TankLadder season = ladderWith(1000, 10, 20, uint64(block.number + 5));
+        vm.expectRevert(TankLadder.BadEndBlock.selector);
+        season.setEndBlock(uint64(block.number));
+        vm.expectRevert(TankLadder.BadEndBlock.selector);
+        season.setEndBlock(uint64(block.number - 1));
+    }
+
+    function testAFinishedSeasonStaysFinished() public {
+        TankLadder season = ladderWith(1000, 10, 20, uint64(block.number + 5));
+        vm.roll(block.number + 5);
+        vm.expectRevert(TankLadder.SeasonOver.selector);
+        season.setEndBlock(uint64(block.number + 100));
+    }
 }

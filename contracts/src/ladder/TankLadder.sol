@@ -33,6 +33,8 @@ interface ILadderModule {
 ///         board. When the defender is off the board at the settlement, no rank changes. Every other result is a
 ///         defense. The same challenger cannot challenge the same defender again for `cooldownBlocks` blocks. After
 ///         `endBlock` the ladder accepts no new entry and no new challenge. A started challenge plays to its end.
+///         The deployer (`admin`) can move `endBlock` earlier or later while the season runs. A finished season
+///         stays finished.
 ///         The page replays a challenge from the seed and the `Steps` events alone. The referee is TankScene, which
 ///         mirrors the template scene bit for bit. The ladder reads the scores of each side with the read-only
 ///         `forward` from the rest state and takes the first maximum (the readout of the workbench).
@@ -93,6 +95,8 @@ contract TankLadder {
     event EpisodeEnded(uint256 indexed id, uint8 episode, int8 end, uint8 steps);
     /// @notice `newRank` is the rank of the challenger after the settlement, 0 = off the board.
     event ChallengeSettled(uint256 indexed id, uint8 status, uint8 challengerWins, uint8 defenderWins, uint32 newRank);
+    /// @notice `admin` moved the end of the season to `endBlock`.
+    event EndBlockChanged(uint64 endBlock);
 
     error BadConfig();
     error NotOfficialModule();
@@ -113,6 +117,8 @@ contract TankLadder {
     error Expired();
     error NotExpired();
     error ForwardFailed(address module);
+    error NotAdmin();
+    error BadEndBlock();
 
     // ------------------------------------------------------------------------------------------------ configuration
 
@@ -125,7 +131,8 @@ contract TankLadder {
     uint32 public immutable cooldownBlocks;
     uint32 public immutable minStartGas;
     uint32 public immutable reserveGas;
-    uint64 public immutable endBlock;
+    /// @notice The account that deployed the ladder. Only it moves `endBlock`.
+    address public immutable admin;
 
     constructor(Config memory c) {
         if (c.factory.code.length == 0 || c.deltaBps > 10000 || c.range == 0 || c.boardSize == 0 || c.reserveGas == 0 || c.timeoutBlocks == 0) revert BadConfig();
@@ -139,10 +146,21 @@ contract TankLadder {
         minStartGas = c.minStartGas;
         reserveGas = c.reserveGas;
         endBlock = c.endBlock;
+        admin = msg.sender;
     }
 
     function config() external view returns (Config memory) {
         return Config(factory, maxWeightBytes, deltaBps, range, boardSize, timeoutBlocks, cooldownBlocks, minStartGas, reserveGas, endBlock);
+    }
+
+    /// @notice Move the end of the season to `newEndBlock`, earlier or later. Only `admin`, only while the season
+    ///         runs (else `SeasonOver`), and only to a block after the current block (else `BadEndBlock`).
+    function setEndBlock(uint64 newEndBlock) external {
+        if (msg.sender != admin) revert NotAdmin();
+        if (block.number >= endBlock) revert SeasonOver();
+        if (newEndBlock <= block.number) revert BadEndBlock();
+        endBlock = newEndBlock;
+        emit EndBlockChanged(newEndBlock);
     }
 
     // ------------------------------------------------------------------------------------------------ storage
@@ -155,7 +173,8 @@ contract TankLadder {
     struct ChallengeData { uint256 head; uint256 body; bytes32 seed; uint256 cells; }
 
     /// @dev The entries on the board in rank order, at most `boardSize`: rank r is _board[r - 1]. The ladder finds a
-    ///      rank with a scan of this array. Its slots are adjacent, so a scan touches few storage pages (MIP-8).
+    ///      rank with a scan of this array. Its slots are adjacent, so a scan touches few storage pages (MIP-8). It
+    ///      stays in slot 0: the practice challenge of the tank battle template writes it (`BOARD_SLOT`, ADR 0028).
     address[] private _board;
     /// @dev Every entry in the order of registration, on the board and off it. Entries never leave.
     address[] private _entered;
@@ -166,6 +185,9 @@ contract TankLadder {
     mapping(bytes32 => uint64) private _cooldownUntil;
     /// @notice Challenges started so far (the id of the last one).
     uint256 public challengeCount;
+    /// @notice From this block on, the ladder accepts no new entry and no new challenge. `admin` moves it with
+    ///         `setEndBlock`. It comes after the other storage, so it moves no slot.
+    uint64 public endBlock;
 
     // ------------------------------------------------------------------------------------------------ registration
 

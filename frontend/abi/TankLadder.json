@@ -128,6 +128,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "admin",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -680,6 +693,19 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "newEndBlock",
+        "type": "uint64"
+      }
+    ],
+    "name": "setEndBlock",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "timeoutBlocks",
     "outputs": [
@@ -764,6 +790,19 @@
       }
     ],
     "name": "ChallengeStarted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "endBlock",
+        "type": "uint64"
+      }
+    ],
+    "name": "EndBlockChanged",
     "type": "event"
   },
   {
@@ -871,6 +910,11 @@
   },
   {
     "inputs": [],
+    "name": "BadEndBlock",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "Busy",
     "type": "error"
   },
@@ -931,6 +975,11 @@
       }
     ],
     "name": "LowGas",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotAdmin",
     "type": "error"
   },
   {

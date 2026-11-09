@@ -412,19 +412,26 @@ The step in the benchmarks is smaller than the step in the table above, for two 
 - Settlement: the challenger wins with more episodes than the defender. With the same number of episodes, it wins only when its weight size is at most (1 − δ) of the defender's. Then it takes the rank of the defender, and the defender and every entry between them move down one rank. When the challenger comes from off the board, the last entry goes off the board. That entry comes back with a challenge.
 - When the defender is off the board at the settlement (it was pushed off while the challenge played), the challenger still wins the challenge, and the wins and losses count. But no rank changes. This occurs only when the challenger is off the board too.
 - From `endBlock` on, the ladder accepts no registration and no new challenge. A started challenge plays to its end.
-- Events: `EntryRegistered` (`rank` 0 = off the board), `ChallengeStarted`, `Steps` (the actions of each episode in each transaction, one byte per step `a0 * 9 + a1`, the actions that the two networks chose in their own maps, side 0 first), `EpisodeEnded`, `ChallengeSettled` (`newRank` is the rank of the challenger after the settlement, 0 = off the board). The page rebuilds a replay from the seed, the actions and the JS scene.
+- The account that deploys the ladder is `admin`. Before the season ends, `admin` can move `endBlock` earlier or later with `setEndBlock(newEndBlock)`, and the ladder emits `EndBlockChanged(endBlock)`. The new end block must be after the current block, else the call reverts `BadEndBlock`. A call from another account reverts `NotAdmin`. A call after the season ends reverts `SeasonOver`, so a finished season cannot start again. Nobody can transfer `admin`.
+- Events: `EntryRegistered` (`rank` 0 = off the board), `ChallengeStarted`, `Steps` (the actions of each episode in each transaction, one byte per step `a0 * 9 + a1`, the actions that the two networks chose in their own maps, side 0 first), `EpisodeEnded`, `ChallengeSettled` (`newRank` is the rank of the challenger after the settlement, 0 = off the board), `EndBlockChanged`. The page rebuilds a replay from the seed, the actions and the JS scene.
 - Views: `entryCount()` counts the entries on and off the board. `board()` returns the `Entry[]` of the board in rank order. `entries(from, count)` pages all entries in registration order, `from` is 0-based, and an out-of-range `from` gives an empty array. `entry(module)` has `rank` 0 when the entry is off the board, and `owner` 0 when it is not entered.
-- Every refusal is its own custom error: `BadConfig`, `NotOfficialModule`, `WrongShape(inputs, outputs)`, `TooLarge(weightBytes, maxWeightBytes)`, `DuplicateWeights(entry)`, `HasTools`, `AlreadyEntered`, `NotEntered`, `NotEoa`, `LowGas(gasLeft, minStartGas)`, `NotOwner`, `OutOfRange`, `Busy`, `Cooldown(untilBlock)`, `SeasonOver`, `NotPlaying`, `Expired`, `NotExpired`, `ForwardFailed(module)`.
+- Every refusal is its own custom error: `BadConfig`, `NotOfficialModule`, `WrongShape(inputs, outputs)`, `TooLarge(weightBytes, maxWeightBytes)`, `DuplicateWeights(entry)`, `HasTools`, `AlreadyEntered`, `NotEntered`, `NotEoa`, `LowGas(gasLeft, minStartGas)`, `NotOwner`, `OutOfRange`, `Busy`, `Cooldown(untilBlock)`, `SeasonOver`, `NotPlaying`, `Expired`, `NotExpired`, `ForwardFailed(module)`, `NotAdmin`, `BadEndBlock`.
 
 ### Configuration and deployment
 
-The constructor takes one `Config`: `factory`, `maxWeightBytes` (216,864), `deltaBps` (1000), `range` (10), `boardSize` (20), `timeoutBlocks` (400), `cooldownBlocks` (6000), `minStartGas` (24,000,000), `reserveGas` (2,000,000), `endBlock`. The values in parentheses are the defaults of the spec. The constructor reverts `BadConfig` when `boardSize` is 0. `config()` returns every field.
+The constructor takes one `Config`: `factory`, `maxWeightBytes` (216,864), `deltaBps` (1000), `range` (10), `boardSize` (20), `timeoutBlocks` (400), `cooldownBlocks` (6000), `minStartGas` (24,000,000), `reserveGas` (2,000,000), `endBlock`. The values in parentheses are the defaults of the spec. The constructor reverts `BadConfig` when `boardSize` is 0. `config()` returns every field, with the current `endBlock`.
 
 ```sh
 LADDER_FACTORY=<official Factory> LADDER_END_BLOCK=<last block of the season> forge script script/DeployLadder.s.sol --rpc-url monad_testnet --private-key $PK --broadcast
 ```
 
 `LADDER_MAX_WEIGHT_BYTES`, `LADDER_DELTA_BPS`, `LADDER_RANGE`, `LADDER_BOARD_SIZE`, `LADDER_TIMEOUT_BLOCKS`, `LADDER_COOLDOWN_BLOCKS`, `LADDER_MIN_START_GAS` and `LADDER_RESERVE_GAS` override the other fields. Local tests use `localLadder()` of `frontend/ladder.fixture.js`: it starts anvil, deploys the protocol and a TankLadder, and `enter(artifact)` deploys and registers an artifact. On a fresh anvil, account 0 runs `Deploy.s.sol` and then `DeployLadder.s.sol`, and the TankLadder is at `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318`. `localLadder()` deploys in the same order, so its address is the same.
+
+To move the end block, send one transaction with the key that deployed the ladder:
+
+```sh
+cast send <ladder> 'setEndBlock(uint64)' <new end block> --rpc-url monad_testnet --private-key $PK
+```
 
 ### Referee and parity
 

@@ -171,6 +171,7 @@
   "种子来自第一笔交易所在块的 PREVRANDAO 和挑战编号。只有没有代码的普通账号能发起挑战，发起交易的 gas limit 不能低于门槛，所以挑战者不能先看种子再决定打不打。": "The seed comes from the PREVRANDAO of the block of the first transaction and the challenge id. Only an account without code can start a challenge, and the gas limit of the start transaction has a minimum. So a challenger cannot see the seed before it decides to play.",
   "已知的限制：打乱权重块顺序的副本权重不同，可以注册，并且可以排到原版的下一名。它在镜像对里赢不了原版。": "Known limit: a copy with its weight chunks in another order has different weights. It can enter, and it can sit directly below the original. It cannot win a mirror pair against the original.",
   "已知的限制：前提是挑战者控制不了验证者，也收买不了验证者。出块的验证者能提前知道自己那一块的 PREVRANDAO。": "Known limit: the challengers must not control or bribe the validators. The validator of a block knows the PREVRANDAO of its own block in advance.",
+  "部署擂台合约的账号可以在赛季结束以前提前或推迟赛季结束块。赛季结束以后，结束块不能再改。": "The account that deployed the ladder contract can move the season end block earlier or later before the season ends. After the season ends, nobody can change the end block.",
   "任何人都能用种子、事件里的动作和模板的场景复现一场挑战的每一步。回放就是这样算出来的。": "Anyone can reproduce every step of a challenge from the seed, the actions in the events and the scene of the template. The replay is computed that way.",
   "页面导航": "Page navigation",
   "anvil 默认助记词的账号，只用于本地开发": "An account of the anvil default mnemonic, for local development only",
