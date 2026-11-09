@@ -1,13 +1,13 @@
 <script setup>
-// components/SiteBar.vue — the top bar of the site, shared by the home page and the ladder page. On the left: the
-// wordmark, the site links (ladder, workbench, GitHub) and, through the `nav` slot, the own links of the page. On the
-// right: the default slot (the login button or the wallet chip of the ladder) and the language toggle. The workbench
-// shows the same links with its own header (frontend/graph_app.js).
+// components/SiteBar.vue — the top bar of the site, shared by the home page, the ladder page and the guide. On the
+// left: the wordmark, the site links (ladder, workbench, GitHub) and, through the `nav` slot, the own links of the
+// page. On the right: the default slot (the login button or the wallet chip of the ladder) and the language toggle.
+// The workbench shows the same links with its own header (frontend/graph_app.js).
 import { locale, setLocale, t } from '../i18n.js';
 import { site } from '../site.js';
 
 defineProps({
-  /** The page of the site that is open: `home` | `ladder`. Its site link is marked. */
+  /** The page of the site that is open: `home` | `ladder` | `guide`. The ladder link is marked on the ladder. */
   page: { type: String, required: true },
   /** The sub title after the wordmark, for example 坦克擂台 on the ladder. */
   sub: { type: String, default: '' },

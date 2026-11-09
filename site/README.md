@@ -4,7 +4,7 @@
 
 ## 目录
 
-- `index.html` 和 `src/home/`：首页。`ladder/index.html` 和 `src/`：擂台页面。`guide/index.html` 和 `src/guide/main.js`：参与指南。它是一个中英双语的静态页面，告诉参赛者怎样从零训练、部署、注册和挑战。三个页面是同一个 Vite 构建的三个入口（`vite.config.js`）。`src/chain/` 是不含界面的 ladder 客户端。它读擂台合约，也读官方 Factory 的存档（`deploymentsOf`：一个账号部署过的模块和它们的英文 ID）。`src/components/SiteBar.vue` 是首页和擂台共用的站点顶栏。`src/i18n.js` 和 `src/i18n/en.json` 是页面自己的英文词条。
+- `index.html` 和 `src/home/`：首页。`ladder/index.html` 和 `src/`：擂台页面。`guide/index.html` 和 `src/guide/`：参与指南。它是一个 Vue 页面，告诉参赛者怎样从零训练、部署、注册和挑战。`GuidePage.vue` 把中文和英文成对写在同一个文件里（`lang="zh"` 后面跟 `lang="en"`），不经过 `t()`。`src/i18n.test.js` 检查每一对都完整。三个页面是同一个 Vite 构建的三个入口（`vite.config.js`）。`src/chain/` 是不含界面的 ladder 客户端。它读擂台合约，也读官方 Factory 的存档（`deploymentsOf`：一个账号部署过的模块和它们的英文 ID）。`src/components/SiteBar.vue` 是首页、擂台和参与指南共用的站点顶栏。`src/i18n.js` 和 `src/i18n/en.json` 是页面自己的英文词条。
 - `api/`：Vercel 函数。`api/names.js` 只把环境变量接到 `server/` 的模块上。
 - `server/`：名字服务的逻辑（`names.js`）、HTTP 层（`names-http.js`）、数据库（`db.js`、`schema.sql`）。
 - `data/`：会变的数据。`banned-words.json` 是违禁词，`step-gas.json` 是实测的每步 gas，`deployments.json` 是每条链的 RPC、官方 Factory 和擂台合约地址。
