@@ -33,6 +33,7 @@ import { encodeThresholdWeights } from './runtime/threshold-layers.js';
 import { AbiCoder, Contract, getCreate2Address, isAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { t } from './i18n.js';
 import { describeChainError as describe } from './chain-error.js';
+import { TX_GAS_LIMIT } from './monad.js';
 
 const ZERO_ADDRESS = '0x' + '0'.repeat(40);
 const INT32 = 2147483648;
@@ -40,8 +41,6 @@ const INT32 = 2147483648;
 export const CHUNK_BYTES = 114_688;
 /** ModuleFactory.CHUNK_INIT: every chunk's init code, so a chunk's address follows from the Factory and its content. */
 const CHUNK_INIT = '0x63151ce8865f525f5f6004601c335afa6016575f5ffd5b3d5f5f3e3d5ff3';
-/** Monad's per-transaction gas limit (every deployment target is Monad, ADR 0016). The block limit of a node can be lower. */
-const MAX_TX_GAS = 30_000_000n;
 
 /** Gas limit for a transaction: the estimate + 10%. The estimate can run on a state one step behind the state that the
  *  transaction executes on (the gas of a LIF step depends on its potentials). Monad charges the limit either way. */
@@ -310,10 +309,11 @@ async function toolModule(signer, factory, factoryAddress, tool, at) {
   return { artifactId: tool.id, address: r.address, reused: false, moduleId: r.moduleId, txHash: r.txHash, gasUsed: r.gasUsed, chunks: r.chunks, transactions: r.transactions };
 }
 
-/** The most gas one transaction may use on the signer's chain: Monad's limit, or the block limit when lower. */
+/** The most gas one transaction may use on the signer's chain: Monad's limit (TX_GAS_LIMIT), or the block limit when lower. */
 async function txGasCap(signer) {
   const { gasLimit } = await providerOf(signer).getBlock('latest');
-  return gasLimit < MAX_TX_GAS ? gasLimit : MAX_TX_GAS;
+  const cap = BigInt(TX_GAS_LIMIT);
+  return gasLimit < cap ? gasLimit : cap;
 }
 
 /** The gas estimate of `method(...args)`, or null when the node refuses it. Call it only on a call that the Factory

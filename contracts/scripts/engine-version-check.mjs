@@ -20,6 +20,7 @@ import { ethers } from 'ethers';
 import FactoryABI from '../../frontend/abi/ModuleFactory.json' with { type: 'json' };
 import ModuleABI from '../../frontend/abi/NeuromModule.json' with { type: 'json' };
 import { deployModule } from '../../frontend/module-chain.js';
+import { TX_GAS_LIMIT } from '../../frontend/monad.js';
 import { engineCases } from './engine-cases.mjs';
 import { startAnvil } from './foundry.mjs';
 
@@ -38,9 +39,6 @@ async function decisionOf(call) {
   } catch (e) { return { error: reasonOf(e) }; }
 }
 
-/** Gas limit of a step on the fork: Monad's per-transaction limit, so no estimate is needed. */
-const STEP_GAS = 30_000_000n;
-
 /** The fork mines each transaction as it arrives: its receipt is there at once (ethers' wait() polls for blocks). */
 async function mined(tx) {
   const rc = (await tx.provider.getTransactionReceipt(tx.hash)) ?? (await tx.wait());
@@ -57,7 +55,7 @@ async function runCases(signer, modules, log) {
       if (!c.stateful) { got.push(await decisionOf(() => m.forward(input))); continue; }
       const d = await decisionOf(() => m.step.staticCall(session, input));
       got.push(d);
-      if (!d.error) await mined(await m.step(session, input, { gasLimit: STEP_GAS }));
+      if (!d.error) await mined(await m.step(session, input, { gasLimit: TX_GAS_LIMIT }));
     }
     out.push(got);
     log(`  ${c.name}: ${got.length} decisions`);

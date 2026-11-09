@@ -7,6 +7,7 @@ import { parse as parseSfc } from 'vue/compiler-sfc';
 import { checkI18n } from '../../frontend/i18n/check.mjs';
 import { setLocale, t } from './i18n.js';
 import en from './i18n/en.json' with { type: 'json' };
+import workbenchEn from '../../frontend/i18n/en.json' with { type: 'json' };
 
 const SITE = fileURLToPath(new URL('..', import.meta.url));
 const SKIP = new Set(['dist', 'node_modules', 'i18n', 'data']);
@@ -24,11 +25,15 @@ function siteFiles() {
     .map(p => join(SITE, p)).sort();
 }
 
-test('every Chinese string of the site pages has an English entry and every entry is used', () => {
+test('every Chinese string of the site pages has an English entry (page or workbench dictionary) and every page entry is used', () => {
   const files = siteFiles();
   assert.ok(files.some(f => f.endsWith(join('guide', 'index.html'))) && files.some(f => f.endsWith('App.vue')) && files.some(f => f.endsWith('HomePage.vue')), 'scans the page sources');
-  const { errors } = checkI18n({ files, dictionary: en });
+  const { errors } = checkI18n({ files, dictionary: en, fallback: workbenchEn });
   assert.deepEqual(errors, []);
+});
+
+test('the page dictionary has no entry that the workbench dictionary also has: t() falls back to the workbench', () => {
+  assert.deepEqual(Object.keys(en).filter(key => Object.hasOwn(workbenchEn, key)), []);
 });
 
 // @vue/compiler-core NodeTypes

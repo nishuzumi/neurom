@@ -26,7 +26,8 @@ import { parseArgs } from 'node:util';
 import { AbiCoder, Contract, JsonRpcProvider, SigningKey, Wallet, concat, encodeRlp, formatEther, keccak256, toBeHex } from 'ethers';
 import TankLadderABI from '../../frontend/abi/TankLadder.json' with { type: 'json' };
 import FactoryABI from '../../frontend/abi/ModuleFactory.json' with { type: 'json' };
-import { PLAY_GAS, ladderEvents, localLadder, mined, playChallenge } from '../../frontend/ladder.fixture.js';
+import { ladderEvents, localLadder, mined, playChallenge } from '../../frontend/ladder.fixture.js';
+import { TX_GAS_LIMIT } from '../../frontend/monad.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = fileURLToPath(new URL('../..', import.meta.url));
@@ -160,7 +161,7 @@ try {
 
   // ------------------------------------------------------------------------------------- 2. challenge refuses it
   const probe = ladderIface.encodeFunctionData('challenge', [delegated.address, delegated.address]);
-  const callAs = async from => { try { await provider.call({ from, to: ladderAddress, data: probe, gasLimit: PLAY_GAS }); return 'no revert'; } catch (e) { return ladderError(e); } };
+  const callAs = async from => { try { await provider.call({ from, to: ladderAddress, data: probe, gasLimit: TX_GAS_LIMIT }); return 'no revert'; } catch (e) { return ladderError(e); } };
   let fromDelegated = await callAs(delegated.address);
   const fromEoa = await callAs(deployer.address);
   log(`eth_call challenge from the 7702 account → ${fromDelegated}; from the deployer EOA → ${fromEoa}`);
@@ -169,9 +170,9 @@ try {
     // The RPC capped the gas of eth_call below minStartGas (or refused it). The real thing: fund the account and send.
     log('the RPC did not run eth_call with 30M gas; sending a real challenge transaction from the 7702 account instead');
     const price = (fee.maxFeePerGas ?? fee.gasPrice) * 2n;
-    const fund = await deployer.sendTransaction({ to: delegated.address, value: price * BigInt(PLAY_GAS) + 10n ** 15n });
+    const fund = await deployer.sendTransaction({ to: delegated.address, value: price * BigInt(TX_GAS_LIMIT) + 10n ** 15n });
     await mined(provider, fund.hash);
-    const tx = await new Wallet(delegated.privateKey, provider).sendTransaction({ to: ladderAddress, data: probe, gasLimit: PLAY_GAS, maxFeePerGas: price, maxPriorityFeePerGas: fee.maxPriorityFeePerGas ?? 0n });
+    const tx = await new Wallet(delegated.privateKey, provider).sendTransaction({ to: ladderAddress, data: probe, gasLimit: TX_GAS_LIMIT, maxFeePerGas: price, maxPriorityFeePerGas: fee.maxPriorityFeePerGas ?? 0n });
     const rc = await mined(provider, tx.hash);
     fromDelegated = rc.status === 0 ? 'reverted (status 0; reason not readable through this RPC)' : 'did not revert';
     eoaDetail = `real transaction ${tx.hash} from the 7702 account ${fromDelegated}; eth_call from a plain EOA: ${fromEoa}`;
@@ -211,7 +212,7 @@ try {
   for (const [i, p] of plays.entries()) log(`play ${i + 1} ${p.hash}: ${p.steps} steps, ${p.gasUsed.toLocaleString()} gas used${p.steps ? `, ${Math.round((p.gasUsed - p.intrinsic) / p.steps).toLocaleString()} gas/step` : ''}`);
   const statusName = { 2: 'challenger won', 3: 'defense', 4: 'expired' }[Number(info.status)] ?? `status ${info.status}`;
   log(`challenge #${id}: ${statusName}, ${info.challengerWins} : ${info.defenderWins}, episode ${info.episode}, ${totalSteps} steps in ${plays.length} transactions`);
-  log(`the play transactions cost ${mon(balanceBeforePlay - balanceAfterPlay)} (gas used ${plays.reduce((n, p) => n + p.gasUsed, 0).toLocaleString()}; Monad charges the ${PLAY_GAS.toLocaleString()} limit of each)`);
+  log(`the play transactions cost ${mon(balanceBeforePlay - balanceAfterPlay)} (gas used ${plays.reduce((n, p) => n + p.gasUsed, 0).toLocaleString()}; Monad charges the ${TX_GAS_LIMIT.toLocaleString()} limit of each)`);
   const settled = Number(info.status) === 2 || Number(info.status) === 3;
   const challengerEntry = await ladder.entry(challenger);
   record('challenge runs to settlement', settled && Number(challengerEntry.activeChallenge) === 0, `${statusName} after ${plays.length} transaction(s), challenger now rank ${challengerEntry.rank}`);

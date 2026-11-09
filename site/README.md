@@ -122,7 +122,7 @@ VITE_LADDER_CHAIN_ID=10143 npm run dev -w site
 
 擂台的另外 3 个视图按 URL 的 hash 切换（例如 `/ladder/#/entries`）：
 
-- `#/entries` 我的出战模型：从当前账号部署过的模块里选一个，注册。模块先在工作台的部署模块里起一个英文 ID，通过官方 Factory 部署到这条链上。页面从官方 Factory 的存档里读这个账号部署过的模块（英文 ID、地址、结构、产物），不读事件，也不读浏览器的本地存储。已经在擂台上的模块显示名次，不能再选。工作台部署以后，列表在下一个块自动更新，不用复制地址。页面显示当前链和合约里记的官方 Factory，只发注册交易，不再部署，也不再导入或上传 JSON。合约把出战模型记在发注册交易的账号名下，不看模块是谁部署的。注册以后可以起名字。名字是比赛里的显示名，和模块的英文 ID 是两回事。
+- `#/entries` 我的出战模型：从当前账号部署过的模块里选一个，注册。模块先在工作台的部署模块里起一个英文 ID，通过官方 Factory 部署到这条链上。页面从官方 Factory 的存档里读这个账号部署过的模块（英文 ID、地址、结构、产物），不读事件，也不读浏览器的本地存储。已经在擂台上的模块显示名次，不能再选。在工作台部署以后，回到这个页面。列表会更新。不用复制地址。页面显示当前链和合约里记的官方 Factory，只发注册交易，不再部署，也不再导入或上传 JSON。合约把出战模型记在发注册交易的账号名下，不看模块是谁部署的。注册以后可以起名字。名字是比赛里的显示名，和模块的英文 ID 是两回事。
 - `#/challenge/<id>` 挑战进行中：6 局的格子、当前步数、在途和已确认的交易，结束以后显示结果和名次变化。关掉页面以后回来，可以从“我的出战模型”接着打。
 - `#/replay/<id>` 回放：深色面板里的坦克棋盘，分段标签切换 6 局，下面是步数滑条。
 
@@ -138,7 +138,7 @@ VITE_LADDER_CHAIN_ID=10143 npm run dev -w site
 - `POST /api/names`，正文 `{ "module", "name", "signature" }`：设置名字。返回 `{ "module", "name", "owner" }`。
 - `DELETE /api/names?module=0xa`，头 `Authorization: Bearer <ADMIN_TOKEN>`：管理员清除。返回 `{ "module", "cleared": true|false }`。
 
-错误代码：`invalid_module`、`name_length`、`name_chars`、`name_banned`、`bad_signature`、`bad_json`、`bad_request`（400），`not_entered`、`not_owner`（403），`name_set`、`name_taken`（409），`unauthorized`（401），`method_not_allowed`（405），`body_too_large`（413）。
+错误代码只在 `server/names.js` 的 `ERROR_CODES` 里列一次。页面在 `src/ladder/errors.js` 里给每个代码一段文字，`src/ladder/errors.test.js` 检查两边一致。常见的代码：`invalid_module`、`name_length`、`name_chars`、`name_banned`、`bad_signature`（400），`not_entered`、`not_owner`（403），`name_set`、`name_taken`（409），`unauthorized`（401），`misconfigured`（500，服务端缺少配置）。
 
 页面签名的文字由 `server/names.js` 的 `nameMessage({ chainId, module, name })` 生成。格式固定，4 行，用 `\n` 分隔：
 
@@ -188,7 +188,7 @@ site/scripts/deploy-wizard.sh --dry-run           # 只列出步骤和找到的�
 3. 给部署账号充值。测试网打开水龙头，主网自己转账。一次完整运行大约要 30 MON：协议约 1630 万 gas，擂台约 300 万 gas，第 8 步的链上核对约 20 MON。Monad 按 gas 上限收费，不按实际用量。
 4. 官方 Factory。这条链上已有协议就粘贴 FactoryProxy 的地址，否则脚本运行 `contracts/script/Deploy.s.sol` 部署一套。
 5. 赛季结束块。脚本实测 10 秒的出块速度，按天数算出建议值，人可以改。在赛季结束以前，部署账号可以用 `setEndBlock` 调整结束块（见 `contracts/README.md`）。赛季结束以后，结束块不能再改。
-6. 擂台合约：`contracts/script/DeployLadder.s.sol`，配置用规格的默认值；要改就在运行脚本前导出 `LADDER_*` 变量（见该脚本的注释）。
+6. 擂台合约：`contracts/script/DeployLadder.s.sol`，配置用规格的默认值（`contracts/ladder-defaults.json`）。要改就在运行脚本前导出 `LADDER_*` 变量（见该脚本的注释）。
 7. 把 Factory 和擂台地址写进 `data/deployments.json` 对应链的条目（只改这两行），之后要提交这个文件。
 8. 链上核对（下一节）。
 9. Vercel 项目：Root Directory `site`，打开 “Include source files outside of the Root Directory in the Build Step”。

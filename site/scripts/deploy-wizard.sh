@@ -274,11 +274,17 @@ while (( $# )); do
     *) printf 'unknown argument: %s\n\n' "$1" >&2; usage >&2; return 2 ;;
   esac
 done
+# The chain id of a network name and its faucet are the wizard's own. The name, the RPC and the explorer of the chain
+# come from data/deployments.json, the registry of the site.
 case "$NETWORK" in
-  testnet) CHAIN_ID=10143; RPC_URL=https://testnet-rpc.monad.xyz; EXPLORER=https://testnet.monadscan.com; FAUCET=https://faucet.monad.xyz; NETWORK_NAME="Monad Testnet" ;;
-  mainnet) CHAIN_ID=143;   RPC_URL=https://rpc.monad.xyz;         EXPLORER=https://monadscan.com;         FAUCET="";                         NETWORK_NAME="Monad Mainnet" ;;
+  testnet) CHAIN_ID=10143; FAUCET=https://faucet.monad.xyz ;;
+  mainnet) CHAIN_ID=143;   FAUCET="" ;;
   *) printf 'unknown network: %s (testnet or mainnet)\n' "$NETWORK" >&2; return 2 ;;
 esac
+NETWORK_NAME=$(deployment_field "$CHAIN_ID" name)
+RPC_URL=$(deployment_field "$CHAIN_ID" rpc)
+EXPLORER=$(deployment_field "$CHAIN_ID" explorer)
+[[ -n "$NETWORK_NAME" && -n "$RPC_URL" && -n "$EXPLORER" ]] || { printf 'chain %s has no name, rpc or explorer in %s\n' "$CHAIN_ID" "$DEPLOYMENTS" >&2; return 2; }
 ENV_FILE="$SITE/.env.deploy-$NETWORK"
 # The checks of verify-chain.mjs cost about 20 MON at a 100 gwei base fee; the protocol about 16.3M gas, the ladder
 # about 3M. Monad charges the gas limit of a transaction, so the balance must cover the limits, not the use.
@@ -385,8 +391,8 @@ pause
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
 stage "Ladder contract"
-say "contracts/script/DeployLadder.s.sol deploys the TankLadder with the configuration of the spec (δ 10%, range 10,"
-say "board of 20 ranks, timeout 400 blocks, cooldown 6000 blocks, 24M/2M gas) and this season's factory and end block."
+say "contracts/script/DeployLadder.s.sol deploys the TankLadder with the configuration of the spec"
+say "(contracts/ladder-defaults.json) and this season's factory and end block."
 say "To change a value, export LADDER_MAX_WEIGHT_BYTES, LADDER_DELTA_BPS, LADDER_RANGE, LADDER_BOARD_SIZE,"
 say "LADDER_TIMEOUT_BLOCKS, LADDER_COOLDOWN_BLOCKS, LADDER_MIN_START_GAS or LADDER_RESERVE_GAS before running the wizard."
 existing_ladder=$(_existing LADDER_ADDRESS || true)

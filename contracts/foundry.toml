@@ -9,7 +9,7 @@ optimizer_runs = 1000000      # for runtime: the engines run every step; a modul
 via_ir = true
 evm_version = "cancun"
 solc_version = "0.8.28"       # compiler behind the recorded gas numbers and ABIs; fetched on first build
-fs_permissions = [{ access = "read", path = "./test/fixtures" }]   # the parity corpus of the ladder (test/ladder)
+fs_permissions = [{ access = "read", path = "./test/fixtures" }, { access = "read", path = "./ladder-defaults.json" }]   # the parity corpus (test/ladder), the ladder defaults (script/DeployLadder.s.sol, test/ladder)
 gas_limit = 100000000000        # a ladder challenge is up to 24 transactions of 30M in one test (test/ladder)
 
 [rpc_endpoints]

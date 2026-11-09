@@ -122,7 +122,7 @@ The three pages share one site top bar, in the same order: the wordmark `NEUROM`
 
 Three more views of the ladder switch on the URL hash (for example `/ladder/#/entries`):
 
-- `#/entries` my entries: choose one of the modules the current account deployed and register it. The module is deployed first in the deployment module of the workbench, with an English ID, through the official Factory, on this chain. The page reads the modules this account deployed (English ID, address, structure, artifact) from the archive of the official Factory. It does not read events or the local storage of the browser. A module already on the ladder shows its rank and cannot be chosen. After a deployment in the workbench, the list updates at the next block. You do not copy an address. The page shows the chain and the official Factory the contract records. It sends only the register transaction: it deploys nothing and no longer imports or uploads JSON. The contract records the entry under the account that sends the register transaction, whoever deployed the module. After the registration you can name the entry. The name is the display name of the contest. It is not the English ID of the module.
+- `#/entries` my entries: choose one of the modules the current account deployed and register it. The module is deployed first in the deployment module of the workbench, with an English ID, through the official Factory, on this chain. The page reads the modules this account deployed (English ID, address, structure, artifact) from the archive of the official Factory. It does not read events or the local storage of the browser. A module already on the ladder shows its rank and cannot be chosen. After you deploy in the workbench, come back to this page. The list updates. You do not copy an address. The page shows the chain and the official Factory the contract records. It sends only the register transaction: it deploys nothing and no longer imports or uploads JSON. The contract records the entry under the account that sends the register transaction, whoever deployed the module. After the registration you can name the entry. The name is the display name of the contest. It is not the English ID of the module.
 - `#/challenge/<id>` a challenge in progress: the 6 episodes as cells, the current step, the transactions in flight and confirmed, then the result and the rank change. After you close the page and come back, you continue from my entries.
 - `#/replay/<id>` a replay: the tank board in the dark panel, segmented tabs for the 6 episodes, the step slider below.
 
@@ -138,7 +138,7 @@ All paths are `/api/names`. A refusal returns `{ "error": "<code>", ... }`. The 
 - `POST /api/names` with body `{ "module", "name", "signature" }`: set a name. Returns `{ "module", "name", "owner" }`.
 - `DELETE /api/names?module=0xa` with header `Authorization: Bearer <ADMIN_TOKEN>`: admin clear. Returns `{ "module", "cleared": true|false }`.
 
-Error codes: `invalid_module`, `name_length`, `name_chars`, `name_banned`, `bad_signature`, `bad_json`, `bad_request` (400), `not_entered`, `not_owner` (403), `name_set`, `name_taken` (409), `unauthorized` (401), `method_not_allowed` (405), `body_too_large` (413).
+The error codes are listed once, in `ERROR_CODES` of `server/names.js`. The page gives each code a message in `src/ladder/errors.js`, and `src/ladder/errors.test.js` checks that the two agree. Frequent codes: `invalid_module`, `name_length`, `name_chars`, `name_banned`, `bad_signature` (400), `not_entered`, `not_owner` (403), `name_set`, `name_taken` (409), `unauthorized` (401), `misconfigured` (500, the server has no configuration).
 
 The text that the page signs comes from `nameMessage({ chainId, module, name })` in `server/names.js`. The format is fixed: 4 lines, separated by `\n`:
 
@@ -188,7 +188,7 @@ Stages:
 3. Fund the deployer. Testnet: the faucet opens; mainnet: transfer. A full run needs about 30 MON: ~16.3M gas for the protocol, ~3M for the ladder, about 20 MON for the chain checks of stage 8. Monad charges the gas limit, not the gas used.
 4. The official Factory: paste the FactoryProxy address when the protocol is already on this chain, else the script deploys it with `contracts/script/Deploy.s.sol`.
 5. The season end block. The script measures the block rate for 10 seconds and suggests a block from a number of days; the human may change it. Before the season ends, the deployer key can move the end block with `setEndBlock` (see `contracts/README.en.md`). After the season ends, nobody can change it.
-6. The ladder contract: `contracts/script/DeployLadder.s.sol` with the configuration of the spec; export `LADDER_*` variables before running the wizard to change it (see the script's comment).
+6. The ladder contract: `contracts/script/DeployLadder.s.sol` with the configuration of the spec (`contracts/ladder-defaults.json`). Export `LADDER_*` variables before running the wizard to change it (see the script's comment).
 7. The Factory and ladder addresses go into the chain's entry of `data/deployments.json` (only those two lines change); commit the file afterwards.
 8. The chain checks (next section).
 9. The Vercel project: Root Directory `site`, "Include source files outside of the Root Directory in the Build Step" on.

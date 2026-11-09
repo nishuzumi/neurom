@@ -5,12 +5,40 @@
 // One file holds the Chinese and the English text as `lang` pairs (AGENTS.md: the two languages change together). The
 // root carries the locale of the site in `data-lang`, and styles.css hides the other language. So the long text of
 // the guide does not go through t() and en.json, and site/src/i18n.test.js does not scan this file.
+// The rules of the season (the size of the board, the range, δ, the timeout and the cooldown) come from the ladder
+// contract over a read-only provider, as on the ladder page (App.vue, Rules.vue). The guide has no wallet. Until the
+// read succeeds, or when the chain is not reachable, each number shows `…`.
+import { computed, shallowRef } from 'vue';
 import { locale, t } from '../i18n.js';
 import { repoDoc, site } from '../site.js';
+import { pageConfig } from '../config.js';
+import { readConnection } from '../../../frontend/chain.js';
+import { createLadderClient } from '../chain/client.js';
+import { formatInt } from '../ladder/format.js';
 import SiteBar from '../components/SiteBar.vue';
 
 /** The workbench with the tank battle template on the canvas. */
 const tankStudio = `${site.studio}?preset=tank-battle`;
+
+/** The configuration of the ladder contract (client.js `config()`), or null before the read and when the read fails. */
+const config = shallowRef(null);
+const page = pageConfig();
+if (page.ladder) {
+  const { provider } = readConnection(page.chainId);
+  createLadderClient({ provider, ladder: page.ladder }).config().then(c => { config.value = c; }, () => {});
+}
+/** `config[key]` as text, or `…` without a configuration. */
+const v = key => (config.value ? formatInt(config.value[key]) : '…');
+const boardSize = computed(() => v('boardSize'));
+/** The rank of a new entry off a full board. */
+const offBoardRank = computed(() => (config.value ? formatInt(config.value.boardSize + 1) : '…'));
+const range = computed(() => v('range'));
+const timeoutBlocks = computed(() => v('timeoutBlocks'));
+const cooldownBlocks = computed(() => v('cooldownBlocks'));
+/** δ in percent, and the share of the defender's weight size the challenger must stay under on equal wins. */
+const delta = computed(() => (config.value ? config.value.deltaBps / 100 : null));
+const deltaText = computed(() => (delta.value === null ? '…' : `${delta.value}%`));
+const keepText = computed(() => (delta.value === null ? '…' : `${100 - delta.value}%`));
 </script>
 
 <template>
@@ -40,7 +68,7 @@ const tankStudio = `${site.studio}?preset=tank-battle`;
           <div class="guide-fact"><span class="label"><span lang="zh">训练时间</span><span lang="en">Training time</span></span><b><span lang="zh">40–50 分钟</span><span lang="en">40–50 min</span></b><span class="muted"><span lang="zh">完整的两个阶段，浏览器</span><span lang="en">both stages, in the browser</span></span></div>
           <div class="guide-fact"><span class="label"><span lang="zh">网络大小</span><span lang="en">Network size</span></span><b class="mono">39,840 B</b><span class="muted"><span lang="zh">中；大是 216,864 B</span><span lang="en">中 (mid). 大 (big) is 216,864 B</span></span></div>
           <div class="guide-fact"><span class="label"><span lang="zh">一场挑战</span><span lang="en">One challenge</span></span><b><span lang="zh">6 局</span><span lang="en">6 episodes</span></b><span class="muted"><span lang="zh">3 对镜像局，每局最多 100 步</span><span lang="en">3 mirror pairs, 100 steps at most</span></span></div>
-          <div class="guide-fact"><span class="label"><span lang="zh">榜单</span><span lang="en">Board</span></span><b><span lang="zh">20 个名次</span><span lang="en">20 ranks</span></b><span class="muted"><span lang="zh">可以挑战高 1–10 名的擂主</span><span lang="en">challenge 1–10 ranks above</span></span></div>
+          <div class="guide-fact"><span class="label"><span lang="zh">榜单</span><span lang="en">Board</span></span><b><span lang="zh">{{ boardSize }} 个名次</span><span lang="en">{{ boardSize }} ranks</span></b><span class="muted"><span lang="zh">可以挑战高 1–{{ range }} 名的擂主</span><span lang="en">challenge 1–{{ range }} ranks above</span></span></div>
         </div>
         <ol class="flow">
           <li><span lang="zh">打开工作台</span><span lang="en">Open the workbench</span></li>
@@ -210,8 +238,8 @@ const tankStudio = `${site.studio}?preset=tank-battle`;
               <li lang="en">The seed of a real challenge comes from the PREVRANDAO of its block, so nobody can know it before. A practice challenge gives the win rate over a set of seeds.</li>
               <li lang="zh">部署到 fork 时，签名的是 anvil 的默认账户，不是你的钱包。</li>
               <li lang="en">A deployment to the fork signs with the default anvil account, not with your wallet.</li>
-              <li lang="zh">模拟时，挑战者可以选榜上任何一个擂主。真实挑战只能挑战高 1 到 10 名的擂主。</li>
-              <li lang="en">In a practice challenge, the challenger can select any defender. A real challenge can go only 1 to 10 ranks up.</li>
+              <li lang="zh">模拟时，挑战者可以选榜上任何一个擂主。真实挑战只能挑战高 1 到 {{ range }} 名的擂主。</li>
+              <li lang="en">In a practice challenge, the challenger can select any defender. A real challenge can go only 1 to {{ range }} ranks up.</li>
               <li lang="zh">重启 fork 以后，部署过的网络会丢失。再部署一次就行，不花 MON。</li>
               <li lang="en">A restart of the fork loses the deployed network. Deploy it again. This costs no MON.</li>
             </ul>
@@ -292,10 +320,10 @@ const tankStudio = `${site.studio}?preset=tank-battle`;
           </ol>
           <div class="card">
             <ul>
-              <li lang="zh">榜单有 20 个名次。没满时，新出战模型排在最后一名。</li>
-              <li lang="en">The board has 20 ranks. When it is not full, a new entry takes the last rank.</li>
-              <li lang="zh">榜单满了以后，新出战模型在榜外，当作第 21 名发起挑战。</li>
-              <li lang="en">When the board is full, a new entry is off the board, and it challenges as rank 21.</li>
+              <li lang="zh">榜单有 {{ boardSize }} 个名次。没满时，新出战模型排在最后一名。</li>
+              <li lang="en">The board has {{ boardSize }} ranks. When it is not full, a new entry takes the last rank.</li>
+              <li lang="zh">榜单满了以后，新出战模型在榜外，当作第 {{ offBoardRank }} 名发起挑战。</li>
+              <li lang="en">When the board is full, a new entry is off the board, and it challenges as rank {{ offBoardRank }}.</li>
               <li lang="zh">合约拒绝和已注册出战模型权重完全相同的模块。</li>
               <li lang="en">The contract refuses a module with the same weights as a registered entry.</li>
             </ul>
@@ -311,8 +339,8 @@ const tankStudio = `${site.studio}?preset=tank-battle`;
         <div class="cols">
           <div>
             <ol class="do">
-              <li lang="zh">在擂台页点 <span class="ui">去挑战</span>，选一个比你高 1 到 10 名的擂主。</li>
-              <li lang="en">On the ladder page, click <span class="ui">去挑战</span> (go challenge), and select a defender 1 to 10 ranks above you.</li>
+              <li lang="zh">在擂台页点 <span class="ui">去挑战</span>，选一个比你高 1 到 {{ range }} 名的擂主。</li>
+              <li lang="en">On the ladder page, click <span class="ui">去挑战</span> (go challenge), and select a defender 1 to {{ range }} ranks above you.</li>
               <li lang="zh">看对话框里的「预计费用」，确认余额够用。</li>
               <li lang="en">Read 「预计费用」 (the estimated cost) in the dialog, and make sure that your balance is enough.</li>
               <li lang="zh">点 <span class="ui">发起挑战</span>。一场挑战要发几笔交易，页面会一笔一笔地发。</li>
@@ -320,8 +348,8 @@ const tankStudio = `${site.studio}?preset=tank-battle`;
               <li lang="zh">打完以后点 <span class="ui">回放</span>，看每一局。</li>
               <li lang="en">After the challenge, click <span class="ui">回放</span> (replay) to watch each episode.</li>
             </ol>
-            <div class="caution" lang="zh">注意：如果你在挑战没打完时关掉页面，下次打开页面会提示继续。挑战超过 400 个区块还没打完，就判守擂成功。</div>
-            <div class="caution" lang="en">CAUTION: If you close the page before the challenge ends, the page asks you to continue it the next time. A challenge that does not end within 400 blocks is a defense.</div>
+            <div class="caution" lang="zh">注意：如果你在挑战没打完时关掉页面，下次打开页面会提示继续。挑战超过 {{ timeoutBlocks }} 个区块还没打完，就判守擂成功。</div>
+            <div class="caution" lang="en">CAUTION: If you close the page before the challenge ends, the page asks you to continue it the next time. A challenge that does not end within {{ timeoutBlocks }} blocks is a defense.</div>
           </div>
           <div class="card">
             <h3><span lang="zh">规则</span><span lang="en">Rules</span></h3>
@@ -330,12 +358,12 @@ const tankStudio = `${site.studio}?preset=tank-battle`;
               <li lang="en">A challenge is 3 mirror pairs, 6 episodes in total. The two sides change places in each pair.</li>
               <li lang="zh">挑战者赢的局多于擂主，挑战成功。</li>
               <li lang="en">The challenger wins when it wins more episodes than the defender.</li>
-              <li lang="zh">赢的局数相等时（包括 0:0），挑战者的权重不大于擂主的 90%（δ = 10%）才算赢，否则守擂成功。</li>
-              <li lang="en">On equal wins (0:0 too), the challenger wins only when its weights are at most 90% of the defender's (δ = 10%). Else it is a defense.</li>
+              <li lang="zh">赢的局数相等时（包括 0:0），挑战者的权重不大于擂主的 {{ keepText }}（δ = {{ deltaText }}）才算赢，否则守擂成功。</li>
+              <li lang="en">On equal wins (0:0 too), the challenger wins only when its weights are at most {{ keepText }} of the defender's (δ = {{ deltaText }}). Else it is a defense.</li>
               <li lang="zh">挑战成功时，挑战者占擂主的名次，擂主和中间的出战模型各降 1 名。</li>
               <li lang="en">When the challenger wins, it takes the defender's rank. The defender and the entries between them each go down 1 rank.</li>
-              <li lang="zh">同一对挑战者和擂主，6000 个区块里只能挑战一次。</li>
-              <li lang="en">The same challenger can challenge the same defender once in 6000 blocks.</li>
+              <li lang="zh">同一对挑战者和擂主，{{ cooldownBlocks }} 个区块里只能挑战一次。</li>
+              <li lang="en">The same challenger can challenge the same defender once in {{ cooldownBlocks }} blocks.</li>
             </ul>
           </div>
         </div>

@@ -11,7 +11,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { AbiCoder, Contract, keccak256 } from 'ethers';
-import { localLadder, ladderAt, LADDER_DEFAULTS, PLAY_GAS, mined, playChallenge, ladderEvents } from '../../frontend/ladder.fixture.js';
+import { localLadder, ladderAt, LADDER_DEFAULTS, mined, playChallenge, ladderEvents } from '../../frontend/ladder.fixture.js';
+import { TX_GAS_LIMIT } from '../../frontend/monad.js';
 import { deployOut } from '../../frontend/anvil.fixture.js';
 import FactoryABI from '../../frontend/abi/ModuleFactory.json' with { type: 'json' };
 
@@ -38,8 +39,8 @@ async function deployFixture(signer, factoryAddress, tag, twin) {
   const chunks = [...m.chunks];
   if (twin) { const last = Buffer.from(chunks[chunks.length - 1].slice(2), 'hex'); last[last.length - 1] ^= 0x5a; chunks[chunks.length - 1] = '0x' + last.toString('hex'); }
   const spec = { engineId: m.engineId, version: '0x0000000000000000000000000000000000000000', kind: Number(m.kind), inputs: Number(m.inputs), outputs: Number(m.outputs), shape: [...m.shape], tools: [], chunks: chunks.map(keccak256), artifactId: twin ? keccak256(m.artifactId) : m.artifactId, taskId: m.taskId, moduleId: twin ? `${tag}-twin` : tag };
-  for (const c of chunks) await sent(signer.provider, factory.createChunk(c, { gasLimit: PLAY_GAS }));
-  const rc = await sent(signer.provider, factory.deploy(spec, chunks.map(() => '0x'), { gasLimit: PLAY_GAS }));
+  for (const c of chunks) await sent(signer.provider, factory.createChunk(c, { gasLimit: TX_GAS_LIMIT }));
+  const rc = await sent(signer.provider, factory.deploy(spec, chunks.map(() => '0x'), { gasLimit: TX_GAS_LIMIT }));
   return ladderEvents(factory, rc).find(e => e.name === 'ModuleDeployed').args.module;
 }
 

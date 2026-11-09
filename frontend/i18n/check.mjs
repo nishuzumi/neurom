@@ -116,14 +116,15 @@ function scanFile(file, out = { keys: [], errors: [] }) {
 const placeholders = s => [...s.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort().join(',');
 const tags = s => [...s.matchAll(/<\/?([a-z][\w-]*)/gi)].map(m => m[0].toLowerCase()).sort().join(',');
 
-/** Check `files` against the merged `dictionary`. The check reports `unused` entries only when it scanned every source. */
-export function checkI18n({ files = sourceFiles(), dictionary, reportUnused = true } = {}) {
+/** Check `files` against the merged `dictionary`. A key that `fallback` has (the dictionary of another page) also
+ *  counts as translated. The check reports `unused` entries only when it scanned every source. */
+export function checkI18n({ files = sourceFiles(), dictionary, fallback = {}, reportUnused = true } = {}) {
   const out = { keys: [], errors: [] };
   for (const file of files) scanFile(file, out);
   const errors = [...out.errors], used = new Set();
   for (const { key, where } of out.keys) {
     used.add(key);
-    if (!Object.hasOwn(dictionary, key)) errors.push(`${where}: no English entry for ${JSON.stringify(key)}`);
+    if (!Object.hasOwn(dictionary, key) && !Object.hasOwn(fallback, key)) errors.push(`${where}: no English entry for ${JSON.stringify(key)}`);
   }
   for (const [key, value] of Object.entries(dictionary)) {
     if (typeof value !== 'string' || !value.trim()) { errors.push(`en: empty entry for ${JSON.stringify(key)}`); continue; }

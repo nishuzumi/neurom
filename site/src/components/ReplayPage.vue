@@ -24,7 +24,8 @@ watch([() => ladder.client, numeric], ([client, id], _, onCleanup) => {
   onCleanup(() => { on = false; });
   (async () => {
     try {
-      const [i, r] = await Promise.all([client.challengeInfo(id), client.replay(id)]);
+      const i = await client.challengeInfo(id);
+      const r = await client.replay(id, i);
       if (on) { info.value = i; replay.value = r; }
     } catch (e) { if (on) error.value = e; }
   })();
