@@ -47,9 +47,10 @@ npm run dev:chain -w ladder -- --accounts 1,3,4,5,6,7 --no-seed
 | 项目 | 值 |
 |---|---|
 | 统一 Factory | [`0xC059cCfbc7A8654e9c96d5da66bc6aE3a3ffffd2`](https://testnet.monadscan.com/address/0xC059cCfbc7A8654e9c96d5da66bc6aE3a3ffffd2) |
-| 擂台合约 | [`0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2`](https://testnet.monadscan.com/address/0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2) |
-| 擂台部署块 | `77755980` |
-| 赛季结束块 | `84827030` |
+| 擂台合约 | [`0xEF5fb216c86bC439Fd6eC48B4531CAf079ad463b`](https://testnet.monadscan.com/address/0xEF5fb216c86bC439Fd6eC48B4531CAf079ad463b) |
+| 擂台部署块 | `78216316` |
+| 赛季结束块 | `84827030`（`admin` 可以用 `setEndBlock` 调整，链上 `endBlock()` 是当前值） |
+| 擂台 `admin` | `0x646D80bc9aEE2c383769CF546768a45f942b54CB` |
 | RPC | `https://testnet-rpc.monad.xyz` |
 
 `data/deployments.json` 是工作台和擂台的共同配置。运行：
@@ -62,7 +63,9 @@ VITE_LADDER_CHAIN_ID=10143 npm run dev -w ladder
 
 未配置登录时，擂台仍可读取榜单、规则和回放。不要把部署密钥放入 `VITE_*` 变量。公网网页和名字服务仍需配置 Vercel、Privy 和 Neon。
 
-测试网验证通过了 5 项检查。挑战 `#1` 共运行 6 局、270 步，比分为 `2 : 2`，结果是守擂成功。模块存档保留了两份验证模块的英文 ID。验证模块仅用于检查部署和比赛流程。
+上一份擂台合约 `0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2` 通过了 5 项测试网检查。挑战 `#1` 共运行 6 局、270 步，比分为 `2 : 2`，结果是守擂成功。模块存档保留了两份验证模块的英文 ID。验证模块仅用于检查部署和比赛流程。
+
+现在的擂台合约只增加了 `setEndBlock`，比赛规则没有变，所以没有重新运行这 5 项检查。部署以后，`admin` 在链上调用了一次 `setEndBlock`，结束块不变，合约发出了 `EndBlockChanged`。用别的账号调用时，合约回滚 `NotAdmin`。
 
 公共 RPC 限制日志查询范围。客户端每次查询最多 100 个块，并逐个发送 RPC 请求。比赛日志只查到该场挑战的截止块，不扫描后续空块。
 
@@ -186,7 +189,7 @@ ladder/scripts/deploy-wizard.sh --dry-run           # 只列出步骤和找到�
 2. 部署账号的私钥（粘贴或现场生成）。这个账号部署协议以后持有协议的 ADMIN 和 UPGRADER 角色，主网上把它当管理员密钥保管。
 3. 给部署账号充值。测试网打开水龙头，主网自己转账。一次完整运行大约要 30 MON：协议约 1630 万 gas，擂台约 300 万 gas，第 8 步的链上核对约 20 MON。Monad 按 gas 上限收费，不按实际用量。
 4. 官方 Factory。这条链上已有协议就粘贴 FactoryProxy 的地址，否则脚本运行 `contracts/script/Deploy.s.sol` 部署一套。
-5. 赛季结束块。脚本实测 10 秒的出块速度，按天数算出建议值，人可以改。结束块写死在构造函数里，之后改不了。
+5. 赛季结束块。脚本实测 10 秒的出块速度，按天数算出建议值，人可以改。在赛季结束以前，部署账号可以用 `setEndBlock` 调整结束块（见 `contracts/README.md`）。赛季结束以后，结束块不能再改。
 6. 擂台合约：`contracts/script/DeployLadder.s.sol`，配置用规格的默认值；要改就在运行脚本前导出 `LADDER_*` 变量（见该脚本的注释）。
 7. 把 Factory 和擂台地址写进 `data/deployments.json` 对应链的条目（只改这两行），之后要提交这个文件。
 8. 链上核对（下一节）。
@@ -195,7 +198,7 @@ ladder/scripts/deploy-wizard.sh --dry-run           # 只列出步骤和找到�
 11. Privy 应用：在 Authentication → Login methods 中启用邮箱和自动创建 EVM 钱包。在 Authentication → Advanced 中启用 Disable confirmation modals。关闭智能钱包。在 Basics → Domains and clients 中加入网站的 origin。擂台和工作台共用这个 origin。如果也要在本机的工作台登录，再加入本机工作台的 origin。所有页面必须使用同一个 App ID。
 12. Vercel 环境变量：`VITE_PRIVY_APP_ID`、`VITE_LADDER_CHAIN_ID`、`LADDER_CHAIN_ID`、`LADDER_RPC_URL`、`LADDER_ADDRESS`、`ADMIN_TOKEN`（脚本生成）。测试网写 Production 和 Preview，主网只覆盖 Production。然后重新部署。
 13. 在上线的页面上走一遍：登录、在工作台里起英文 ID 并部署、选模块注册、挑战、起名字。确认整场挑战没有弹出任何确认框。
-14. （主网）比赛说明里写清已知限制：按 gas 上限收费、挑战者必须是无代码的 EOA、结束块、δ 和范围、冷却、超时。
+14. （主网）比赛说明里写清已知限制：按 gas 上限收费、挑战者必须是无代码的 EOA、结束块和谁能调整它、δ 和范围、冷却、超时。
 
 ## 链上核对（`scripts/verify-chain.mjs`）
 

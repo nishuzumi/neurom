@@ -154,8 +154,7 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
   const reader = new Contract(ladder, TankLadderABI, provider);
   const writer = signer ? new Contract(ladder, TankLadderABI, signer) : null;
   const requireSigner = () => { if (!signer) throw new Error('this operation needs a signer'); return signer; };
-  let configCache = null;
-  let configFlight = null;
+  let fixedFlight = null;
   const eventCache = new Map();
   const gasReceipts = new Map();
 
@@ -193,7 +192,7 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
    *  of the two entries do not change during a challenge, so `play` reads the plan once. */
   async function stepsPerTransactionOf(state) {
     try {
-      const [c, d, cfg] = await Promise.all([reader.entry(state.challenger), reader.entry(state.defender), config()]);
+      const [c, d, cfg] = await Promise.all([reader.entry(state.challenger), reader.entry(state.defender), fixedConfig()]);
       return stepPlan(num(c.weightBytes), num(d.weightBytes), cfg.reserveGas).stepsPerTransaction;
     } catch { return null; }
   }
@@ -248,13 +247,18 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
     return challengeInfo(state.id);
   }
 
+  /** The fields of the configuration that never change, read once. A failed read is tried again on the next call. */
+  function fixedConfig() {
+    fixedFlight ??= reader.config().then(
+      c => ({ factory: c.factory, maxWeightBytes: num(c.maxWeightBytes), deltaBps: num(c.deltaBps), range: num(c.range), boardSize: num(c.boardSize), timeoutBlocks: num(c.timeoutBlocks), cooldownBlocks: num(c.cooldownBlocks), minStartGas: num(c.minStartGas), reserveGas: num(c.reserveGas) }),
+      e => { fixedFlight = null; throw e; });
+    return fixedFlight;
+  }
+
+  /** The configuration of the ladder. `endBlock` is read on every call, because the admin can move it. */
   async function config() {
-    if (configCache) return configCache;
-    if (!configFlight) configFlight = reader.config().then(c => {
-      configCache = { factory: c.factory, maxWeightBytes: num(c.maxWeightBytes), deltaBps: num(c.deltaBps), range: num(c.range), boardSize: num(c.boardSize), timeoutBlocks: num(c.timeoutBlocks), cooldownBlocks: num(c.cooldownBlocks), minStartGas: num(c.minStartGas), reserveGas: num(c.reserveGas), endBlock: num(c.endBlock) };
-      return configCache;
-    }).finally(() => { configFlight = null; });
-    return configFlight;
+    const [fixed, endBlock] = await Promise.all([fixedConfig(), reader.endBlock()]);
+    return { ...fixed, endBlock: num(endBlock) };
   }
 
   /** The current block, fresh (JsonRpcProvider caches getBlockNumber for a moment). */
@@ -305,7 +309,7 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
 
   async function estimate(challenger, defender) {
     const [c, d, fee] = await Promise.all([reader.entry(challenger), reader.entry(defender), provider.getFeeData()]);
-    const { step, stepsPerTransaction } = stepPlan(num(c.weightBytes), num(d.weightBytes), (await config()).reserveGas);
+    const { step, stepsPerTransaction } = stepPlan(num(c.weightBytes), num(d.weightBytes), (await fixedConfig()).reserveGas);
     const price = fee.maxFeePerGas ?? fee.gasPrice ?? 0n;
     const of = steps => {
       const transactions = Math.max(1, Math.ceil(steps / stepsPerTransaction));
@@ -478,7 +482,7 @@ export function createLadderClient({ provider, signer = undefined, ladder, pollM
 
   /** The archive contract of the official Factory recorded by the ladder. */
   async function archive() {
-    return new Contract((await config()).factory, ModuleFactoryABI, provider);
+    return new Contract((await fixedConfig()).factory, ModuleFactoryABI, provider);
   }
 
   /** How many modules `deployer` deployed through the official Factory (ModuleFactory.deploymentCount). */

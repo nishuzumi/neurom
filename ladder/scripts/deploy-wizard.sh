@@ -365,8 +365,8 @@ pause
 
 # ── 5 ─────────────────────────────────────────────────────────────────────
 stage "Season end block"
-say "From the end block on, the ladder accepts no new entry and no new challenge (ADR 0026). It is fixed in the"
-say "constructor and cannot change later."
+say "From the end block on, the ladder accepts no new entry and no new challenge (ADR 0026). Before the season ends,"
+say "the deployer key can move it with setEndBlock. After the season ends, nobody can change it."
 say "Measuring the block rate over 10 seconds…"
 b0=$(chain_block "$RPC_URL"); sleep 10; b1=$(chain_block "$RPC_URL")
 rate=$(( (b1 - b0) * 10 ))   # blocks per 100 s, i.e. blocks/s × 100
@@ -544,7 +544,7 @@ if [[ "$NETWORK" == mainnet ]]; then
   stage "Contest rules: known limits"
   say "Ticket 12 asks the contest explanation to state the known limitations and prerequisites before the season"
   say "opens: the gas-limit pricing of Monad (a 30M transaction is paid at 30M), the EOA-only rule for challengers"
-  say "(no 7702 delegation, no smart accounts), the fixed end block $LADDER_END_BLOCK, δ and range, the cooldown,"
+  say "(no 7702 delegation, no smart accounts), the end block $LADDER_END_BLOCK and that the deployer can move it, δ and range, the cooldown,"
   say "the timeout after which anyone can expire a stuck challenge, and that names are public and unchangeable."
   step "Edit the rules section of the page (ladder/src/components/Rules.vue and its i18n entries), deploy, read it"
   step "once on $VERCEL_URL/ladder/."

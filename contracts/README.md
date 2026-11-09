@@ -412,19 +412,26 @@ int8 让权重块小了约一半。计算上，一个 int8 列词按行号模 4 
 - 结算：挑战者赢的局数多于擂主，挑战成功。局数相等时，挑战者的权重字节数不大于擂主的 (1 − δ) 倍才成功。成功时挑战者占擂主当时的名次，擂主和中间的出战模型各降 1 名。榜外的挑战者成功时，最后一名被挤到榜外。被挤出去的出战模型可以靠挑战回来。
 - 如果擂主在结算时已经在榜外（挑战进行中被挤出去了），挑战者仍然赢下这场挑战，胜负都计数，但是名次不变。这只在挑战者也在榜外时发生。
 - 到了 `endBlock`，合约不再接受注册和新挑战。已经开始的挑战照常打完。
-- 事件：`EntryRegistered`（`rank` 0 是榜外）、`ChallengeStarted`、`Steps`（每笔交易里每局的动作，每步一个字节 `a0 * 9 + a1`，两方在自己地图里选的动作，第 0 方在前）、`EpisodeEnded`、`ChallengeSettled`（`newRank` 是挑战者结算后的名次，0 是榜外）。页面用种子、动作和 JS 场景重建回放。
+- 部署擂台合约的账号是 `admin`。在赛季结束以前，`admin` 可以用 `setEndBlock(newEndBlock)` 提前或推迟 `endBlock`，合约发出 `EndBlockChanged(endBlock)`。新的结束块必须大于当前块，否则回滚 `BadEndBlock`。别的账号调用时回滚 `NotAdmin`。赛季结束以后调用时回滚 `SeasonOver`，所以结束的赛季不能重新开始。`admin` 不能转让。
+- 事件：`EntryRegistered`（`rank` 0 是榜外）、`ChallengeStarted`、`Steps`（每笔交易里每局的动作，每步一个字节 `a0 * 9 + a1`，两方在自己地图里选的动作，第 0 方在前）、`EpisodeEnded`、`ChallengeSettled`（`newRank` 是挑战者结算后的名次，0 是榜外）、`EndBlockChanged`。页面用种子、动作和 JS 场景重建回放。
 - 只读函数：`entryCount()` 是榜上加榜外的出战模型数。`board()` 按名次返回榜上的 `Entry[]`。`entries(from, count)` 按注册顺序分页返回全部出战模型，`from` 从 0 起，越界返回空数组。`entry(module)` 在榜外时 `rank` 是 0，没注册时 `owner` 是 0。
-- 拒绝原因是自定义错误，每种一个：`BadConfig`、`NotOfficialModule`、`WrongShape(inputs, outputs)`、`TooLarge(weightBytes, maxWeightBytes)`、`DuplicateWeights(entry)`、`HasTools`、`AlreadyEntered`、`NotEntered`、`NotEoa`、`LowGas(gasLeft, minStartGas)`、`NotOwner`、`OutOfRange`、`Busy`、`Cooldown(untilBlock)`、`SeasonOver`、`NotPlaying`、`Expired`、`NotExpired`、`ForwardFailed(module)`。
+- 拒绝原因是自定义错误，每种一个：`BadConfig`、`NotOfficialModule`、`WrongShape(inputs, outputs)`、`TooLarge(weightBytes, maxWeightBytes)`、`DuplicateWeights(entry)`、`HasTools`、`AlreadyEntered`、`NotEntered`、`NotEoa`、`LowGas(gasLeft, minStartGas)`、`NotOwner`、`OutOfRange`、`Busy`、`Cooldown(untilBlock)`、`SeasonOver`、`NotPlaying`、`Expired`、`NotExpired`、`ForwardFailed(module)`、`NotAdmin`、`BadEndBlock`。
 
 ### 配置和部署
 
-构造函数收一个 `Config`：`factory`、`maxWeightBytes`（216,864）、`deltaBps`（1000）、`range`（10）、`boardSize`（20）、`timeoutBlocks`（400）、`cooldownBlocks`（6000）、`minStartGas`（24,000,000）、`reserveGas`（2,000,000）、`endBlock`。括号里是规格的默认值。`boardSize` 是 0 时构造函数回滚 `BadConfig`。`config()` 读出全部字段。
+构造函数收一个 `Config`：`factory`、`maxWeightBytes`（216,864）、`deltaBps`（1000）、`range`（10）、`boardSize`（20）、`timeoutBlocks`（400）、`cooldownBlocks`（6000）、`minStartGas`（24,000,000）、`reserveGas`（2,000,000）、`endBlock`。括号里是规格的默认值。`boardSize` 是 0 时构造函数回滚 `BadConfig`。`config()` 读出全部字段，其中 `endBlock` 是当前值。
 
 ```sh
 LADDER_FACTORY=<官方 Factory> LADDER_END_BLOCK=<赛季结束块> forge script script/DeployLadder.s.sol --rpc-url monad_testnet --private-key $PK --broadcast
 ```
 
 其余字段用 `LADDER_MAX_WEIGHT_BYTES`、`LADDER_DELTA_BPS`、`LADDER_RANGE`、`LADDER_BOARD_SIZE`、`LADDER_TIMEOUT_BLOCKS`、`LADDER_COOLDOWN_BLOCKS`、`LADDER_MIN_START_GAS`、`LADDER_RESERVE_GAS` 覆盖。本地测试用 `frontend/ladder.fixture.js` 的 `localLadder()`：它启动 anvil，部署协议和 TankLadder，`enter(artifact)` 部署并注册一个产物。在新启动的 anvil 上用账户 0 先跑 `Deploy.s.sol` 再跑 `DeployLadder.s.sol`，TankLadder 的地址是 `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318`。`localLadder()` 的部署顺序相同，地址也相同。
+
+要调整结束块，用部署擂台合约的私钥发一笔交易：
+
+```sh
+cast send <擂台合约> 'setEndBlock(uint64)' <新的结束块> --rpc-url monad_testnet --private-key $PK
+```
 
 ### 裁判和 parity
 

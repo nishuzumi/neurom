@@ -47,9 +47,10 @@ The contracts are on Monad Testnet (Chain ID `10143`). The web pages still run l
 | Item | Value |
 |---|---|
 | Unified Factory | [`0xC059cCfbc7A8654e9c96d5da66bc6aE3a3ffffd2`](https://testnet.monadscan.com/address/0xC059cCfbc7A8654e9c96d5da66bc6aE3a3ffffd2) |
-| Ladder contract | [`0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2`](https://testnet.monadscan.com/address/0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2) |
-| Ladder deployment block | `77755980` |
-| Season end block | `84827030` |
+| Ladder contract | [`0xEF5fb216c86bC439Fd6eC48B4531CAf079ad463b`](https://testnet.monadscan.com/address/0xEF5fb216c86bC439Fd6eC48B4531CAf079ad463b) |
+| Ladder deployment block | `78216316` |
+| Season end block | `84827030` (`admin` can move it with `setEndBlock`; `endBlock()` on chain is the current value) |
+| Ladder `admin` | `0x646D80bc9aEE2c383769CF546768a45f942b54CB` |
 | RPC | `https://testnet-rpc.monad.xyz` |
 
 The workbench and ladder share `data/deployments.json`. Run:
@@ -62,7 +63,9 @@ The home page is at `/`, the ladder at `/ladder/`, the workbench at `/studio/`. 
 
 Without login configuration, the ladder can still read ranks, rules and replays. Do not put deployment keys in `VITE_*` variables. Public web pages and the name service still need Vercel, Privy and Neon configuration.
 
-All 5 testnet checks passed. Challenge `#1` ran 6 episodes and 270 steps. The score was `2 : 2`, with a successful defense. The archive stores the English IDs of both verification modules. These modules only check deployment and the contest flow.
+The previous ladder contract `0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2` passed all 5 testnet checks. Challenge `#1` ran 6 episodes and 270 steps. The score was `2 : 2`, with a successful defense. The archive stores the English IDs of both verification modules. These modules only check deployment and the contest flow.
+
+The current ladder contract only adds `setEndBlock`. The contest rules did not change, so the 5 checks did not run again. After the deployment, `admin` called `setEndBlock` once on chain with the same end block, and the contract emitted `EndBlockChanged`. A call from another account reverted `NotAdmin`.
 
 Public RPC endpoints limit log query ranges. The client reads at most 100 blocks per query and sends each RPC request separately. Contest log queries stop at the challenge deadline. They do not scan later empty blocks.
 
@@ -186,7 +189,7 @@ Stages:
 2. The deployer's private key (pasted or generated). After deploying the protocol this account holds its ADMIN and UPGRADER roles; on mainnet keep it as the admin key.
 3. Fund the deployer. Testnet: the faucet opens; mainnet: transfer. A full run needs about 30 MON: ~16.3M gas for the protocol, ~3M for the ladder, about 20 MON for the chain checks of stage 8. Monad charges the gas limit, not the gas used.
 4. The official Factory: paste the FactoryProxy address when the protocol is already on this chain, else the script deploys it with `contracts/script/Deploy.s.sol`.
-5. The season end block. The script measures the block rate for 10 seconds and suggests a block from a number of days; the human may change it. The end block is fixed in the constructor.
+5. The season end block. The script measures the block rate for 10 seconds and suggests a block from a number of days; the human may change it. Before the season ends, the deployer key can move the end block with `setEndBlock` (see `contracts/README.en.md`). After the season ends, nobody can change it.
 6. The ladder contract: `contracts/script/DeployLadder.s.sol` with the configuration of the spec; export `LADDER_*` variables before running the wizard to change it (see the script's comment).
 7. The Factory and ladder addresses go into the chain's entry of `data/deployments.json` (only those two lines change); commit the file afterwards.
 8. The chain checks (next section).
@@ -195,7 +198,7 @@ Stages:
 11. In Privy, enable email and automatic EVM wallet creation under Authentication → Login methods. Enable Disable confirmation modals under Authentication → Advanced. Disable smart wallets. Add the origin of the site under Basics → Domains and clients. The ladder and the workbench share this origin. To log in on a local workbench too, also add the origin of the local workbench. All pages must use the same App ID.
 12. Vercel environment variables: `VITE_PRIVY_APP_ID`, `VITE_LADDER_CHAIN_ID`, `LADDER_CHAIN_ID`, `LADDER_RPC_URL`, `LADDER_ADDRESS`, `ADMIN_TOKEN` (generated). The testnet run writes Production and Preview, the mainnet run replaces Production only. Then redeploy.
 13. A walk through the live page: log in, set an English ID and deploy in the workbench, choose the module and register, challenge, set a name. Confirm that no confirmation modal appeared during the whole challenge.
-14. (mainnet) The known limits go into the contest rules: gas-limit pricing, challengers must be plain EOAs, the end block, δ and range, cooldown, timeout.
+14. (mainnet) The known limits go into the contest rules: gas-limit pricing, challengers must be plain EOAs, the end block and who can move it, δ and range, cooldown, timeout.
 
 ## Chain checks (`scripts/verify-chain.mjs`)
 

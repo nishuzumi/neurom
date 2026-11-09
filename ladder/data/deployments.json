@@ -14,7 +14,7 @@
     "explorer": "https://testnet.monadscan.com",
     "local": false,
     "factory": "0xC059cCfbc7A8654e9c96d5da66bc6aE3a3ffffd2",
-    "ladder": "0x8671257deEb3A3c296C56530Bf54eCAD9bC78fF2"
+    "ladder": "0xEF5fb216c86bC439Fd6eC48B4531CAf079ad463b"
   },
   "1014300": {
     "name": "Local fork of Monad Testnet",
